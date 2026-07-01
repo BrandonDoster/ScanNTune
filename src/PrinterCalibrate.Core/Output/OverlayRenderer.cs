@@ -30,17 +30,19 @@ public sealed class OverlayRenderer : IOverlayRenderer
         DrawRings(canvas, result.Rings, thickness);
 
         Orientation orientation = result.Orientation;
-        var origin = new Point((int)Math.Round(orientation.OriginX), (int)Math.Round(orientation.OriginY));
         double axisLength = MedianRadius(result.Rings) * 6.0;
         if (axisLength <= 0)
             axisLength = Math.Max(image.Width, image.Height) * 0.15;
 
-        var axisEnd = new Point(
-            (int)Math.Round(orientation.OriginX + orientation.XAxisX * axisLength),
-            (int)Math.Round(orientation.OriginY + orientation.XAxisY * axisLength));
+        // Fixed-point (sub-pixel) coordinates so the markers land on the true fractional centre.
+        const int shift = 3, scale = 1 << shift;
+        Point origin = Fixed(orientation.OriginX, orientation.OriginY, scale);
+        Point axisEnd = Fixed(
+            orientation.OriginX + orientation.XAxisX * axisLength,
+            orientation.OriginY + orientation.XAxisY * axisLength, scale);
 
-        Cv2.Circle(canvas, origin, thickness * 3, _originColor, thickness, LineTypes.AntiAlias);
-        Cv2.ArrowedLine(canvas, origin, axisEnd, _axisColor, thickness + 1, LineTypes.AntiAlias, tipLength: 0.2);
+        Cv2.Circle(canvas, origin, thickness * 3 * scale, _originColor, thickness, LineTypes.AntiAlias, shift);
+        Cv2.ArrowedLine(canvas, origin, axisEnd, _axisColor, thickness + 1, LineTypes.AntiAlias, shift, tipLength: 0.2);
 
         return Encode(canvas, result.Rings, orientation);
     }
@@ -86,13 +88,19 @@ public sealed class OverlayRenderer : IOverlayRenderer
 
     private void DrawRings(Mat canvas, IReadOnlyList<DetectedRing> rings, int thickness)
     {
+        // Fixed-point (sub-pixel) coordinates so the ring outline and centre dot land on the true
+        // fractional centre rather than the nearest whole pixel.
+        const int shift = 3, scale = 1 << shift;
         foreach (DetectedRing ring in rings)
         {
-            var center = new Point((int)Math.Round(ring.CenterX), (int)Math.Round(ring.CenterY));
-            Cv2.Circle(canvas, center, (int)Math.Round(ring.RadiusPx), _ringColor, thickness, LineTypes.AntiAlias);
-            Cv2.Circle(canvas, center, thickness + 1, _centerColor, -1, LineTypes.AntiAlias);
+            Point center = Fixed(ring.CenterX, ring.CenterY, scale);
+            Cv2.Circle(canvas, center, (int)Math.Round(ring.RadiusPx * scale), _ringColor, thickness, LineTypes.AntiAlias, shift);
+            Cv2.Circle(canvas, center, (thickness + 1) * scale, _centerColor, -1, LineTypes.AntiAlias, shift);
         }
     }
+
+    private Point Fixed(double x, double y, int scale) =>
+        new((int)Math.Round(x * scale), (int)Math.Round(y * scale));
 
     private byte[] Encode(Mat canvas, IReadOnlyList<DetectedRing> rings, Orientation? orientation)
     {

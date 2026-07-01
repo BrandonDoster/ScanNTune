@@ -100,3 +100,13 @@ The coding rules are strict; each is numbered for unambiguous reference:
    line that refutes it), or **Owner-waived** (you flagged it to the owner and they chose not to fix it).
    "Pre-existing," "out of scope," "low value," or "cosmetic" are not valid reasons to silently drop a
    finding — skipping a correct finding is the owner's decision, never yours.
+
+7. **Measurement integrity — established methods only, never a fudge.** Every change to the
+   measurement pipeline (ring detection, centre estimation, affine/robust fitting, correction math)
+   must be an established, published algorithm or a standard library primitive (OpenCV, MathNet),
+   chosen because it is the correct model for the problem — and named as such (e.g. "Taubin circle
+   fit", "Huber M-estimator", "Circle Hough Transform"). NEVER introduce a hand-tuned constant,
+   empirical offset, axis "nudge", or bias correction fitted to make one particular scan's numbers
+   look right: that overfits the sample and lies on the next one. Before trusting a pipeline change,
+   validate it against the synthetic fixture — it must not regress there — and only then judge it on
+   real scans.

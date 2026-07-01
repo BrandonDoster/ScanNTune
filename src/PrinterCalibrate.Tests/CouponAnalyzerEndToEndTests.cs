@@ -1,4 +1,7 @@
 using PrinterCalibrate.Core;
+using PrinterCalibrate.Core.Detection;
+using PrinterCalibrate.Core.Grids;
+using PrinterCalibrate.Core.Solving;
 
 namespace PrinterCalibrate.Tests;
 
@@ -56,4 +59,24 @@ public class CouponAnalyzerEndToEndTests
     [Test]
     public void AffineFitIsTight()
         => Assert.That(_result.RmsResidualPx, Is.LessThan(0.5));
+
+    /// <summary>
+    /// The pipeline switched to the robust (Huber/IRLS) solver by default. On this near-clean
+    /// fixture that must not move the reported figures away from ordinary least squares — this pins
+    /// the production default so a future change to the robust parameters can't silently shift it.
+    /// </summary>
+    [Test]
+    public void RobustDefaultAgreesWithPlainLeastSquaresOnFixture()
+    {
+        string path = Path.Combine(TestContext.CurrentContext.TestDirectory, "TestFiles", "TestData_2solid.png");
+        CalibrationResult plain = new CouponAnalyzer(new RingDetector(), new GridMapper(), new AffineSolver(robust: false))
+            .Analyze(path, new AnalysisOptions());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(_result.XScalePercent, Is.EqualTo(plain.XScalePercent).Within(0.05));
+            Assert.That(_result.YScalePercent, Is.EqualTo(plain.YScalePercent).Within(0.05));
+            Assert.That(_result.SkewDegrees, Is.EqualTo(plain.SkewDegrees).Within(0.05));
+        });
+    }
 }

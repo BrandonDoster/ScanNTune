@@ -9,6 +9,13 @@ namespace PrinterCalibrate.Core.Detection;
 /// square lattice cells by <see cref="FilterByRadius"/> (a size cluster), so circularity is only
 /// a loose gate to drop slivers — real printed/scanned holes are rough (circularity ~0.2–0.8),
 /// so a strict threshold would reject them.
+///
+/// The centre is the binary area centroid (image moments M10/M00, M01/M00). A boundary circle fit
+/// (RANSAC + Taubin on the grayscale edge) was benchmarked as an alternative and rejected: it was
+/// no more accurate on the synthetic fixture and worse on real scans, because the wall's cast
+/// shadow puts a false edge right beside the true rim that no geometric fit can separate. The ~2 px
+/// real-scan residual is a print/scan noise floor; the lever that lowers it is averaging more
+/// independent scans, which the two-scan flow already does.
 /// </summary>
 public sealed class RingDetector : IRingDetector
 {
