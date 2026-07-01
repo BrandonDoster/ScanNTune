@@ -2,11 +2,11 @@ namespace PrinterCalibrate.Core;
 
 /// <summary>
 /// The coupon's pose in the image: where the origin fiducial sits and which way the printer's
-/// +X axis points (unit vector, pixel space, image-y downward). <see cref="FiducialFound"/> is
-/// false when the fiducial could not be located and axis identity fell back to a heuristic.
+/// +X axis points (unit vector, pixel space, image-y downward). <see cref="Flipped"/> is true
+/// when the coupon was scanned mirror-flipped (the two-solid marker resolves it automatically).
 /// </summary>
 public sealed record Orientation(
-    bool FiducialFound,
+    bool Flipped,
     double OriginX,
     double OriginY,
     double XAxisX,

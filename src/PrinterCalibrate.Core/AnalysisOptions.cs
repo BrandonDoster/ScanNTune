@@ -18,11 +18,4 @@ public sealed record AnalysisOptions
     public double? CurrentStepsPerMmY { get; init; }
     public double? CurrentRotationDistanceX { get; init; }
     public double? CurrentRotationDistanceY { get; init; }
-
-    /// <summary>
-    /// Set when the coupon was scanned mirror-flipped (opposite face on the glass). A single scan
-    /// can't detect this on its own — the ring grid + solid origin are symmetric under the mirror —
-    /// so it's a manual flag. When true, X/Y are swapped back and the skew sign is corrected.
-    /// </summary>
-    public bool ScannedFlipped { get; init; }
 }

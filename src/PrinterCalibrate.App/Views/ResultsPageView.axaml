@@ -1,0 +1,197 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:PrinterCalibrate.App.ViewModels"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="700"
+             x:Class="PrinterCalibrate.App.Views.ResultsPageView"
+             x:DataType="vm:ResultsPageViewModel">
+
+    <UserControl.Styles>
+        <Style Selector="Border.tile">
+            <Setter Property="Background" Value="{DynamicResource SurfaceAltBrush}"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Padding" Value="12"/>
+        </Style>
+        <Style Selector="Border.card">
+            <Setter Property="Background" Value="{DynamicResource SurfaceAltBrush}"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Padding" Value="13"/>
+        </Style>
+        <Style Selector="Border.scan">
+            <Setter Property="Background" Value="{DynamicResource SurfaceAltBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="ClipToBounds" Value="True"/>
+        </Style>
+        <Style Selector="TextBlock.tval">
+            <Setter Property="FontSize" Value="22"/>
+            <Setter Property="FontWeight" Value="Medium"/>
+            <Setter Property="FontFamily" Value="Consolas,monospace"/>
+        </Style>
+        <Style Selector="TextBlock.tlab">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+        </Style>
+    </UserControl.Styles>
+
+    <DockPanel>
+
+        <Border DockPanel.Dock="Top" Background="{DynamicResource SurfaceBrush}" Padding="16,10"
+                BorderThickness="0,0,0,1" BorderBrush="{DynamicResource BorderBrush}">
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Grid.Column="0" Text="Results" FontWeight="Bold" FontSize="16" VerticalAlignment="Center"/>
+                <Button Grid.Column="1" Content="↻  New calibration" Command="{Binding StartOverCommand}"/>
+            </Grid>
+        </Border>
+
+        <Grid ColumnDefinitions="*,Auto,*" Margin="12">
+
+            <!-- Left half: the two cropped scans, stacked, filling the column -->
+            <Grid Grid.Column="0" RowDefinitions="*,*" Margin="4">
+                <Border Grid.Row="0" Classes="scan" Margin="0,0,0,7">
+                    <Panel>
+                        <Image Source="{Binding OverlayA}" Stretch="Uniform" Margin="6"/>
+                        <Border VerticalAlignment="Top" HorizontalAlignment="Left" Margin="8"
+                                Background="#99000000" CornerRadius="4" Padding="7,3">
+                            <TextBlock Text="Scan 1 — as placed" FontSize="11" Foreground="#FFFFFF"/>
+                        </Border>
+                    </Panel>
+                </Border>
+                <Border Grid.Row="1" Classes="scan" Margin="0,7,0,0">
+                    <Panel>
+                        <Image Source="{Binding OverlayB}" Stretch="Uniform" Margin="6"/>
+                        <Border VerticalAlignment="Top" HorizontalAlignment="Left" Margin="8"
+                                Background="#99000000" CornerRadius="4" Padding="7,3">
+                            <TextBlock Text="Scan 2 — quarter-turned" FontSize="11" Foreground="#FFFFFF"/>
+                        </Border>
+                    </Panel>
+                </Border>
+            </Grid>
+
+            <GridSplitter Grid.Column="1" Width="6" ResizeDirection="Columns"
+                          Background="{DynamicResource BorderBrush}" ResizeBehavior="PreviousAndNext"/>
+
+            <!-- Right half: the data -->
+            <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto" Margin="4">
+                <StackPanel Spacing="12">
+
+                    <!-- Rotation warning -->
+                    <Border IsVisible="{Binding RotationWarningVisible}"
+                            Background="{DynamicResource SurfaceAltBrush}"
+                            BorderBrush="{DynamicResource WarningBrush}" BorderThickness="1"
+                            CornerRadius="8" Padding="10">
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="Scans aren't a quarter-turn apart"
+                                       FontWeight="Bold" Foreground="{DynamicResource WarningBrush}"/>
+                            <TextBlock Text="{Binding RotationWarningText}" TextWrapping="Wrap" FontSize="12.5" Opacity="0.85"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Primary numbers -->
+                    <Grid ColumnDefinitions="*,*,*" ColumnSpacing="10">
+                        <Border Grid.Column="0" Classes="tile">
+                            <StackPanel Spacing="3">
+                                <TextBlock Classes="tlab" Text="X scale"/>
+                                <TextBlock Classes="tval" Text="{Binding XScaleText}"/>
+                            </StackPanel>
+                        </Border>
+                        <Border Grid.Column="1" Classes="tile">
+                            <StackPanel Spacing="3">
+                                <TextBlock Classes="tlab" Text="Y scale"/>
+                                <TextBlock Classes="tval" Text="{Binding YScaleText}"/>
+                            </StackPanel>
+                        </Border>
+                        <Border Grid.Column="2" Classes="tile">
+                            <StackPanel Spacing="3">
+                                <TextBlock Classes="tlab" Text="Skew"/>
+                                <TextBlock Classes="tval" Text="{Binding SkewText}"/>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+
+                    <!-- Scanner check: one line, click to expand -->
+                    <StackPanel Spacing="0">
+                        <Button Command="{Binding ToggleScannerCommand}" HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Stretch" Padding="12,9" Background="{DynamicResource SurfaceAltBrush}"
+                                CornerRadius="10">
+                            <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                                <TextBlock Grid.Column="0" Text="Scanner" FontWeight="Medium" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Text="{Binding SummaryText}" Margin="10,0,0,0"
+                                           Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12.5" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="2" Text="✓" IsVisible="{Binding RotationLooksValid}"
+                                           Foreground="{DynamicResource PrimaryBrush}" FontSize="15" Margin="6,0" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="2" Text="!" IsVisible="{Binding RotationWarningVisible}"
+                                           Foreground="{DynamicResource WarningBrush}" FontWeight="Bold" FontSize="15" Margin="6,0" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="3" Text="⌄" Opacity="0.6" VerticalAlignment="Center"/>
+                            </Grid>
+                        </Button>
+                        <Border IsVisible="{Binding ScannerExpanded}" Background="{DynamicResource SurfaceAltBrush}"
+                                CornerRadius="0,0,10,10" Padding="12,4,12,11" Margin="0,-4,0,0">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="{Binding ScannerDetailText}" FontFamily="Consolas,monospace" FontSize="12"
+                                           Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                <TextBlock Text="{Binding ScanADetailText}" FontFamily="Consolas,monospace" FontSize="12"
+                                           Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                <TextBlock Text="{Binding ScanBDetailText}" FontFamily="Consolas,monospace" FontSize="12"
+                                           Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                <TextBlock Text="Your scanner's own error, measured and removed from the result above."
+                                           TextWrapping="Wrap" FontSize="11.5" Opacity="0.55"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- Fix skew -->
+                    <Border Classes="card">
+                        <StackPanel Spacing="8">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Grid.Column="0" Text="Fix skew" FontWeight="Bold" VerticalAlignment="Center"/>
+                                <ComboBox Grid.Column="1" MinWidth="140"
+                                          ItemsSource="{Binding SkewFlavours}" SelectedItem="{Binding SelectedSkewFlavour}"/>
+                            </Grid>
+                            <Grid ColumnDefinitions="*,Auto">
+                                <Border Grid.Column="0" Background="{DynamicResource BackgroundBrush}" CornerRadius="6"
+                                        BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}" Padding="8">
+                                    <SelectableTextBlock Text="{Binding SkewCode}" FontFamily="Consolas,monospace"
+                                                         FontSize="12.5" TextWrapping="Wrap"/>
+                                </Border>
+                                <Button Grid.Column="1" Content="Copy" Click="OnCopySkew" VerticalAlignment="Top" Margin="8,0,0,0"/>
+                            </Grid>
+                            <TextBlock Text="{Binding SkewHint}" TextWrapping="Wrap" Opacity="0.6" FontSize="12"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Fix size -->
+                    <Border Classes="card">
+                        <StackPanel Spacing="8">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Grid.Column="0" Text="Fix size" FontWeight="Bold" VerticalAlignment="Center"/>
+                                <ComboBox Grid.Column="1" MinWidth="140"
+                                          ItemsSource="{Binding SizeFlavours}" SelectedItem="{Binding SelectedSizeFlavour}"/>
+                            </Grid>
+                            <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding ShowCurrentInputs}">
+                                <TextBlock Text="{Binding CurrentLabel}" VerticalAlignment="Center" Opacity="0.6" FontSize="12"/>
+                                <TextBlock Text="X" VerticalAlignment="Center"/>
+                                <TextBox Text="{Binding CurrentXText}" Width="64"/>
+                                <TextBlock Text="Y" VerticalAlignment="Center"/>
+                                <TextBox Text="{Binding CurrentYText}" Width="64"/>
+                            </StackPanel>
+                            <Grid ColumnDefinitions="*,Auto">
+                                <Border Grid.Column="0" Background="{DynamicResource BackgroundBrush}" CornerRadius="6"
+                                        BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}" Padding="8">
+                                    <SelectableTextBlock Text="{Binding SizeCode}" FontFamily="Consolas,monospace"
+                                                         FontSize="12.5" TextWrapping="Wrap"/>
+                                </Border>
+                                <Button Grid.Column="1" Content="Copy" Click="OnCopySize" VerticalAlignment="Top" Margin="8,0,0,0"/>
+                            </Grid>
+                            <TextBlock Text="{Binding SizeHint}" TextWrapping="Wrap" Opacity="0.6" FontSize="12"/>
+                        </StackPanel>
+                    </Border>
+
+                </StackPanel>
+            </ScrollViewer>
+
+        </Grid>
+    </DockPanel>
+</UserControl>

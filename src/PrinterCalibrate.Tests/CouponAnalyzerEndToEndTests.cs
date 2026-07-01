@@ -3,24 +3,24 @@ using PrinterCalibrate.Core;
 namespace PrinterCalibrate.Tests;
 
 /// <summary>
-/// End-to-end check of the full pipeline against TestData.png — a slicer render of the
-/// coupon's own STL, i.e. geometrically perfect (100% scale, zero skew). The render is
-/// reference-free, so the strongest assertions are the ones independent of absolute scale:
-/// zero skew and isotropy (X error ≈ Y error). Tolerances sit ~3x above the observed values
+/// End-to-end check of the full pipeline against TestData_2solid.png — a render of the coupon's
+/// own STL (with the two-solid orientation marker), i.e. geometrically perfect (100% scale, zero
+/// skew). The render is reference-free, so the strongest assertions are the ones independent of
+/// absolute scale: zero skew and isotropy (X error ≈ Y error). Tolerances sit ~3x above the observed values
 /// (skew 0.001°, X/Y ±0.016%, RMS 0.09 px) to stay meaningful without being flaky.
 /// </summary>
 [TestFixture]
 public class CouponAnalyzerEndToEndTests
 {
-    // 25 rings, but the origin fiducial is a solid disk with no hole, so only 24 are detectable.
-    private const int ExpectedRingHoles = 24;
+    // 25 rings, but two are solid orientation rings (no hole), so only 23 are detectable.
+    private const int ExpectedRingHoles = 23;
 
     private CalibrationResult _result = null!;
 
     [OneTimeSetUp]
     public void Analyze()
     {
-        string path = Path.Combine(TestContext.CurrentContext.TestDirectory, "TestFiles", "TestData.png");
+        string path = Path.Combine(TestContext.CurrentContext.TestDirectory, "TestFiles", "TestData_2solid.png");
         Assert.That(File.Exists(path), Is.True, $"Test image not found at {path}");
 
         var analyzer = new CouponAnalyzer();

@@ -10,9 +10,13 @@ lattice of measurement rings), scans it, and the software reads the geometry wit
 -to-paste firmware/slicer corrections.
 
 The measurement principle: ring **centres** give true X/Y scale and skew (centres are immune to over/under
--extrusion — extrusion changes a ring's wall width, not its centre); ring outer/inner diameters are read
-separately as a flow diagnostic. The correction math mirrors the Vector 3D "Califlower" calculator
-(Klipper `SET_SKEW`, Marlin `XY_SKEW_FACTOR`/steps-per-mm, Orca/Super shrinkage %, RRF `M556`).
+-extrusion — extrusion changes a ring's wall width, not its centre). The correction math mirrors the Vector
+3D "Califlower" calculator (Klipper `SET_SKEW`, Marlin `XY_SKEW_FACTOR`/steps-per-mm, Orca/Super shrinkage
+%, RRF `M556`).
+
+Orientation is automatic. The coupon's origin-corner ring **and its +X neighbour** are printed SOLID (no
+hole) — a two-ring marker the software reads: `origin → neighbour` is the coupon's +X, which resolves
+rotation AND mirror-flip with no manual input (see "Coupon & orientation" below).
 
 ## Build & Run
 
@@ -25,29 +29,54 @@ dotnet run     --project src/PrinterCalibrate.App     # launch the desktop UI
 dotnet test    src/PrinterCalibrate.Tests             # run the pipeline tests
 ```
 
-Tests are NUnit and cover the CV pipeline end-to-end against fixture images in
-`PrinterCalibrate.Tests/TestFiles/` (`TestData.png` is a perfect render → ~0% scale, ~0° skew; tests
-also rotate and shear it to check rotation-invariance and skew recovery). Add new fixtures by dropping
-an image into `TestFiles/` and asserting its known answer.
+Tests are NUnit and cover the CV pipeline end-to-end against `PrinterCalibrate.Tests/TestFiles/TestData_2solid.png`
+(a perfect render of the coupon *with the two-solid marker* → ~0% scale, ~0° skew, 23 detectable holes). The
+suite rotates, mirror-flips, stretches, and shears it to prove rotation/flip-invariance and skew recovery.
+Add new fixtures by dropping an image into `TestFiles/` and asserting its known answer.
+
+When iterating on the app, **stop any running `PrinterCalibrate.App` before rebuilding** — a live instance
+locks `PrinterCalibrate.Core.dll` and the App build fails to copy it (`taskkill`/`Stop-Process`).
+
+Coupon model (OpenSCAD): render a top view with
+`openscad -o out.png --projection=ortho --camera=0,0,0,0,0,0,150 --viewall --autocenter calibration_coupon.scad`;
+re-export the STL with `openscad -o calibration_coupon.stl calibration_coupon.scad` (~90s CGAL render). There
+is no CLI to run the engine on an arbitrary scan yet — use an `[Explicit]` NUnit test (or add a small CLI).
 
 ## Projects
 
 Keep the **engine separate from the UI** so the CV/calc logic stays headless and reusable:
 
-- **PrinterCalibrate.Core** — the engine, **no UI dependency**: load image → detect orientation fiducial
-  → fit all ring centres (sub-pixel) → affine-fit for X/Y scale + skew → emit firmware/slicer strings.
+- **PrinterCalibrate.Core** — the engine, **no UI dependency**: load image → detect ring centres (sub-pixel)
+  → map to the grid + resolve orientation from the two-solid marker → affine-fit for X/Y scale + skew.
   Libraries: `OpenCvSharp4`, `MathNet.Numerics`.
 - **PrinterCalibrate.App** — the Avalonia front-end: load/scan an image, show detected rings overlaid on
   the scan, display results and copy-paste correction snippets. Optional WIA scanner acquisition on Windows.
 - **PrinterCalibrate.Tests** — NUnit; end-to-end pipeline tests over fixture scans.
 
-The engine pipeline is four injected stages — `IRingDetector` → `IGridMapper` → `IAffineSolver` →
-`ICalibrationFormatter` — composed by `CouponAnalyzer`. The measurement key: ring **centres** drive
-scale/skew (extrusion-immune); absolute scale needs `AnalysisOptions.PxPerMm` (scanner DPI / 25.4),
-otherwise only anisotropy + skew are meaningful.
+The analyze pipeline is three injected stages — `IRingDetector` → `IGridMapper` → `IAffineSolver` — composed
+by `CouponAnalyzer`. Output is produced on demand by two separate services the UI calls: `ICorrectionFormatter`
+(per-flavour firmware/slicer snippets) and `IOverlayRenderer` (annotated scan). The measurement key: ring
+**centres** drive scale/skew (extrusion-immune); absolute scale needs `AnalysisOptions.PxPerMm` (scanner DPI
+/ 25.4) — set the coupon baseline (mm) and scanner DPI in the app — otherwise only anisotropy + skew are
+meaningful.
 
 The model source (`calibration_coupon.scad`) and its exported `calibration_coupon.stl` live at the repo
 root.
+
+## Coupon & orientation
+
+The coupon is an open lattice of `grid_n` × `grid_n` rings joined by ribs (default 5×5, 100 mm baseline).
+Two rings are printed SOLID (no hole) as the **orientation marker**: the origin corner and its +X neighbour.
+`GridMapper` finds the unique "corner + edge-neighbour" pair of missing (holeless) grid vertices;
+`origin → neighbour` is the coupon's +X. Because that gives the true physical axes, X/Y labels **and** the
+skew sign come out correct at any rotation or mirror-flip — **no manual flip flag**. The marker is
+**required**: if it can't be located `GridMapper.Map` throws (it tolerates one stray missed hole, but not an
+absent marker — there is deliberately no rotation-only fallback).
+
+`RingDetector` gotcha: the circularity gate is **loose (0.20)** because real printed/scanned holes are rough
+(~0.2–0.8 circularity). Rings are separated from the much larger square lattice cells by a **size cluster**
+(radius-median filter), NOT by circularity — a strict threshold silently drops nearly every ring on a real
+scan.
 
 ## Conventions
 

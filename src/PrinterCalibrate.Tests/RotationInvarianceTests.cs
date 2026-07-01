@@ -21,8 +21,7 @@ public class RotationInvarianceTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(result.Orientation.FiducialFound, Is.True, "fiducial should be located");
-            Assert.That(result.RingsDetected, Is.EqualTo(24));
+            Assert.That(result.RingsDetected, Is.EqualTo(23));
             Assert.That(AngleDifference(result.Orientation.XAxisAngleDegrees, expectedXAngle),
                 Is.EqualTo(0.0).Within(2.0), "+X axis should track the rotation");
         });
@@ -45,25 +44,14 @@ public class RotationInvarianceTests
         });
     }
 
+    private readonly CouponImageTransforms _img = new();
+
     private CalibrationResult Analyze(int rotationDegrees, bool stretchX = false)
     {
-        string path = Path.Combine(TestContext.CurrentContext.TestDirectory, "TestFiles", "TestData.png");
+        string path = Path.Combine(TestContext.CurrentContext.TestDirectory, "TestFiles", "TestData_2solid.png");
         using Mat original = Cv2.ImRead(path, ImreadModes.Color);
-        using var source = new Mat();
-        if (stretchX)
-            Cv2.Resize(original, source, new Size((int)(original.Width * 1.02), original.Height));
-        else
-            original.CopyTo(source);
-
-        using var rotated = new Mat();
-        switch (rotationDegrees)
-        {
-            case 90: Cv2.Rotate(source, rotated, RotateFlags.Rotate90Clockwise); break;
-            case 180: Cv2.Rotate(source, rotated, RotateFlags.Rotate180); break;
-            case 270: Cv2.Rotate(source, rotated, RotateFlags.Rotate90Counterclockwise); break;
-            default: source.CopyTo(rotated); break;
-        }
-
+        using Mat source = stretchX ? _img.StretchX(original, 1.02) : original.Clone();
+        using Mat rotated = _img.Rotate(source, rotationDegrees);
         return new CouponAnalyzer().Analyze(rotated, new AnalysisOptions());
     }
 

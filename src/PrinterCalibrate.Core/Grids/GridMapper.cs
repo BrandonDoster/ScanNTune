@@ -2,14 +2,11 @@ namespace PrinterCalibrate.Core.Grids;
 
 /// <summary>
 /// Default grid mapper. Estimates the grid axes/pitch from nearest-neighbour vectors, indexes
-/// the rings, then resolves orientation from the fiducial: the one grid corner with no detected
-/// hole is the solid origin disk. Because a flatbed scan is a pure rotation (no mirror), which
-/// corner is solid uniquely fixes the rotation — so the printer's +X/+Y are identified correctly
-/// at 0/90/180/270°. If exactly one missing corner can't be found, it falls back to assuming an
-/// upright scan (origin bottom-left).
-///
-/// Assumption: the scan is not mirrored. A mirrored (flipped) scan would flip the skew sign;
-/// detecting that via the +X satellite dot is a future refinement.
+/// the rings, then resolves orientation from the two-solid marker: the coupon's origin-corner
+/// ring AND its neighbour are printed solid (no hole), so they show up as two adjacent grid
+/// vertices with no detected ring. origin→neighbour is the coupon's +X, which pins orientation
+/// at ANY rotation and flip. The marker is required — if it can't be located the scan is rejected
+/// (there is no rotation-only fallback).
 /// </summary>
 public sealed class GridMapper : IGridMapper
 {
@@ -26,7 +23,7 @@ public sealed class GridMapper : IGridMapper
         if (geo.PitchPx <= 0)
             throw new InvalidOperationException("Could not estimate a positive grid pitch.");
 
-        // theta is folded into (-45°,45°], so U points +x and V points +y (image-y down).
+        // theta is folded into (-45°,45°], so colHat points +x and rowHat points +y (image-y down).
         (double x, double y) colHat = geo.U;
         (double x, double y) rowHat = geo.V;
 
@@ -48,23 +45,32 @@ public sealed class GridMapper : IGridMapper
         }
         int maxCol = col.Max(), maxRow = row.Max();
 
-        // Pixel position of index (0,0), then of any (c,r).
+        var occupied = new HashSet<(int, int)>();
+        for (int i = 0; i < n; i++)
+            occupied.Add((col[i], row[i]));
+
+        if (!TryFindMarker(occupied, maxCol, maxRow, out (int c, int r) origin, out (int dc, int dr) toNeighbour))
+            throw new InvalidOperationException(
+                "Could not locate the two solid orientation rings (an origin corner plus its neighbour). " +
+                "Check the scan quality and that the coupon carries the orientation marker.");
+
         (double x, double y) g00 = OriginOfIndexSpace(points, col, row, colHat, rowHat, geo.PitchPx);
-
-        (int c, int r) originCorner = FindSolidCorner(col, row, maxCol, maxRow, out bool fiducialUsed);
-
-        // Map the solid corner to the printer's +X / +Y axes (rotation table; no mirror).
-        (double x, double y) xHat, yHat;
-        if (originCorner == (0, maxRow))       { xHat = colHat;          yHat = Negate(rowHat); }
-        else if (originCorner == (0, 0))       { xHat = rowHat;          yHat = colHat; }
-        else if (originCorner == (maxCol, 0))  { xHat = Negate(colHat);  yHat = rowHat; }
-        else                                   { xHat = Negate(rowHat);  yHat = Negate(colHat); }
-
         (double x, double y) originPx =
-        (
-            g00.x + originCorner.c * geo.PitchPx * colHat.x + originCorner.r * geo.PitchPx * rowHat.x,
-            g00.y + originCorner.c * geo.PitchPx * colHat.y + originCorner.r * geo.PitchPx * rowHat.y
-        );
+            (g00.x + origin.c * geo.PitchPx * colHat.x + origin.r * geo.PitchPx * rowHat.x,
+             g00.y + origin.c * geo.PitchPx * colHat.y + origin.r * geo.PitchPx * rowHat.y);
+
+        (double x, double y) xHat = (toNeighbour.dc * colHat.x + toNeighbour.dr * rowHat.x,
+                                     toNeighbour.dc * colHat.y + toNeighbour.dr * rowHat.y);
+        (double x, double y) perp = Math.Abs(xHat.x * colHat.x + xHat.y * colHat.y) > 0.5 ? rowHat : colHat;
+        if (perp.x * (geo.CentroidX - originPx.x) + perp.y * (geo.CentroidY - originPx.y) < 0)
+            perp = (-perp.x, -perp.y);
+        (double x, double y) yHat = perp;
+
+        // Flip (informational): the marker's +X agrees with the rotation-only guess for this
+        // corner on a normal scan, and points along its perpendicular (a swap) when mirror-flipped.
+        (var xHatCorner, var yHatCorner) = CornerRuleAxes(origin, maxCol, maxRow, colHat, rowHat);
+        bool flipped = Math.Abs(xHat.x * yHatCorner.x + xHat.y * yHatCorner.y) >
+                       Math.Abs(xHat.x * xHatCorner.x + xHat.y * xHatCorner.y);
 
         double pitchMm = spec.PitchMm;
         var mapped = new List<GridCorrespondence>(n);
@@ -77,26 +83,60 @@ public sealed class GridMapper : IGridMapper
             mapped.Add(new GridCorrespondence(xi, yi, xi * pitchMm, yi * pitchMm, points[i].x, points[i].y));
         }
 
-        return new GridMapping(mapped, originPx.x, originPx.y, xHat.x, xHat.y, fiducialUsed);
+        return new GridMapping(mapped, originPx.x, originPx.y, xHat.x, xHat.y, flipped);
     }
 
-    /// <summary>The grid corner with no detected ring is the solid origin. Falls back to (0,maxRow).</summary>
-    private (int c, int r) FindSolidCorner(int[] col, int[] row, int maxCol, int maxRow, out bool found)
+    /// <summary>
+    /// The two solid rings are two missing grid vertices: a corner and one edge-neighbour.
+    /// Finds the unique such (corner, neighbour) pair — tolerating other stray missing vertices
+    /// (a hole missed on a rough scan). Returns the corner (origin) and the unit step to the
+    /// neighbour (= +X). False if there is no such pair, or more than one (ambiguous).
+    /// </summary>
+    private bool TryFindMarker(HashSet<(int, int)> occupied, int maxCol, int maxRow,
+        out (int c, int r) origin, out (int dc, int dr) toNeighbour)
     {
-        var occupied = new HashSet<(int, int)>();
-        for (int i = 0; i < col.Length; i++)
-            occupied.Add((col[i], row[i]));
+        origin = default;
+        toNeighbour = default;
 
-        (int, int)[] corners = [(0, 0), (0, maxRow), (maxCol, 0), (maxCol, maxRow)];
-        var missing = corners.Where(c => !occupied.Contains(c)).ToList();
-        if (missing.Count == 1)
+        (int dc, int dr)[] steps = [(1, 0), (-1, 0), (0, 1), (0, -1)];
+        int found = 0;
+        for (int c = 0; c <= maxCol; c++)
         {
-            found = true;
-            return missing[0];
+            for (int r = 0; r <= maxRow; r++)
+            {
+                if (occupied.Contains((c, r)) || !IsCorner((c, r), maxCol, maxRow))
+                    continue;
+
+                foreach ((int dc, int dr) in steps)
+                {
+                    int nc = c + dc, nr = r + dr;
+                    if (nc < 0 || nc > maxCol || nr < 0 || nr > maxRow)
+                        continue;
+                    if (occupied.Contains((nc, nr)))
+                        continue;
+
+                    found++;
+                    origin = (c, r);
+                    toNeighbour = (dc, dr);
+                }
+            }
         }
 
-        found = false;
-        return (0, maxRow); // assume an upright scan
+        return found == 1;
+    }
+
+    private bool IsCorner((int c, int r) v, int maxCol, int maxRow) =>
+        (v.c == 0 || v.c == maxCol) && (v.r == 0 || v.r == maxRow);
+
+    /// <summary>Rotation-only axis assignment from a corner (used only to flag a mirror-flip).</summary>
+    private ((double x, double y) xHat, (double x, double y) yHat) CornerRuleAxes(
+        (int c, int r) corner, int maxCol, int maxRow, (double x, double y) colHat, (double x, double y) rowHat)
+    {
+        (double x, double y) Neg((double x, double y) v) => (-v.x, -v.y);
+        if (corner == (0, maxRow)) return (colHat, Neg(rowHat));
+        if (corner == (0, 0)) return (rowHat, colHat);
+        if (corner == (maxCol, 0)) return (Neg(colHat), rowHat);
+        return (Neg(rowHat), Neg(colHat)); // (maxCol, maxRow)
     }
 
     private (double x, double y) OriginOfIndexSpace(
@@ -111,8 +151,6 @@ public sealed class GridMapper : IGridMapper
         }
         return (ox / points.Length, oy / points.Length);
     }
-
-    private (double x, double y) Negate((double x, double y) v) => (-v.x, -v.y);
 
     private Geometry EstimateGeometry((double x, double y)[] points)
     {
@@ -157,10 +195,10 @@ public sealed class GridMapper : IGridMapper
     private double Median(IReadOnlyList<double> values)
     {
         var sorted = values.OrderBy(v => v).ToList();
-        int n = sorted.Count;
-        if (n == 0)
+        int m = sorted.Count;
+        if (m == 0)
             return 0;
-        return n % 2 == 1 ? sorted[n / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2.0;
+        return m % 2 == 1 ? sorted[m / 2] : (sorted[m / 2 - 1] + sorted[m / 2]) / 2.0;
     }
 
     private readonly record struct Geometry(

@@ -41,14 +41,14 @@ chamfer   = 0.4;    // horizontal relief at the bottom edge (mm)
 chamfer_h = 0.4;    // height of the chamfer band (mm); = chamfer -> 45 deg
                     // (keep chamfer < ring_wall/2 or the bottom wall vanishes)
 
-// ---- Orientation fiducial -------------------------------------------
-// The origin corner (min-X, min-Y) is printed as a SOLID disk, and a
-// small satellite dot is added on its +X side. Together they let the
-// software resolve the part's orientation unambiguously (all 4 rotations)
-// without losing the origin ring as a usable measurement point.
-fiducial_solid   = true;  // make the origin-corner ring a solid disk
-fiducial_dot_d   = 3.5;   // satellite dot diameter, marks +X (mm)
-fiducial_dot_gap = 4.0;   // gap from origin-ring edge to the dot (mm)
+// ---- Orientation marker ---------------------------------------------
+// The origin corner (min-X, min-Y) ring AND its +X neighbour are printed as
+// SOLID disks (no hole). That pair sits INSIDE the grid outline - it doesn't
+// protrude, so the part stays reusable - yet the software reads it easily:
+// solid vs holed is an obvious difference. The vector from the corner solid
+// to the adjacent solid is the coupon's +X, which pins orientation at ANY
+// rotation and tells a mirror-flip apart from a rotation.
+fiducial_solid = true;   // make the two orientation rings solid disks
 
 // ---- Optional printed reference strip -------------------------------
 // NOTE: a printed reference shrinks too, so for TRUE scanner-scale
@@ -130,13 +130,6 @@ module ribs() {
                  (i == 0 || i == grid_n - 1) ? frame_w : rib_w, rib_h);
 }
 
-module fiducial() {
-    translate([pos(0) + ring_outer_d / 2 + fiducial_dot_gap, pos(0), 0])
-        ch_cyl(fiducial_dot_d, ring_h);                 // +X satellite dot
-    ch_bar_x(pos(0) + ring_outer_d / 2, pos(0),
-             fiducial_dot_gap + 0.5, rib_w, rib_h);     // link to origin ring
-}
-
 module reference_strip() {
     ys  = -half - ring_outer_d * 1.5;
     cnt = floor(baseline / ref_pitch);
@@ -154,14 +147,14 @@ module coupon() {
                 for (j = [0 : grid_n - 1])
                     translate([pos(i), pos(j), 0]) ch_cyl(ring_outer_d, ring_h);
             ribs();
-            fiducial();
             if (include_reference) reference_strip();
         }
         // punch the holes AFTER the union, so ribs crossing a ring never
-        // block its centre. Skip the solid fiducial corner.
+        // block its centre. Skip the two solid orientation rings: the origin
+        // corner (0,0) and its +X neighbour (1,0).
         for (i = [0 : grid_n - 1])
             for (j = [0 : grid_n - 1])
-                if (!(fiducial_solid && i == 0 && j == 0))
+                if (!(fiducial_solid && j == 0 && (i == 0 || i == 1)))
                     translate([pos(i), pos(j), 0]) ch_hole(inner_d, ring_h);
     }
 }

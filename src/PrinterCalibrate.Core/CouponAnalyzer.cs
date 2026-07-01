@@ -37,7 +37,19 @@ public sealed class CouponAnalyzer : ICouponAnalyzer
         ArgumentNullException.ThrowIfNull(options);
 
         IReadOnlyList<DetectedRing> rings = _detector.Detect(image);
-        GridMapping mapping = _mapper.Map(rings, options.Coupon);
+
+        GridMapping mapping;
+        try
+        {
+            mapping = _mapper.Map(rings, options.Coupon);
+        }
+        catch (Exception ex) when (ex is not CouponAnalysisException)
+        {
+            // Detection succeeded but the grid/marker step failed — surface what we found so the
+            // caller can show it rather than only reporting an error.
+            throw new CouponAnalysisException(ex.Message, rings);
+        }
+
         AffineModel affine = _solver.Solve(mapping.Points);
 
         double reference = options.PxPerMm
@@ -49,16 +61,10 @@ public sealed class CouponAnalyzer : ICouponAnalyzer
         double pxPerMmX = affine.ScaleXPxPerMm;
         double pxPerMmY = affine.ScaleYPxPerMm;
 
-        // A mirror-flipped scan swaps the X/Y axes and reverses the skew; undo that.
-        if (options.ScannedFlipped)
-        {
-            (xScalePercent, yScalePercent) = (yScalePercent, xScalePercent);
-            (pxPerMmX, pxPerMmY) = (pxPerMmY, pxPerMmX);
-            skewDegrees = -skewDegrees;
-        }
-
+        // Orientation (rotation AND flip) is fully resolved from the two-solid marker: it gives
+        // the true physical axes, so the X/Y labels and the skew sign are already correct.
         var orientation = new Orientation(
-            mapping.FiducialUsed, mapping.OriginX, mapping.OriginY, mapping.XAxisX, mapping.XAxisY);
+            mapping.Flipped, mapping.OriginX, mapping.OriginY, mapping.XAxisX, mapping.XAxisY);
 
         return new CalibrationResult(
             xScalePercent,

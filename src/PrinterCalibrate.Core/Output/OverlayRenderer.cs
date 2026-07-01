@@ -3,8 +3,9 @@ using OpenCvSharp;
 namespace PrinterCalibrate.Core.Output;
 
 /// <summary>
-/// Default overlay renderer. Draws each detected ring (green + centre dot), the resolved origin
-/// (red), and the +X axis arrow (cyan) over a copy of the scan, and encodes it as PNG.
+/// Default overlay renderer. Draws each detected ring (green + centre dot), and — for a full result —
+/// the resolved origin (red) and +X axis arrow (cyan), over a copy of the scan, cropped to the
+/// detected coupon, encoded as PNG.
 /// </summary>
 public sealed class OverlayRenderer : IOverlayRenderer
 {
@@ -15,9 +16,7 @@ public sealed class OverlayRenderer : IOverlayRenderer
 
     public byte[] RenderPng(string imagePath, CalibrationResult result)
     {
-        using Mat image = Cv2.ImRead(imagePath, ImreadModes.Color);
-        if (image.Empty())
-            throw new InvalidOperationException($"Could not read image: {imagePath}");
+        using Mat image = Load(imagePath);
         return RenderPng(image, result);
     }
 
@@ -26,20 +25,9 @@ public sealed class OverlayRenderer : IOverlayRenderer
         ArgumentNullException.ThrowIfNull(image);
         ArgumentNullException.ThrowIfNull(result);
 
-        using var canvas = new Mat();
-        if (image.Channels() == 1)
-            Cv2.CvtColor(image, canvas, ColorConversionCodes.GRAY2BGR);
-        else
-            image.CopyTo(canvas);
-
-        int thickness = Math.Max(1, (int)Math.Round(Math.Max(image.Width, image.Height) / 500.0));
-
-        foreach (DetectedRing ring in result.Rings)
-        {
-            var center = new Point((int)Math.Round(ring.CenterX), (int)Math.Round(ring.CenterY));
-            Cv2.Circle(canvas, center, (int)Math.Round(ring.RadiusPx), _ringColor, thickness, LineTypes.AntiAlias);
-            Cv2.Circle(canvas, center, thickness + 1, _centerColor, -1, LineTypes.AntiAlias);
-        }
+        using Mat canvas = ToBgr(image);
+        int thickness = Thickness(image);
+        DrawRings(canvas, result.Rings, thickness);
 
         Orientation orientation = result.Orientation;
         var origin = new Point((int)Math.Round(orientation.OriginX), (int)Math.Round(orientation.OriginY));
@@ -54,8 +42,102 @@ public sealed class OverlayRenderer : IOverlayRenderer
         Cv2.Circle(canvas, origin, thickness * 3, _originColor, thickness, LineTypes.AntiAlias);
         Cv2.ArrowedLine(canvas, origin, axisEnd, _axisColor, thickness + 1, LineTypes.AntiAlias, tipLength: 0.2);
 
-        Cv2.ImEncode(".png", canvas, out byte[] png);
+        return Encode(canvas, result.Rings, orientation);
+    }
+
+    public byte[] RenderDetectionPng(string imagePath, IReadOnlyList<DetectedRing> rings)
+    {
+        using Mat image = Load(imagePath);
+        return RenderDetectionPng(image, rings);
+    }
+
+    public byte[] RenderDetectionPng(Mat image, IReadOnlyList<DetectedRing> rings)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        ArgumentNullException.ThrowIfNull(rings);
+
+        using Mat canvas = ToBgr(image);
+        DrawRings(canvas, rings, Thickness(image));
+        return Encode(canvas, rings, orientation: null);
+    }
+
+    private Mat Load(string imagePath)
+    {
+        Mat image = Cv2.ImRead(imagePath, ImreadModes.Color);
+        if (image.Empty())
+        {
+            image.Dispose();
+            throw new InvalidOperationException($"Could not read image: {imagePath}");
+        }
+        return image;
+    }
+
+    private Mat ToBgr(Mat image)
+    {
+        var canvas = new Mat();
+        if (image.Channels() == 1)
+            Cv2.CvtColor(image, canvas, ColorConversionCodes.GRAY2BGR);
+        else
+            image.CopyTo(canvas);
+        return canvas;
+    }
+
+    private int Thickness(Mat image) => Math.Max(1, (int)Math.Round(Math.Max(image.Width, image.Height) / 500.0));
+
+    private void DrawRings(Mat canvas, IReadOnlyList<DetectedRing> rings, int thickness)
+    {
+        foreach (DetectedRing ring in rings)
+        {
+            var center = new Point((int)Math.Round(ring.CenterX), (int)Math.Round(ring.CenterY));
+            Cv2.Circle(canvas, center, (int)Math.Round(ring.RadiusPx), _ringColor, thickness, LineTypes.AntiAlias);
+            Cv2.Circle(canvas, center, thickness + 1, _centerColor, -1, LineTypes.AntiAlias);
+        }
+    }
+
+    private byte[] Encode(Mat canvas, IReadOnlyList<DetectedRing> rings, Orientation? orientation)
+    {
+        Mat cropped = CropToContent(canvas, rings, orientation);
+        Cv2.ImEncode(".png", cropped, out byte[] png);
+        if (!ReferenceEquals(cropped, canvas))
+            cropped.Dispose();
         return png;
+    }
+
+    /// <summary>
+    /// Returns a crop of <paramref name="canvas"/> tight around the detected rings (plus the +X
+    /// arrow when an orientation is given) with a small margin, or the canvas itself when nothing
+    /// was detected.
+    /// </summary>
+    private Mat CropToContent(Mat canvas, IReadOnlyList<DetectedRing> rings, Orientation? orientation)
+    {
+        if (rings.Count == 0)
+            return canvas;
+
+        double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue;
+        foreach (DetectedRing ring in rings)
+        {
+            minX = Math.Min(minX, ring.CenterX - ring.RadiusPx);
+            maxX = Math.Max(maxX, ring.CenterX + ring.RadiusPx);
+            minY = Math.Min(minY, ring.CenterY - ring.RadiusPx);
+            maxY = Math.Max(maxY, ring.CenterY + ring.RadiusPx);
+        }
+
+        if (orientation is { } o)
+        {
+            double axisLength = MedianRadius(rings) * 6.0;
+            minX = Math.Min(minX, o.OriginX);
+            minY = Math.Min(minY, o.OriginY);
+            maxX = Math.Max(maxX, o.OriginX + o.XAxisX * axisLength);
+            maxY = Math.Max(maxY, o.OriginY + o.XAxisY * axisLength);
+        }
+
+        double margin = Math.Max(MedianRadius(rings) * 1.2, (maxX - minX) * 0.05);
+        int x0 = Math.Clamp((int)Math.Floor(minX - margin), 0, canvas.Width - 1);
+        int y0 = Math.Clamp((int)Math.Floor(minY - margin), 0, canvas.Height - 1);
+        int x1 = Math.Clamp((int)Math.Ceiling(maxX + margin), x0 + 1, canvas.Width);
+        int y1 = Math.Clamp((int)Math.Ceiling(maxY + margin), y0 + 1, canvas.Height);
+
+        return new Mat(canvas, new Rect(x0, y0, x1 - x0, y1 - y0)).Clone();
     }
 
     private double MedianRadius(IReadOnlyList<DetectedRing> rings)
