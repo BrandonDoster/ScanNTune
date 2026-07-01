@@ -1,0 +1,149 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:PrinterCalibrate.App.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="650"
+        x:Class="PrinterCalibrate.App.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Width="1000" Height="650"
+        Title="Printer Auto-Calibrate">
+
+    <Design.DataContext>
+        <vm:MainWindowViewModel/>
+    </Design.DataContext>
+
+    <DockPanel>
+
+        <!-- Toolbar -->
+        <Border DockPanel.Dock="Top" Background="{DynamicResource SystemControlBackgroundChromeMediumBrush}"
+                Padding="8" BorderThickness="0,0,0,1"
+                BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <Button Content="Open scan…" Click="OnOpenScanClick"/>
+                <Button Content="Analyze" Command="{Binding AnalyzeCommand}"/>
+                <Rectangle Width="1" Fill="{DynamicResource SystemControlForegroundBaseLowBrush}" Margin="6,2"/>
+                <TextBlock Text="Scanner DPI" VerticalAlignment="Center" Opacity="0.7"/>
+                <TextBox Text="{Binding DpiText}" Width="70"
+                         ToolTip.Tip="Used to convert pixels to mm for absolute scale. Leave blank for relative (X vs Y) only."/>
+                <TextBlock Text="Coupon (mm)" VerticalAlignment="Center" Opacity="0.7"/>
+                <TextBox Text="{Binding BaselineMmText}" Width="60"
+                         ToolTip.Tip="Centre-to-centre span of the outermost rings (the 'baseline' in calibration_coupon.scad). Default 100."/>
+                <TextBlock Text="Rings/side" VerticalAlignment="Center" Opacity="0.7"/>
+                <TextBox Text="{Binding GridText}" Width="45"
+                         ToolTip.Tip="Rings per side (grid_n in the model). Default 5."/>
+                <CheckBox Content="Scanned flipped" IsChecked="{Binding ScannedFlipped}"
+                          ToolTip.Tip="Tick if the coupon was scanned with the opposite face on the glass (mirrored). Swaps X/Y and corrects the skew sign."/>
+            </StackPanel>
+        </Border>
+
+        <!-- Status bar -->
+        <Border DockPanel.Dock="Bottom" Padding="8,4" BorderThickness="0,1,0,0"
+                BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+            <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap"/>
+        </Border>
+
+        <!-- Main area: scan preview | splitter | results -->
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" MinWidth="320"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="360" MinWidth="300" MaxWidth="700"/>
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Margin="8,8,0,8" Background="#11000000"
+                    BorderThickness="1" BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+                <Panel>
+                    <TextBlock Text="No scan loaded" Opacity="0.5"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                               IsVisible="{Binding !HasScan}"/>
+                    <Image Source="{Binding DisplayImage}" Stretch="Uniform" Margin="4"
+                           IsVisible="{Binding HasScan}"/>
+                </Panel>
+            </Border>
+
+            <GridSplitter Grid.Column="1" Width="6" ResizeDirection="Columns"
+                          Background="{DynamicResource SystemControlForegroundBaseLowBrush}"
+                          ResizeBehavior="PreviousAndNext"/>
+
+            <Border Grid.Column="2" Margin="0,8,8,8" Padding="12"
+                    BorderThickness="1" BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="Results" FontWeight="Bold" FontSize="16" Margin="0,0,0,8"/>
+
+                    <Grid DockPanel.Dock="Top" ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto,Auto"
+                          Margin="0,0,0,8">
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="X scale error" Opacity="0.7"/>
+                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding XScaleText}"
+                                   FontFamily="Consolas,monospace" HorizontalAlignment="Right"/>
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Y scale error" Opacity="0.7"/>
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding YScaleText}"
+                                   FontFamily="Consolas,monospace" HorizontalAlignment="Right"/>
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Skew" Opacity="0.7"/>
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding SkewText}"
+                                   FontFamily="Consolas,monospace" HorizontalAlignment="Right"/>
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Rings detected" Opacity="0.7"/>
+                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding RingsText}"
+                                   FontFamily="Consolas,monospace" HorizontalAlignment="Right"/>
+                    </Grid>
+
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel Spacing="10" IsVisible="{Binding HasResult}">
+
+                            <!-- Fix skew -->
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Grid.Column="0" Text="Fix skew" FontWeight="Bold" VerticalAlignment="Center"/>
+                                <ComboBox Grid.Column="1" MinWidth="150"
+                                          ItemsSource="{Binding SkewFlavours}"
+                                          SelectedItem="{Binding SelectedSkewFlavour}"/>
+                            </Grid>
+                            <Border Background="{DynamicResource SystemControlBackgroundBaseLowBrush}"
+                                    BorderThickness="1" BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
+                                    CornerRadius="4" Padding="8">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <SelectableTextBlock Grid.Column="0" Text="{Binding SkewCode}"
+                                                         FontFamily="Consolas,monospace" FontSize="12.5"
+                                                         TextWrapping="Wrap" VerticalAlignment="Center"/>
+                                    <Button Grid.Column="1" Content="Copy" Click="OnCopySkew"
+                                            VerticalAlignment="Top" Margin="8,0,0,0"/>
+                                </Grid>
+                            </Border>
+                            <TextBlock Text="{Binding SkewHint}" TextWrapping="Wrap" Opacity="0.6" FontSize="12"/>
+
+                            <!-- Fix size -->
+                            <Grid ColumnDefinitions="*,Auto" Margin="0,6,0,0">
+                                <TextBlock Grid.Column="0" Text="Fix size" FontWeight="Bold" VerticalAlignment="Center"/>
+                                <ComboBox Grid.Column="1" MinWidth="150"
+                                          ItemsSource="{Binding SizeFlavours}"
+                                          SelectedItem="{Binding SelectedSizeFlavour}"/>
+                            </Grid>
+                            <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding ShowCurrentInputs}">
+                                <TextBlock Text="{Binding CurrentLabel}" VerticalAlignment="Center" Opacity="0.6" FontSize="12"/>
+                                <TextBlock Text="X" VerticalAlignment="Center"/>
+                                <TextBox Text="{Binding CurrentXText}" Width="64"/>
+                                <TextBlock Text="Y" VerticalAlignment="Center"/>
+                                <TextBox Text="{Binding CurrentYText}" Width="64"/>
+                            </StackPanel>
+                            <Border Background="{DynamicResource SystemControlBackgroundBaseLowBrush}"
+                                    BorderThickness="1" BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
+                                    CornerRadius="4" Padding="8">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <SelectableTextBlock Grid.Column="0" Text="{Binding SizeCode}"
+                                                         FontFamily="Consolas,monospace" FontSize="12.5"
+                                                         TextWrapping="Wrap" VerticalAlignment="Center"/>
+                                    <Button Grid.Column="1" Content="Copy" Click="OnCopySize"
+                                            VerticalAlignment="Top" Margin="8,0,0,0"/>
+                                </Grid>
+                            </Border>
+                            <TextBlock Text="{Binding SizeHint}" TextWrapping="Wrap" Opacity="0.6" FontSize="12"/>
+
+                        </StackPanel>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+
+        </Grid>
+
+    </DockPanel>
+
+</Window>
