@@ -406,6 +406,10 @@ FodyWeavers.xsd
 *.sln.iml
 .idea/
 
+# NUKE build temp + release artifacts
+.nuke/temp/
+artifacts/
+
 ##
 ## Visual studio for Mac
 ##

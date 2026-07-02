@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using ScanNTune.Core;
@@ -25,6 +26,21 @@ public partial class MainWindowViewModel : ViewModelBase
 
     [ObservableProperty]
     private ViewModelBase _currentPage = null!;
+
+    /// <summary>Display version for the title bar, e.g. "v0.1.24" — stamped by Nerdbank.GitVersioning.</summary>
+    public string AppVersion
+    {
+        get
+        {
+            Assembly assembly = typeof(MainWindowViewModel).Assembly;
+            string? informational = assembly
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+            string version = informational?.Split('+', 2)[0]
+                ?? assembly.GetName().Version?.ToString(3)
+                ?? "0.0.0";
+            return $"v{version}";
+        }
+    }
 
     public MainWindowViewModel()
         : this(new CouponAnalyzer(), new ScannerCancellingCombiner(), new OverlayRenderer(), new CorrectionFormatter(),

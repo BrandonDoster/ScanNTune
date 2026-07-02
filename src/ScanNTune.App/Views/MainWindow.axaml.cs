@@ -1,3 +1,4 @@
+using System;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -8,6 +9,8 @@ namespace ScanNTune.App.Views;
 
 public partial class MainWindow : Window
 {
+    public const string RepositoryUrl = "https://github.com/jaak0b/ScanNTune";
+
     // The maximize button swaps between these two glyphs as the window state changes.
     private readonly Geometry _maximizeIcon = Geometry.Parse("M0,0 H10 V10 H0 Z");
     private readonly Geometry _restoreIcon = Geometry.Parse("M0,3 H7 V10 H0 Z M3,3 V0 H10 V7 H7");
@@ -35,6 +38,9 @@ public partial class MainWindow : Window
     private void OnMaximizeRestore(object? sender, RoutedEventArgs e) => ToggleMaximize();
 
     private void OnClose(object? sender, RoutedEventArgs e) => Close();
+
+    private void OnOpenRepository(object? sender, RoutedEventArgs e)
+        => _ = Launcher.LaunchUriAsync(new Uri(RepositoryUrl));
 
     private void ToggleMaximize()
         => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;

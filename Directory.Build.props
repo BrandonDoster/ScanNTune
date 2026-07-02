@@ -1,0 +1,10 @@
+<Project>
+
+  <!-- Nerdbank.GitVersioning stamps every product assembly's version from git height + version.json,
+       and the Release build reads it via `nbgv get-version`. The NUKE build project (_build) is
+       excluded — it is tooling, not a shipped assembly. -->
+  <ItemGroup Condition="'$(MSBuildProjectName)' != '_build'">
+    <PackageReference Include="Nerdbank.GitVersioning" Version="3.9.50" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>

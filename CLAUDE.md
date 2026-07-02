@@ -110,3 +110,16 @@ The coding rules are strict; each is numbered for unambiguous reference:
    look right: that overfits the sample and lies on the next one. Before trusting a pipeline change,
    validate it against the synthetic fixture — it must not regress there — and only then judge it on
    real scans.
+
+8. **No direct commits to `master` — every change ships as a pull request.** Committing or pushing
+   straight to `master` is forbidden. Every change goes on its own branch and lands through a PR
+   opened with `gh`. **The PR title must read as a release note** — a single user-facing sentence.
+   Owner review gates everything: never create the branch's commit, push, or open the PR until the
+   owner has explicitly approved the change in chat — present the diff summary and ask, and proceed
+   only after a clear "yes". Rule 5 (no AI attribution anywhere that touches git or GitHub) applies
+   without exception to the branch, the commits, the PR, and every `gh`/GitHub API action.
+
+9. **Release notes come from labeled PRs — label every user-facing PR.** Notes are generated from PR
+   titles via `.github/release.yml`: a PR appears only if it carries `feature` (→ Features) or
+   `fix`/`bug` (→ Fixes). Label any user-facing change accordingly (pairs with rule 8 — the PR title
+   is the release-note sentence); leave CI/chore/docs-only PRs unlabeled.
