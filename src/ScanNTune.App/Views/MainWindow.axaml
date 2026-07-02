@@ -7,16 +7,67 @@
         x:Class="ScanNTune.App.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Width="1000" Height="720"
-        Title="Printer Auto-Calibrate">
+        Icon="/Assets/ScanNTune.ico"
+        Title="ScanNTune">
 
     <Design.DataContext>
         <vm:MainWindowViewModel/>
     </Design.DataContext>
 
-    <DockPanel>
+    <Window.Styles>
+        <Style Selector="Button.caption">
+            <Setter Property="Width" Value="46"/>
+            <Setter Property="Height" Value="40"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="CornerRadius" Value="0"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Button.caption:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource ControlHoverBrush}"/>
+        </Style>
+        <Style Selector="Button.caption.close:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#E81123"/>
+        </Style>
+        <Style Selector="Button.caption Path">
+            <Setter Property="Stroke" Value="{DynamicResource TextPrimaryBrush}"/>
+            <Setter Property="StrokeThickness" Value="1"/>
+        </Style>
+        <Style Selector="Button.caption.close:pointerover Path">
+            <Setter Property="Stroke" Value="#FFFFFF"/>
+        </Style>
+    </Window.Styles>
+
+    <DockPanel Margin="{Binding $parent[Window].OffScreenMargin}">
+
         <Border DockPanel.Dock="Top" Background="{DynamicResource SurfaceBrush}"
-                Padding="14,10" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource BorderBrush}">
-            <TextBlock Text="Printer Auto-Calibrate" FontWeight="Bold" FontSize="16"/>
+                BorderThickness="0,0,0,1" BorderBrush="{DynamicResource BorderBrush}">
+            <Grid Height="40" ColumnDefinitions="*,Auto">
+
+                <Border Grid.Column="0" Background="Transparent"
+                        PointerPressed="OnTitleBarPressed" DoubleTapped="OnTitleBarDoubleTapped">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0">
+                        <Image Source="/Assets/icon-256.png" Width="18" Height="18" Margin="0,0,8,0"/>
+                        <TextBlock Text="ScanNTune" FontWeight="Bold" FontSize="14"
+                                   VerticalAlignment="Center" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                    </StackPanel>
+                </Border>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button Classes="caption" Click="OnMinimize" ToolTip.Tip="Minimize">
+                        <Path Data="M0,5 H10"/>
+                    </Button>
+                    <Button Classes="caption" Click="OnMaximizeRestore" ToolTip.Tip="Maximize">
+                        <Path x:Name="MaxIcon" Data="M0,0 H10 V10 H0 Z"/>
+                    </Button>
+                    <Button Classes="caption close" Click="OnClose" ToolTip.Tip="Close">
+                        <Path Data="M0,0 L10,10 M10,0 L0,10"/>
+                    </Button>
+                </StackPanel>
+
+            </Grid>
         </Border>
 
         <ContentControl Content="{Binding CurrentPage}"/>
