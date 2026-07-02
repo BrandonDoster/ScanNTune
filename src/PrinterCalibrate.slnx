@@ -1,5 +1,0 @@
-<Solution>
-  <Project Path="PrinterCalibrate.App/PrinterCalibrate.App.csproj" />
-  <Project Path="PrinterCalibrate.Core/PrinterCalibrate.Core.csproj" />
-  <Project Path="PrinterCalibrate.Tests/PrinterCalibrate.Tests.csproj" />
-</Solution>

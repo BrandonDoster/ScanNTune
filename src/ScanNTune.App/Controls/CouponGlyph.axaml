@@ -1,0 +1,32 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="ScanNTune.App.Controls.CouponGlyph"
+             Width="120" Height="120">
+    <!-- A stylised coupon: a 3×3 ring lattice with the origin corner + its +X neighbour drawn solid
+         (the two blue rings) as the orientation marker, so a quarter-turn is visually obvious. -->
+    <Viewbox Stretch="Uniform">
+        <Canvas Width="100" Height="100">
+            <Rectangle Canvas.Left="6" Canvas.Top="6" Width="88" Height="88" RadiusX="7" RadiusY="7"
+                       Fill="{DynamicResource SurfaceAltBrush}"
+                       Stroke="{DynamicResource BorderStrongBrush}" StrokeThickness="1.5"/>
+
+            <Ellipse Canvas.Left="20.5" Canvas.Top="20.5" Width="15" Height="15" Fill="{DynamicResource PrimaryBrush}"/>
+            <Ellipse Canvas.Left="42.5" Canvas.Top="20.5" Width="15" Height="15" Fill="{DynamicResource PrimaryBrush}"/>
+
+            <Ellipse Canvas.Left="64.5" Canvas.Top="20.5" Width="15" Height="15"
+                     Stroke="{DynamicResource TextSecondaryBrush}" StrokeThickness="2"/>
+            <Ellipse Canvas.Left="20.5" Canvas.Top="42.5" Width="15" Height="15"
+                     Stroke="{DynamicResource TextSecondaryBrush}" StrokeThickness="2"/>
+            <Ellipse Canvas.Left="42.5" Canvas.Top="42.5" Width="15" Height="15"
+                     Stroke="{DynamicResource TextSecondaryBrush}" StrokeThickness="2"/>
+            <Ellipse Canvas.Left="64.5" Canvas.Top="42.5" Width="15" Height="15"
+                     Stroke="{DynamicResource TextSecondaryBrush}" StrokeThickness="2"/>
+            <Ellipse Canvas.Left="20.5" Canvas.Top="64.5" Width="15" Height="15"
+                     Stroke="{DynamicResource TextSecondaryBrush}" StrokeThickness="2"/>
+            <Ellipse Canvas.Left="42.5" Canvas.Top="64.5" Width="15" Height="15"
+                     Stroke="{DynamicResource TextSecondaryBrush}" StrokeThickness="2"/>
+            <Ellipse Canvas.Left="64.5" Canvas.Top="64.5" Width="15" Height="15"
+                     Stroke="{DynamicResource TextSecondaryBrush}" StrokeThickness="2"/>
+        </Canvas>
+    </Viewbox>
+</UserControl>

@@ -20,22 +20,22 @@ rotation AND mirror-flip with no manual input (see "Coupon & orientation" below)
 
 ## Build & Run
 
-The solution lives at `src/PrinterCalibrate.slnx` (new XML solution format). Both projects target `net10.0`.
+The solution lives at `src/ScanNTune.slnx` (new XML solution format). Both projects target `net10.0`.
 
 ```bash
-dotnet restore src/PrinterCalibrate.slnx
-dotnet build   src/PrinterCalibrate.slnx
-dotnet run     --project src/PrinterCalibrate.App     # launch the desktop UI
-dotnet test    src/PrinterCalibrate.Tests             # run the pipeline tests
+dotnet restore src/ScanNTune.slnx
+dotnet build   src/ScanNTune.slnx
+dotnet run     --project src/ScanNTune.App     # launch the desktop UI
+dotnet test    src/ScanNTune.Tests             # run the pipeline tests
 ```
 
-Tests are NUnit and cover the CV pipeline end-to-end against `PrinterCalibrate.Tests/TestFiles/TestData_2solid.png`
+Tests are NUnit and cover the CV pipeline end-to-end against `ScanNTune.Tests/TestFiles/TestData_2solid.png`
 (a perfect render of the coupon *with the two-solid marker* → ~0% scale, ~0° skew, 23 detectable holes). The
 suite rotates, mirror-flips, stretches, and shears it to prove rotation/flip-invariance and skew recovery.
 Add new fixtures by dropping an image into `TestFiles/` and asserting its known answer.
 
-When iterating on the app, **stop any running `PrinterCalibrate.App` before rebuilding** — a live instance
-locks `PrinterCalibrate.Core.dll` and the App build fails to copy it (`taskkill`/`Stop-Process`).
+When iterating on the app, **stop any running `ScanNTune.App` before rebuilding** — a live instance
+locks `ScanNTune.Core.dll` and the App build fails to copy it (`taskkill`/`Stop-Process`).
 
 Coupon model (OpenSCAD): render a top view with
 `openscad -o out.png --projection=ortho --camera=0,0,0,0,0,0,150 --viewall --autocenter calibration_coupon.scad`;
@@ -46,12 +46,12 @@ is no CLI to run the engine on an arbitrary scan yet — use an `[Explicit]` NUn
 
 Keep the **engine separate from the UI** so the CV/calc logic stays headless and reusable:
 
-- **PrinterCalibrate.Core** — the engine, **no UI dependency**: load image → detect ring centres (sub-pixel)
+- **ScanNTune.Core** — the engine, **no UI dependency**: load image → detect ring centres (sub-pixel)
   → map to the grid + resolve orientation from the two-solid marker → affine-fit for X/Y scale + skew.
   Libraries: `OpenCvSharp4`, `MathNet.Numerics`.
-- **PrinterCalibrate.App** — the Avalonia front-end: load/scan an image, show detected rings overlaid on
+- **ScanNTune.App** — the Avalonia front-end: load/scan an image, show detected rings overlaid on
   the scan, display results and copy-paste correction snippets. Optional WIA scanner acquisition on Windows.
-- **PrinterCalibrate.Tests** — NUnit; end-to-end pipeline tests over fixture scans.
+- **ScanNTune.Tests** — NUnit; end-to-end pipeline tests over fixture scans.
 
 The analyze pipeline is three injected stages — `IRingDetector` → `IGridMapper` → `IAffineSolver` — composed
 by `CouponAnalyzer`. Output is produced on demand by two separate services the UI calls: `ICorrectionFormatter`
