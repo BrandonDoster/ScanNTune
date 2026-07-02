@@ -2,6 +2,7 @@ using System;
 using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using PrinterCalibrate.Core;
+using PrinterCalibrate.Core.Calibration;
 using PrinterCalibrate.Core.Combining;
 using PrinterCalibrate.Core.Output;
 
@@ -19,12 +20,15 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly IScanCombiner _combiner;
     private readonly IOverlayRenderer _overlayRenderer;
     private readonly ICorrectionFormatter _corrections;
+    private readonly IScaleReferenceMeasurer _measurer;
+    private readonly ICalibrationStore _calibrationStore;
 
     [ObservableProperty]
     private ViewModelBase _currentPage = null!;
 
     public MainWindowViewModel()
-        : this(new CouponAnalyzer(), new ScannerCancellingCombiner(), new OverlayRenderer(), new CorrectionFormatter())
+        : this(new CouponAnalyzer(), new ScannerCancellingCombiner(), new OverlayRenderer(), new CorrectionFormatter(),
+               new CardEdgeMeasurer(), new JsonCalibrationStore())
     {
     }
 
@@ -32,20 +36,29 @@ public partial class MainWindowViewModel : ViewModelBase
         ICouponAnalyzer analyzer,
         IScanCombiner combiner,
         IOverlayRenderer overlayRenderer,
-        ICorrectionFormatter corrections)
+        ICorrectionFormatter corrections,
+        IScaleReferenceMeasurer measurer,
+        ICalibrationStore calibrationStore)
     {
         _analyzer = analyzer;
         _combiner = combiner;
         _overlayRenderer = overlayRenderer;
         _corrections = corrections;
+        _measurer = measurer;
+        _calibrationStore = calibrationStore;
         CurrentPage = CreateScanPage();
     }
 
     private ScanPageViewModel CreateScanPage() =>
-        new(_analyzer, _combiner, _overlayRenderer, ShowResults);
+        new(_analyzer, _combiner, _overlayRenderer, _calibrationStore, ShowResults, ShowCalibration);
 
     private void ShowResults(TwoScanResult result, CouponSpec coupon, Bitmap? overlayA, Bitmap? overlayB) =>
         CurrentPage = new ResultsPageViewModel(result, coupon, overlayA, overlayB, _corrections, StartOver);
 
+    private void ShowCalibration() =>
+        CurrentPage = new CalibrationPageViewModel(_measurer, _calibrationStore, StartOver);
+
+    // Rebuilding the scan page re-reads the stored calibration, so the status pill reflects a
+    // just-saved calibration on return.
     private void StartOver() => CurrentPage = CreateScanPage();
 }

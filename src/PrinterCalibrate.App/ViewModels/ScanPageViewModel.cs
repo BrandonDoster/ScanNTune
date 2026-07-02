@@ -6,6 +6,7 @@ using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PrinterCalibrate.Core;
+using PrinterCalibrate.Core.Calibration;
 using PrinterCalibrate.Core.Combining;
 using PrinterCalibrate.Core.Output;
 
@@ -21,7 +22,10 @@ public partial class ScanPageViewModel : ViewModelBase
     private readonly ICouponAnalyzer _analyzer;
     private readonly IScanCombiner _combiner;
     private readonly IOverlayRenderer _overlayRenderer;
+    private readonly ICalibrationStore _calibrationStore;
     private readonly Action<TwoScanResult, CouponSpec, Bitmap?, Bitmap?> _onAnalyzed;
+    private readonly Action _onCalibrate;
+    private readonly ScannerCalibration? _calibration;
 
     [ObservableProperty]
     private string? _scan1Path;
@@ -69,13 +73,33 @@ public partial class ScanPageViewModel : ViewModelBase
         ICouponAnalyzer analyzer,
         IScanCombiner combiner,
         IOverlayRenderer overlayRenderer,
-        Action<TwoScanResult, CouponSpec, Bitmap?, Bitmap?> onAnalyzed)
+        ICalibrationStore calibrationStore,
+        Action<TwoScanResult, CouponSpec, Bitmap?, Bitmap?> onAnalyzed,
+        Action onCalibrate)
     {
         _analyzer = analyzer;
         _combiner = combiner;
         _overlayRenderer = overlayRenderer;
+        _calibrationStore = calibrationStore;
         _onAnalyzed = onAnalyzed;
+        _onCalibrate = onCalibrate;
+        _calibration = calibrationStore.Load();
     }
+
+    public bool IsCalibrated => _calibration is not null;
+
+    public string CalibrationStatusText => _calibration is null
+        ? "Scanner not calibrated"
+        : $"Scanner calibrated · {_calibration.EffectiveDpi.ToString("0", CultureInfo.InvariantCulture)} dpi";
+
+    public string CalibrationDetailText => _calibration is null
+        ? "Calibrate once for absolute X/Y scale — skew and anisotropy already work without it."
+        : "Absolute X/Y scale is anchored to your scanner. Scan the coupon at this DPI.";
+
+    public string CalibrateButtonText => _calibration is null ? "Calibrate scanner" : "Recalibrate";
+
+    [RelayCommand]
+    private void Calibrate() => _onCalibrate();
 
     public bool HasScan1 => Scan1Thumb is not null;
 
@@ -152,9 +176,16 @@ public partial class ScanPageViewModel : ViewModelBase
         StatusText = "Analyzing both scans…";
         try
         {
-            double? pxPerMm = double.TryParse(DpiText, NumberStyles.Float, CultureInfo.InvariantCulture, out double dpi) && dpi > 0
-                ? dpi / 25.4
-                : null;
+            // With a stored calibration, use the scanner's measured px/mm directly (the coupon is
+            // scanned at the calibrated DPI); otherwise fall back to the entered nominal DPI/25.4
+            // (anisotropy + skew stay correct either way).
+            double? pxPerMm;
+            if (_calibration is not null)
+                pxPerMm = _calibration.PxPerMm;
+            else
+                pxPerMm = double.TryParse(DpiText, NumberStyles.Float, CultureInfo.InvariantCulture, out double dpi) && dpi > 0
+                    ? dpi / 25.4
+                    : null;
             CouponSpec coupon = BuildCoupon();
             var options = new AnalysisOptions { PxPerMm = pxPerMm, Coupon = coupon };
 

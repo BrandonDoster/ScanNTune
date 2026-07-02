@@ -16,6 +16,7 @@
     <Color x:Key="FocusRingColor">#5865F2</Color>
     <Color x:Key="SidebarSelectedColor">#404249</Color>
     <Color x:Key="WarningColor">#E0A458</Color>
+    <Color x:Key="SuccessColor">#4BB37B</Color>
 
     <SolidColorBrush x:Key="BackgroundBrush" Color="{StaticResource BackgroundColor}"/>
     <SolidColorBrush x:Key="SurfaceBrush" Color="{StaticResource SurfaceColor}"/>
@@ -33,4 +34,5 @@
     <SolidColorBrush x:Key="FocusRingBrush" Color="{StaticResource FocusRingColor}"/>
     <SolidColorBrush x:Key="SidebarSelectedBrush" Color="{StaticResource SidebarSelectedColor}"/>
     <SolidColorBrush x:Key="WarningBrush" Color="{StaticResource WarningColor}"/>
+    <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource SuccessColor}"/>
 </ResourceDictionary>
