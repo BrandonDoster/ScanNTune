@@ -130,3 +130,10 @@ The coding rules are strict; each is numbered for unambiguous reference:
    titles via `.github/release.yml`: a PR appears only if it carries `feature` (→ Features) or
    `fix`/`bug` (→ Fixes). Label any user-facing change accordingly (pairs with rule 8 — the PR title
    is the release-note sentence); leave CI/chore/docs-only PRs unlabeled.
+
+10. **Never use the em-dash character `—`, and never use a hyphen `-` as a substitute for it.** The
+    em-dash is banned everywhere you write: source, comments, docs, UI text, commit messages, PR
+    titles and bodies, issue/PR comments, and chat replies. Do not swap in a hyphen `-` to get the
+    same dash-like pause either. Rewrite the sentence: use a colon, parentheses, a comma, or two
+    separate sentences. A hyphen is allowed ONLY where grammar genuinely requires one, such as a
+    compound modifier ("sub-pixel", "user-facing") or a hyphenated name.
