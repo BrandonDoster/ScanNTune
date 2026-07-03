@@ -9,8 +9,8 @@
 **Calibrate your 3D printer's XY scale and skew by scanning a printed coupon on an ordinary office scanner.
 No calipers, no measuring, no typing numbers into a calculator.**
 
-You print a small test coupon, scan it flat, and ScanNTune reads it and hands you the correction to paste
-straight into your firmware or slicer.
+Print a small test coupon and scan it flat. ScanNTune reads the scan and gives you a correction to paste
+into your firmware or slicer.
 
 ![ScanNTune results](img/ScanNTune_Results.png)
 
@@ -29,7 +29,7 @@ straight into your firmware or slicer.
 
 That's it. The whole thing takes a couple of minutes once the coupon is printed.
 
-## Get ScanNTune
+## Installation
 
 ScanNTune runs on Windows. Grab the latest version from the
 [**Releases page**](https://github.com/jaak0b/ScanNTune/releases). It keeps itself up to date after that,
@@ -55,7 +55,7 @@ The two come out almost exactly the same, differing by only 0.05% in X, 0.08% in
 should match, because both are measuring the same printer. The only difference is that ScanNTune reads it
 from a single scan instead of by hand with a caliper.
 
-## Why the numbers hold up
+## How it works
 
 A few design choices are what make a quick scan trustworthy:
 
