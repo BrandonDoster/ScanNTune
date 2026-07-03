@@ -94,10 +94,17 @@ public partial class ScanPageViewModel : ViewModelBase
 
     // Single status line under the step-1 header (the header already says "Calibrate scanner").
     public string CalibrationLineText => _calibration is null
-        ? "Optional — calibrate once for absolute X/Y scale. Skew and anisotropy work without it."
-        : $"Calibrated · {_calibration.EffectiveDpi.ToString("0", CultureInfo.InvariantCulture)} dpi — absolute scale anchored to your scanner.";
+        ? "Optional. Calibrate once for absolute X/Y scale. Skew and anisotropy work without it."
+        : $"Calibrated · {_calibration.EffectiveDpi.ToString("0", CultureInfo.InvariantCulture)} dpi";
 
     public string CalibrateButtonText => _calibration is null ? "Calibrate scanner" : "Recalibrate";
+
+    // A stored calibration assumes the coupon is scanned at the same DPI it was calibrated at (AnalyzeAsync
+    // uses the calibrated px/mm directly), so remind the user of that exact resolution. Without a
+    // calibration there is no DPI to anchor to, so the hint is hidden (see ScanDpiHint binding).
+    public string ScanDpiHint => _calibration is null
+        ? string.Empty
+        : $"Scan both at {_calibration.Dpi.ToString("0", CultureInfo.InvariantCulture)} dpi.";
 
     [RelayCommand]
     private void Calibrate() => _onCalibrate();
@@ -213,7 +220,7 @@ public partial class ScanPageViewModel : ViewModelBase
         {
             _logger.LogError(ex, "Two-scan analysis failed.");
             IsError = true;
-            StatusText = $"{ex.Message} — check the scan quality and that the coupon's two-solid marker is visible.";
+            StatusText = $"{ex.Message} Check the scan quality and that the coupon's two-solid marker is visible.";
         }
         finally
         {
@@ -268,7 +275,7 @@ public partial class ScanPageViewModel : ViewModelBase
         StatusText = ex.RingCount > 0
             ? $"{which}: found {ex.RingCount} rings but couldn't locate the orientation marker. " +
               "Check that both solid marker rings and the whole coupon are in the scan (green circles show what was detected)."
-            : $"{which}: no rings detected. The coupon may be out of frame or too faint — check the scan contrast and DPI.";
+            : $"{which}: no rings detected. The coupon may be out of frame or too faint. Check the scan contrast and DPI.";
     }
 
     private bool CanAnalyze() => !IsBusy && Scan1Path is not null && Scan2Path is not null;

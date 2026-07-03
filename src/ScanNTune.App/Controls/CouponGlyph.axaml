@@ -1,7 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             x:Class="ScanNTune.App.Controls.CouponGlyph"
-             Width="120" Height="120">
+             x:Class="ScanNTune.App.Controls.CouponGlyph">
     <!-- A stylised coupon: a 3×3 ring lattice with the origin corner + its +X neighbour drawn solid
          (the two blue rings) as the orientation marker, so a quarter-turn is visually obvious. -->
     <Viewbox Stretch="Uniform">

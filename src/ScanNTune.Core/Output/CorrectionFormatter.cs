@@ -38,7 +38,7 @@ public sealed class CorrectionFormatter : ICorrectionFormatter
 
         double tan = Math.Tan(skewDegrees * Math.PI / 180.0);
         if (!double.IsFinite(tan) || Math.Abs(skewDegrees) >= 45.0)
-            return new Correction("skew out of range — check the scan", "A real coupon skews well under 1°; this suggests a detection problem.");
+            return new Correction("skew out of range, check the scan", "A real coupon skews well under 1°; this suggests a detection problem.");
 
         switch (flavour)
         {

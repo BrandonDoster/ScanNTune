@@ -141,7 +141,7 @@
                                     <TextBlock Canvas.Left="246" Canvas.Top="64" Text="54 mm" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
                                 </Canvas>
                             </Viewbox>
-                            <TextBlock Classes="tip" Text="• Measure the long side — mid-edge, avoiding the rounded corners."/>
+                            <TextBlock Classes="tip" Text="• Measure the long side at mid-edge, avoiding the rounded corners."/>
                             <TextBlock Classes="tip" Text="• To 0.01 mm; checked against the 85.60 mm ISO nominal."/>
                         </StackPanel>
                     </Border>
@@ -165,6 +165,8 @@
                                     <TextBox Text="{Binding DpiText}" Width="110" PlaceholderText="600"/>
                                     <TextBlock Text="dpi" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}"/>
                                 </StackPanel>
+                                <TextBlock Text="For best results, scan at 600 dpi. Use the same resolution for your coupon."
+                                           TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"/>
                             </StackPanel>
                             <TextBlock Text="{Binding IsoSanityText}" TextWrapping="Wrap" FontSize="12"
                                        Classes="sanity" Classes.warn="{Binding IsoSanityWarn}"/>
@@ -177,7 +179,7 @@
                         Padding="22" IsVisible="{Binding !HasResult}">
                     <StackPanel Spacing="10" HorizontalAlignment="Center">
                         <TextBlock Text="Drop your card scan here, or upload" FontSize="14" HorizontalAlignment="Center"/>
-                        <TextBlock Text="PNG, JPG or TIFF — most card colours; a pale card needs a dark sheet behind it"
+                        <TextBlock Text="PNG, JPG or TIFF. Works with most card colours; a pale card needs a dark sheet behind it"
                                    FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"
                                    TextWrapping="Wrap" TextAlignment="Center" MaxWidth="360"/>
                         <Button Content="Choose file" Classes="accent" HorizontalAlignment="Center"
@@ -228,9 +230,9 @@
                         <Grid ColumnDefinitions="*,Auto">
                             <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
                                 <TextBlock Text="✓" Foreground="{DynamicResource SuccessBrush}" IsVisible="{Binding Saved}"/>
-                                <TextBlock Text="Saved — used for every scan" FontSize="12.5"
+                                <TextBlock Text="Saved, used for every scan" FontSize="12.5"
                                            Foreground="{DynamicResource SuccessBrush}" IsVisible="{Binding Saved}"/>
-                                <TextBlock Text="Not saved — resolve the size check above" FontSize="12.5"
+                                <TextBlock Text="Not saved: resolve the size check above" FontSize="12.5"
                                            Foreground="{DynamicResource WarningBrush}" IsVisible="{Binding !Saved}"/>
                             </StackPanel>
                             <Button Grid.Column="1" Content="Re-scan" Click="OnUpload" IsEnabled="{Binding CanUpload}"/>
