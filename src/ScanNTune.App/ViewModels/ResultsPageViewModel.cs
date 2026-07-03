@@ -28,10 +28,26 @@ public partial class ResultsPageViewModel : ViewModelBase
     private string _selectedSizeFlavour;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSkewPrimaryCaption))]
+    private string _skewPrimaryCaption = string.Empty;
+
+    [ObservableProperty]
     private string _skewCode = string.Empty;
 
     [ObservableProperty]
+    private string _skewSecondaryCaption = string.Empty;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSkewSecondary))]
+    private string _skewSecondaryCode = string.Empty;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSkewHint))]
     private string _skewHint = string.Empty;
+
+    public bool HasSkewPrimaryCaption => !string.IsNullOrEmpty(SkewPrimaryCaption);
+    public bool HasSkewSecondary => !string.IsNullOrEmpty(SkewSecondaryCode);
+    public bool HasSkewHint => !string.IsNullOrEmpty(SkewHint);
 
     [ObservableProperty]
     private string _sizeCode = string.Empty;
@@ -125,6 +141,9 @@ public partial class ResultsPageViewModel : ViewModelBase
         Correction correction = _corrections.Skew(SelectedSkewFlavour, Combined.SkewDegrees, _coupon);
         SkewCode = correction.Code;
         SkewHint = correction.Hint;
+        SkewPrimaryCaption = correction.PrimaryCaption ?? string.Empty;
+        SkewSecondaryCaption = correction.SecondaryCaption ?? string.Empty;
+        SkewSecondaryCode = correction.SecondaryCode ?? string.Empty;
     }
 
     private void RecomputeSize()

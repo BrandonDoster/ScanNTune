@@ -58,8 +58,11 @@ public sealed class CorrectionFormatter : ICorrectionFormatter
                 double bd = l * Math.Sqrt((tan - 1.0) * (tan - 1.0) + 1.0);
                 double ad = l * Math.Sqrt(tan * tan + 1.0);
                 return new Correction(
-                    string.Format(_inv, "SET_SKEW XY={0:0.###},{1:0.###},{2:0.###}\nSKEW_PROFILE SAVE=ScanNTune", ac, bd, ad),
-                    "Send both via console, then SAVE_CONFIG. Add SKEW_PROFILE LOAD=ScanNTune to your start g-code.");
+                    string.Format(_inv, "SET_SKEW XY={0:0.###},{1:0.###},{2:0.###}\nSKEW_PROFILE SAVE=ScanNTune\nSAVE_CONFIG", ac, bd, ad),
+                    string.Empty,
+                    PrimaryCaption: "Paste into the Klipper console:",
+                    SecondaryCaption: "Add this to your start g-code:",
+                    SecondaryCode: "SKEW_PROFILE LOAD=ScanNTune");
         }
     }
 

@@ -23,6 +23,12 @@ public partial class ResultsPageView : UserControl
             await CopyToClipboard(vm.SkewCode);
     }
 
+    private async void OnCopySkewSecondary(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is ResultsPageViewModel vm)
+            await CopyToClipboard(vm.SkewSecondaryCode);
+    }
+
     private async void OnCopySize(object? sender, RoutedEventArgs e)
     {
         if (DataContext is ResultsPageViewModel vm)
