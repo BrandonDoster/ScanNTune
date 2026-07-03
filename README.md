@@ -57,8 +57,8 @@ from a single scan instead of by hand with a caliper.
 
 ## How it works
 
-- **Ring centres, not walls.** The coupon is a lattice of rings, and a ring's centre doesn't move when the
-  walls print fatter or thinner. Over- or under-extrusion can't shift the scale or skew.
+- **Extrusion width doesn't affect it.** The coupon is a lattice of rings, and a ring's centre doesn't move
+  when the walls print fatter or thinner. Over- or under-extrusion can't shift the scale or skew.
 - **Two scans remove the scanner's distortion.** A flatbed scanner has its own slight stretch and skew.
   Scanning the coupon flat, then again quarter-turned, and averaging the two cancels the scanner's error and
   leaves the printer's. The leftover half-difference even tells you how far off your scanner is.
