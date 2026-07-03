@@ -184,7 +184,7 @@
                                    TextWrapping="Wrap" TextAlignment="Center" MaxWidth="360"/>
                         <Button Content="Choose file" Classes="accent" HorizontalAlignment="Center"
                                 Padding="14,8" Click="OnUpload" IsEnabled="{Binding CanUpload}"/>
-                        <TextBlock Text="Enter your measurement and DPI first" FontSize="12"
+                        <TextBlock Text="Enter your measurement and a DPI from 50 to 9600 first" FontSize="12"
                                    Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Center"
                                    IsVisible="{Binding !CanUpload}"/>
                         <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsDetecting}" Height="4" Width="220"/>

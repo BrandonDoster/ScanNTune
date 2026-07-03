@@ -16,8 +16,13 @@ namespace ScanNTune.Core.Combining;
 /// </summary>
 public sealed class ScannerCancellingCombiner : IScanCombiner
 {
-    /// <summary>How far from an exact 90° the turn between scans may drift before the pair is flagged.</summary>
-    public const double QuarterTurnToleranceDegrees = 20.0;
+    /// <summary>
+    /// How far from an exact 90° the turn between scans may drift before the pair is flagged.
+    /// The cancellation is exact only at 90°: at a turn error D the un-cancelled scanner fraction
+    /// grows as sin(D), so 5° bounds the leak below 9% of the scanner error (a coupon placed by
+    /// hand against the flatbed edge lands within a degree or two).
+    /// </summary>
+    public const double QuarterTurnToleranceDegrees = 5.0;
 
     public TwoScanResult Combine(CalibrationResult scanA, CalibrationResult scanB)
     {
@@ -34,7 +39,11 @@ public sealed class ScannerCancellingCombiner : IScanCombiner
         double scannerSkew = 0.5 * (scanA.SkewDegrees - scanB.SkewDegrees);
 
         double turned = TurnBetween(scanA.Orientation.XAxisAngleDegrees, scanB.Orientation.XAxisAngleDegrees);
-        bool rotationValid = QuarterTurnError(turned) <= QuarterTurnToleranceDegrees;
+        // The A/B skew algebra assumes both scans have the same handedness. If exactly one is
+        // mirror-flipped (the coupon was turned over between scans), the scanner's skew ADDS
+        // instead of cancelling while the diagnostic reads ~0 — so a mismatch invalidates the pair.
+        bool flipMismatch = scanA.Orientation.Flipped != scanB.Orientation.Flipped;
+        bool rotationValid = !flipMismatch && QuarterTurnError(turned) <= QuarterTurnToleranceDegrees;
 
         var combined = new CalibrationResult(
             printerX,
@@ -53,7 +62,8 @@ public sealed class ScannerCancellingCombiner : IScanCombiner
             scanA,
             scanB,
             turned,
-            rotationValid);
+            rotationValid,
+            flipMismatch);
     }
 
     /// <summary>Signed-free turn from A's +X to B's +X, folded into [0, 360).</summary>

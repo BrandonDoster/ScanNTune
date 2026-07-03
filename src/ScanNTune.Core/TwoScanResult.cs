@@ -7,8 +7,10 @@ namespace ScanNTune.Core;
 /// diagnostic. <see cref="ScanA"/> and <see cref="ScanB"/> are the untouched per-scan results (for
 /// overlays and drill-down). <see cref="RelativeRotationDegrees"/> is how far the coupon actually
 /// turned between the two scans — it should be ~90°; <see cref="RotationLooksValid"/> is false when
-/// it is not, which means the two poses were too similar for the scanner error to cancel and the
-/// combined figures cannot be trusted.
+/// it is not, which means the scanner error could not cancel and the combined figures cannot be
+/// trusted. <see cref="FlipMismatch"/> is the specific case where one scan is mirror-flipped
+/// relative to the other (the coupon was turned over between scans): the skew cancellation is
+/// broken even though the turn itself may read ~90°.
 /// </summary>
 public sealed record TwoScanResult(
     CalibrationResult Combined,
@@ -16,4 +18,5 @@ public sealed record TwoScanResult(
     CalibrationResult ScanA,
     CalibrationResult ScanB,
     double RelativeRotationDegrees,
-    bool RotationLooksValid);
+    bool RotationLooksValid,
+    bool FlipMismatch = false);

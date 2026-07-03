@@ -49,10 +49,27 @@ public sealed class GridMapper : IGridMapper
         for (int i = 0; i < n; i++)
             occupied.Add((col[i], row[i]));
 
-        if (!TryFindMarker(occupied, maxCol, maxRow, out (int c, int r) origin, out (int dc, int dr) toNeighbour))
+        // The two solid marker vertices are always missing; tolerate at most ONE stray missed hole
+        // on top. Beyond that the marker search can silently land on the wrong corner (a second
+        // corner+neighbour pair of misses looks exactly like the marker), so reject loudly instead.
+        // Count against the coupon's SPECIFIED grid, not the detected extent: a fully missed outer
+        // row shrinks the extent and would otherwise hide its own misses from this check.
+        int missing = spec.GridN * spec.GridN - occupied.Count;
+        if (missing > 3)
+            throw new InvalidOperationException(
+                $"{missing} grid positions are missing a detected ring; only the two solid marker " +
+                "rings plus one stray miss are tolerated. Check the scan quality and contrast.");
+
+        int markerCandidates = FindMarker(occupied, maxCol, maxRow, out (int c, int r) origin, out (int dc, int dr) toNeighbour);
+        if (markerCandidates == 0)
             throw new InvalidOperationException(
                 "Could not locate the two solid orientation rings (an origin corner plus its neighbour). " +
                 "Check the scan quality and that the coupon carries the orientation marker.");
+        if (markerCandidates > 1)
+            throw new InvalidOperationException(
+                "The orientation marker is ambiguous: more than one corner has a missing neighbour, " +
+                "so the +X direction cannot be determined (a hole next to a corner may have gone " +
+                "undetected). Rescan with better contrast.");
 
         (double x, double y) g00 = OriginOfIndexSpace(points, col, row, colHat, rowHat, geo.PitchPx);
         (double x, double y) originPx =
@@ -88,11 +105,12 @@ public sealed class GridMapper : IGridMapper
 
     /// <summary>
     /// The two solid rings are two missing grid vertices: a corner and one edge-neighbour.
-    /// Finds the unique such (corner, neighbour) pair — tolerating other stray missing vertices
-    /// (a hole missed on a rough scan). Returns the corner (origin) and the unit step to the
-    /// neighbour (= +X). False if there is no such pair, or more than one (ambiguous).
+    /// Counts every such (corner, neighbour) pair and reports the last one found; the marker is
+    /// only trustworthy when the count is exactly 1. A count above 1 is genuinely ambiguous —
+    /// e.g. a stray missed hole adjacent to the marker corner gives that corner two missing
+    /// neighbours and there is no way to tell which one is the printed +X.
     /// </summary>
-    private bool TryFindMarker(HashSet<(int, int)> occupied, int maxCol, int maxRow,
+    private int FindMarker(HashSet<(int, int)> occupied, int maxCol, int maxRow,
         out (int c, int r) origin, out (int dc, int dr) toNeighbour)
     {
         origin = default;
@@ -122,7 +140,7 @@ public sealed class GridMapper : IGridMapper
             }
         }
 
-        return found == 1;
+        return found;
     }
 
     private bool IsCorner((int c, int r) v, int maxCol, int maxRow) =>
