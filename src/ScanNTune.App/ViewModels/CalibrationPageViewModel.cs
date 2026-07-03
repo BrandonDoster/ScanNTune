@@ -112,7 +112,7 @@ public partial class CalibrationPageViewModel : ViewModelBase
             double d = v - IsoLongMm;
             if (Math.Abs(d) <= IsoToleranceMm)
                 return "In range for an ISO card (≈85.60 mm).";
-            return $"{d.ToString("+0.00;-0.00", CultureInfo.InvariantCulture)} mm vs ISO 85.60 — re-check the caliper.";
+            return $"{d.ToString("+0.00;-0.00", CultureInfo.InvariantCulture)} mm vs ISO 85.60. Re-check the caliper.";
         }
     }
 
@@ -187,8 +187,8 @@ public partial class CalibrationPageViewModel : ViewModelBase
         string detected = detectedMm.ToString("0.00", CultureInfo.InvariantCulture);
         string entered = mm.ToString("0.00", CultureInfo.InvariantCulture);
         SizeSentence = SizeCheckOk
-            ? $"Detected {detected} mm — matches your {entered} mm."
-            : $"Detected {detected} mm doesn't match your {entered} mm — re-check the DPI or your measurement.";
+            ? $"Detected {detected} mm, matches your {entered} mm."
+            : $"Detected {detected} mm doesn't match your {entered} mm. Re-check the DPI or your measurement.";
         HasResult = true;
         Persist();
     }

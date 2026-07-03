@@ -35,7 +35,7 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private bool _updateReady;
 
-    public string UpdateStatusText => "Update ready — restart to apply";
+    public string UpdateStatusText => "Update ready, restart to apply";
 
     /// <summary>Display version for the title bar, e.g. "v0.1.24" — stamped by Nerdbank.GitVersioning.</summary>
     public string AppVersion

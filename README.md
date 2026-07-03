@@ -1,77 +1,98 @@
 # ScanNTune
 
-A Windows tool that calibrates a 3D printer's XY scale and skew from a flatbed scan, no calipers.
+[![Build](https://github.com/jaak0b/ScanNTune/actions/workflows/build.yml/badge.svg)](https://github.com/jaak0b/ScanNTune/actions/workflows/build.yml)
+[![Latest release](https://img.shields.io/github/v/release/jaak0b/ScanNTune?display_name=tag)](https://github.com/jaak0b/ScanNTune/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/jaak0b/ScanNTune/total)](https://github.com/jaak0b/ScanNTune/releases)
+![Platform: Windows](https://img.shields.io/badge/platform-Windows-blue)
+[![License: MIT](https://img.shields.io/github/license/jaak0b/ScanNTune)](LICENSE)
 
-I got tired of dimensional calibration. The usual routine is something like Vector 3D's "Califlower", a
-printed coupon and a matching calculator: print it, measure it corner to corner with calipers, measure the
-diagonals for skew, type all of that into the calculator, and paste the result into your firmware. The
-measuring is the annoying part. It's a fistful of caliper reads you have to keep straight, a skew diagonal
-that's fiddly to catch square, and then typing it all into a calculator without a slip. So I let a scanner
-do the reading instead. You print the coupon, scan it flat, and ScanNTune reads the geometry and hands you
-the corrections ready to paste.
+**Calibrate your 3D printer's XY scale and skew by scanning a printed coupon on an ordinary office scanner.
+No calipers, no measuring, no typing numbers into a calculator.**
+
+You print a small test coupon, scan it flat, and ScanNTune reads it and hands you the correction to paste
+straight into your firmware or slicer.
 
 ![ScanNTune results](img/ScanNTune_Results.png)
 
-It measures **ring centres**. A ring's centre doesn't move when the walls come out fatter or thinner, so
-extrusion width can't shift the scale or skew it reports. Two solid rings in the corner mark the coupon's
-origin and its +X direction, so the software works out orientation on its own; it doesn't matter how the
-sheet landed on the glass, rotated or flipped.
+> [!TIP]
+> **A regular office flatbed scanner is all you need.** The same kind you'd use to copy a document,
+> including the scanner built into an all-in-one printer. No camera photos, no special hardware, and no high
+> end machine required. Scan at 600 DPI, which any normal home or office scanner can do.
 
-## Just as good as measuring it by hand
+## What you get
 
-Here's the same printer measured two ways: ScanNTune's result (left) and Vector 3D's Califlower (right),
-its coupon hand-measured into its calculator.
-
-![ScanNTune next to Califlower](img/ScanNTuneComparedToCaliflower.png)
-
-They land on top of each other (X within 0.05%, Y within 0.08%, skew within 0.03°) because they're both
-reading the same printer's error, one by scanning ScanNTune's coupon, the other by hand-measuring
-Califlower's. The difference is the effort: no fistful of caliper reads to keep straight, no diagonal to
-catch square, no transcribing, and it fits all 23 ring centres at once instead of a handful of measurements.
-
-There's one more thing the caliper can't do. A flatbed scanner has its own small anisotropy and skew, and
-if you only took one scan you'd be baking the scanner's error into the printer's numbers. So ScanNTune asks
-for two scans, one flat and one quarter-turned, and averages them. The scanner's error cancels out and the
-printer's stays. The half-difference even tells you how far off your scanner is, as a free diagnostic.
-
-Scale has its own catch. To report shrinkage as a real percentage the software has to know how many pixels
-make a millimetre, and a scanner's stated DPI is rarely exactly what it claims. So there's a one-time
-calibration: scan any plastic card (a credit, debit or loyalty card, they're all the ISO/IEC 7810 ID-1 size,
-85.60 × 53.98 mm held to a tight tolerance) and ScanNTune reads the true pixels-per-millimetre off its
-edges. After that your absolute scale is anchored to a known object instead of a DPI number you're hoping is
-honest. You only redo it if you change scanners.
-
-## What it does
-
-- Reads a printed ring-lattice coupon from a flatbed scan, no manual measuring.
-- Reports X/Y scale error and skew from ring centres, so extrusion width doesn't affect the result.
-- Resolves orientation automatically from the two-solid corner marker, so rotation and mirror-flip are
-  handled with no flip toggles to get wrong.
-- Cancels the scanner's own distortion by averaging a 0° and a quarter-turned scan.
-- Copies out ready-to-paste corrections for whatever you run: Klipper `SET_SKEW`, Marlin
-  `XY_SKEW_FACTOR` / steps-per-mm, Orca / SuperSlicer shrinkage %, and RepRapFirmware `M556`.
-- Anchors absolute scale from a one-time scan of any standard plastic card (ISO/IEC 7810 ID-1), so you
-  don't have to trust the scanner's stated DPI.
-- Fits robustly (Huber / IRLS) and reports an honest residual, so a genuinely warped part shows up in the
-  number instead of being smoothed away.
+- Your printer's X and Y scale error and its skew, read straight off the scan.
+- A ready-to-paste correction for whatever you run: Klipper `SET_SKEW`, Marlin `XY_SKEW_FACTOR` and
+  steps-per-mm, Orca and SuperSlicer shrinkage %, or RepRapFirmware `M556`.
+- The same accuracy as measuring the coupon by hand, without any of the manual measuring.
+- No fuss about how the coupon landed on the glass; ScanNTune figures out the orientation on its own, at any
+  rotation or flip.
 
 ## How you use it
 
-1. Once per scanner: scan a plastic card so ScanNTune learns your scanner's true scale.
-2. Print [`calibration_coupon.stl`](calibration_coupon.stl). Want a different size or grid? Edit
-   [`calibration_coupon.scad`](calibration_coupon.scad) in OpenSCAD and export your own.
-3. Lay it on the scanner and scan it flat, then give it a quarter turn and scan it again.
-4. Load both scans and set the coupon's baseline size (mm).
-5. Copy the snippet for your firmware or slicer and paste it in.
+1. **Once per scanner:** scan any plastic card (a credit, debit or loyalty card) so ScanNTune learns your
+   scanner's true scale. You only redo this if you change scanners.
+2. **Print the coupon:** print [`calibration_coupon.stl`](calibration_coupon.stl) flat on your bed.
+3. **Scan it twice:** lay it on the scanner and scan it flat, then give it a quarter turn and scan it again.
+4. **Load and paste:** open both scans in ScanNTune, then copy the snippet for your firmware or slicer.
 
-## Building and running
+That's it. The whole thing takes a couple of minutes once the coupon is printed.
 
-You'll need the .NET 10 SDK on Windows.
+## Get ScanNTune
+
+ScanNTune runs on Windows. Grab the latest version from the
+[**Releases page**](https://github.com/jaak0b/ScanNTune/releases). It keeps itself up to date after that,
+applying new versions quietly the next time you open it.
+
+---
+
+## Just as good as measuring it by hand
+
+I built this because I got tired of dimensional calibration. The usual routine is a printed coupon and a
+matching calculator, like Vector 3D's "Califlower": print it, measure it corner to corner with calipers,
+measure the diagonals for skew, type all of that into the calculator, and paste the result into your
+firmware. The measuring is the annoying part: several caliper readings to take and keep track of, a diagonal
+for skew that's awkward to measure squarely, and then all of it typed into the calculator without a mistake.
+So I let a scanner do the reading instead.
+
+Here's the same printer measured both ways: ScanNTune's result (left) and Califlower's coupon hand-measured
+into its calculator (right).
+
+![ScanNTune next to Califlower](img/ScanNTuneComparedToCaliflower.png)
+
+The two come out almost exactly the same, differing by only 0.05% in X, 0.08% in Y, and 0.03° in skew. They
+should match, because both are measuring the same printer. The only difference is that ScanNTune reads it
+from a single scan instead of by hand with a caliper.
+
+## Why the numbers hold up
+
+A few design choices are what make a quick scan trustworthy:
+
+- **It measures ring centres, not walls.** The coupon is a lattice of rings, and a ring's centre doesn't
+  move when the walls print fatter or thinner. So over- or under-extrusion can't shift the scale or skew it
+  reports.
+- **It cancels the scanner's own distortion.** A flatbed scanner has a small stretch and skew of its own. If
+  you scanned once, you'd bake that into the printer's numbers. Scanning flat and quarter-turned and
+  averaging the two makes the scanner's error cancel and leaves the printer's. The leftover half-difference
+  even tells you how far off your scanner is, as a free diagnostic.
+- **Absolute scale is anchored to a real object.** A scanner's stated DPI is rarely exactly true, so to
+  report shrinkage as a real percentage ScanNTune reads a standard plastic card instead (they're all the
+  same ISO/IEC 7810 ID-1 size, 85.60 by 53.98 mm, held to a tight tolerance) and works out the true
+  pixels-per-millimetre from its edges.
+- **It reports an honest result.** The fit is robust and it shows you its residual, so a genuinely warped
+  part shows up in the number instead of being quietly smoothed over.
+
+## Building from source
+
+If you'd rather build it yourself, you'll need the .NET 10 SDK on Windows.
 
 ```powershell
 dotnet build src\ScanNTune.slnx
 dotnet run --project src\ScanNTune.App
 ```
+
+Want a different coupon size or grid? Edit [`calibration_coupon.scad`](calibration_coupon.scad) in OpenSCAD
+and export your own STL.
 
 ## License
 

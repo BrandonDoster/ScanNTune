@@ -65,7 +65,7 @@ public sealed class CardEdgeMeasurer : IScaleReferenceMeasurer
             (double mL, double cL, double rmsL, int nL) = FitVerticalEdge(work, y0, y1, wbox.Left, halfWin);
             (double mR, double cR, double rmsR, int nR) = FitVerticalEdge(work, y0, y1, wbox.Right, halfWin);
             if (nL < 15 || nR < 15)
-                return Fail("Couldn't trace the card's long edges — check the scan contrast and that the whole card is on the glass.");
+                return Fail("Couldn't trace the card's long edges. Check the scan contrast and that the whole card is on the glass.");
 
             double yMid = (y0 + y1) / 2.0;
             double xL = mL * yMid + cL;
@@ -73,7 +73,7 @@ public sealed class CardEdgeMeasurer : IScaleReferenceMeasurer
             double mAvg = (mL + mR) / 2.0;
             double widthPx = (xR - xL) / Math.Sqrt(1 + mAvg * mAvg);
             if (widthPx <= 0)
-                return Fail("The detected edges don't bound a card — try re-scanning.");
+                return Fail("The detected edges don't bound a card. Try re-scanning.");
 
             double pxPerMm = widthPx / knownLongSideMm;
             double parallelDeg = Math.Abs(Math.Atan(mL) - Math.Atan(mR)) * 180.0 / Math.PI;
@@ -147,12 +147,12 @@ public sealed class CardEdgeMeasurer : IScaleReferenceMeasurer
         }
         if (best.Width < 120 || best.Height < 120)
         {
-            error = "The detected object is too small — is the card in the scan?";
+            error = "The detected object is too small. Is the card in the scan?";
             return false;
         }
         if (bestArea / ((double)gray.Width * gray.Height) > 0.92)
         {
-            error = "Couldn't separate the card from the background — a pale card needs a dark sheet behind it.";
+            error = "Couldn't separate the card from the background. A pale card needs a dark sheet behind it.";
             return false;
         }
         box = best;

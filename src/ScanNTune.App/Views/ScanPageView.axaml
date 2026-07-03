@@ -63,11 +63,13 @@
             <Setter Property="FontSize" Value="12"/>
         </Style>
 
-        <!-- Slot 2's coupon sits statically quarter-turned; while the slot is hovered it plays the turn. -->
+        <!-- Slot 2's coupon rests quarter-turned (90°); while the slot is hovered it replays the turn from
+             upright, holding at the start and end so the motion is easy to follow. -->
         <Style Selector="Border#Slot2:pointerover Border.turn">
             <Style.Animations>
-                <Animation Duration="0:0:1.7" IterationCount="Infinite">
+                <Animation Duration="0:0:2.6" IterationCount="Infinite">
                     <KeyFrame Cue="0%"><Setter Property="RotateTransform.Angle" Value="0"/></KeyFrame>
+                    <KeyFrame Cue="25%"><Setter Property="RotateTransform.Angle" Value="0"/></KeyFrame>
                     <KeyFrame Cue="65%"><Setter Property="RotateTransform.Angle" Value="90"/></KeyFrame>
                     <KeyFrame Cue="100%"><Setter Property="RotateTransform.Angle" Value="90"/></KeyFrame>
                 </Animation>
@@ -81,7 +83,7 @@
             <StackPanel Spacing="2">
                 <TextBlock Text="Two-scan calibration" FontWeight="Bold" FontSize="18"/>
                 <TextBlock Opacity="0.7" TextWrapping="Wrap"
-                           Text="Scan the coupon, turn it a quarter-turn, and scan again — combining the two cancels your scanner's own X/Y stretch and skew."/>
+                           Text="Scan the coupon, turn it a quarter-turn, and scan again. Combining the two cancels your scanner's own X/Y stretch and skew."/>
             </StackPanel>
 
             <!-- 1 · Calibrate scanner -->
@@ -115,16 +117,19 @@
                                 BorderBrush="{DynamicResource PrimaryBrush}" Foreground="#B7BDF8"
                                 ToolTip.Tip="Copies the 100 mm coupon to a temp folder and lets you pick a program (your slicer) to open it in."/>
                     </Grid>
-                    <TextBlock Classes="tip" Text="100 mm model — opens in your slicer, print it flat."/>
+                    <TextBlock Classes="tip" Text="100 mm model, printed flat. It has to contrast with the scan background, so a white coupon on a white scanner lid will not work; back it with a coloured sheet of paper."/>
                 </StackPanel>
             </Border>
 
             <!-- 3 · Add the two scans -->
             <Border Classes="step">
                 <StackPanel Spacing="14">
-                    <StackPanel Orientation="Horizontal" Spacing="7">
-                        <TextBlock Text="3" Foreground="{DynamicResource PrimaryBrush}" Classes="h4"/>
-                        <TextBlock Text="Add the two scans" Classes="h4"/>
+                    <StackPanel Spacing="3">
+                        <StackPanel Orientation="Horizontal" Spacing="7">
+                            <TextBlock Text="3" Foreground="{DynamicResource PrimaryBrush}" Classes="h4"/>
+                            <TextBlock Text="Add the two scans" Classes="h4"/>
+                        </StackPanel>
+                        <TextBlock Classes="tip" Text="{Binding ScanDpiHint}" IsVisible="{Binding IsCalibrated}"/>
                     </StackPanel>
 
                     <Grid ColumnDefinitions="*,64,*" VerticalAlignment="Center">
@@ -198,7 +203,11 @@
                                     <TextBlock DockPanel.Dock="Bottom" HorizontalAlignment="Center"
                                                Foreground="{DynamicResource PrimaryBrush}" FontSize="13"
                                                Text="Choose file or drop here"/>
-                                    <Border Classes="turn" RenderTransformOrigin="0.5,0.5"
+                                    <!-- Pivots about an off-centre point so the coupon sweeps: the 0° start
+                                         sits offset to the right, and the turn carries it onto the centred 90°
+                                         resting frame. The left Margin shifts the layout right to re-centre 90°. -->
+                                    <Border Classes="turn" Width="80" Height="80" Margin="80,0,0,0"
+                                            RenderTransformOrigin="25%,25%"
                                             HorizontalAlignment="Center" VerticalAlignment="Center"
                                             Background="Transparent">
                                         <Border.RenderTransform>
@@ -261,7 +270,7 @@
 
                     <TextBlock TextWrapping="Wrap" FontSize="12" HorizontalAlignment="Center"
                                Foreground="{DynamicResource TextSecondaryBrush}"
-                               Text="The two solid rings mark the coupon's corner — the app uses them to align both scans."/>
+                               Text="The two solid rings mark the coupon's corner. The app uses them to align both scans."/>
 
                 </StackPanel>
             </Border>

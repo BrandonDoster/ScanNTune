@@ -112,7 +112,7 @@ public partial class ResultsPageViewModel : ViewModelBase
 
     public string RotationWarningText =>
         $"The two scans are {_result.RelativeRotationDegrees:0}° apart, not a quarter-turn. " +
-        "The scanner error was not cancelled — turn the coupon ~90° between scans and try again.";
+        "The scanner error was not cancelled. Turn the coupon ~90° between scans and try again.";
 
     [RelayCommand]
     private void StartOver() => _onStartOver();

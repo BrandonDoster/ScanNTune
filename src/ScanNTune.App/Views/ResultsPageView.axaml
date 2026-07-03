@@ -55,7 +55,7 @@
                         <Image Source="{Binding OverlayA}" Stretch="Uniform" Margin="6"/>
                         <Border VerticalAlignment="Top" HorizontalAlignment="Left" Margin="8"
                                 Background="#99000000" CornerRadius="4" Padding="7,3">
-                            <TextBlock Text="Scan 1 — as placed" FontSize="11" Foreground="#FFFFFF"/>
+                            <TextBlock Text="Scan 1 (as placed)" FontSize="11" Foreground="#FFFFFF"/>
                         </Border>
                     </Panel>
                 </Border>
@@ -64,7 +64,7 @@
                         <Image Source="{Binding OverlayB}" Stretch="Uniform" Margin="6"/>
                         <Border VerticalAlignment="Top" HorizontalAlignment="Left" Margin="8"
                                 Background="#99000000" CornerRadius="4" Padding="7,3">
-                            <TextBlock Text="Scan 2 — quarter-turned" FontSize="11" Foreground="#FFFFFF"/>
+                            <TextBlock Text="Scan 2 (quarter-turned)" FontSize="11" Foreground="#FFFFFF"/>
                         </Border>
                     </Panel>
                 </Border>
