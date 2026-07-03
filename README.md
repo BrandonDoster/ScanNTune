@@ -19,15 +19,6 @@ straight into your firmware or slicer.
 > including the scanner built into an all-in-one printer. No camera photos, no special hardware, and no high
 > end machine required. Scan at 600 DPI, which any normal home or office scanner can do.
 
-## What you get
-
-- Your printer's X and Y scale error and its skew, read straight off the scan.
-- A ready-to-paste correction for whatever you run: Klipper `SET_SKEW`, Marlin `XY_SKEW_FACTOR` and
-  steps-per-mm, Orca and SuperSlicer shrinkage %, or RepRapFirmware `M556`.
-- The same accuracy as measuring the coupon by hand, without any of the manual measuring.
-- No fuss about how the coupon landed on the glass; ScanNTune figures out the orientation on its own, at any
-  rotation or flip.
-
 ## How you use it
 
 1. **Once per scanner:** scan any plastic card (a credit, debit or loyalty card) so ScanNTune learns your
