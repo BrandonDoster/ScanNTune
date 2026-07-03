@@ -23,7 +23,7 @@ printed coupon.
 
 1. **Once per scanner:** scan any plastic card (a credit, debit or loyalty card) so ScanNTune learns your
    scanner's true scale.
-2. **Print the coupon:** print [`calibration_coupon.stl`](calibration_coupon.stl) flat on your bed.
+2. **Print the coupon:** [`calibration_coupon.stl`](calibration_coupon.stl), laid flat on your bed.
 3. **Scan it twice:** lay it on the scanner and scan it flat, then give it a quarter turn and scan it again.
 4. **Load and paste:** open both scans in ScanNTune, then copy the snippet for your firmware or slicer.
 
