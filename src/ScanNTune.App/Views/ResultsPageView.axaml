@@ -150,6 +150,8 @@
                                 <ComboBox Grid.Column="1" MinWidth="140"
                                           ItemsSource="{Binding SkewFlavours}" SelectedItem="{Binding SelectedSkewFlavour}"/>
                             </Grid>
+                            <TextBlock Text="{Binding SkewPrimaryCaption}" IsVisible="{Binding HasSkewPrimaryCaption}"
+                                       Opacity="0.6" FontSize="12"/>
                             <Grid ColumnDefinitions="*,Auto">
                                 <Border Grid.Column="0" Background="{DynamicResource BackgroundBrush}" CornerRadius="6"
                                         BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}" Padding="8">
@@ -158,7 +160,18 @@
                                 </Border>
                                 <Button Grid.Column="1" Content="Copy" Click="OnCopySkew" VerticalAlignment="Top" Margin="8,0,0,0"/>
                             </Grid>
-                            <TextBlock Text="{Binding SkewHint}" TextWrapping="Wrap" Opacity="0.6" FontSize="12"/>
+                            <TextBlock Text="{Binding SkewSecondaryCaption}" IsVisible="{Binding HasSkewSecondary}"
+                                       Opacity="0.6" FontSize="12"/>
+                            <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding HasSkewSecondary}">
+                                <Border Grid.Column="0" Background="{DynamicResource BackgroundBrush}" CornerRadius="6"
+                                        BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}" Padding="8">
+                                    <SelectableTextBlock Text="{Binding SkewSecondaryCode}" FontFamily="Consolas,monospace"
+                                                         FontSize="12.5" TextWrapping="Wrap"/>
+                                </Border>
+                                <Button Grid.Column="1" Content="Copy" Click="OnCopySkewSecondary" VerticalAlignment="Top" Margin="8,0,0,0"/>
+                            </Grid>
+                            <TextBlock Text="{Binding SkewHint}" IsVisible="{Binding HasSkewHint}"
+                                       TextWrapping="Wrap" Opacity="0.6" FontSize="12"/>
                         </StackPanel>
                     </Border>
 
