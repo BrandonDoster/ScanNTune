@@ -62,11 +62,9 @@ from a single scan instead of by hand with a caliper.
 - **Two scans remove the scanner's distortion.** A flatbed scanner has its own slight stretch and skew.
   Scanning the coupon flat, then again quarter-turned, and averaging the two cancels the scanner's error and
   leaves the printer's. The leftover half-difference even tells you how far off your scanner is.
-- **Scale anchored to a real object.** A scanner's stated DPI is rarely exact, so ScanNTune measures a
+- **It calibrates scale off a plastic card.** A scanner's stated DPI is rarely exact, so ScanNTune measures a
   standard plastic card instead (all cards are ISO/IEC 7810 ID-1, 85.60 by 53.98 mm) and reads the true
   pixels-per-millimetre from its edges.
-- **An honest number.** The fit is robust and shows its residual, so a genuinely warped part shows up in the
-  result instead of being smoothed over.
 
 ## Building from source
 
