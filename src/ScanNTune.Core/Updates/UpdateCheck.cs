@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using ScanNTune.Core.Storage;
 
 namespace ScanNTune.Core.Updates;
 
@@ -11,12 +12,19 @@ namespace ScanNTune.Core.Updates;
 /// </summary>
 public sealed class UpdateCheck
 {
+    // GitHub throttles unauthenticated release-feed calls to 60/hour per IP; checking at most once an hour keeps
+    // us far under that no matter how often the app is launched.
+    private const double MinIntervalHours = 1;
+    private const string LastCheckedKey = "update.lastCheckedUtc";
+
     private readonly Func<IAppUpdater> _updaterFactory;
+    private readonly IKeyValueStore _store;
     private readonly ILogger<UpdateCheck> _logger;
 
-    public UpdateCheck(Func<IAppUpdater> updaterFactory, ILogger<UpdateCheck> logger)
+    public UpdateCheck(Func<IAppUpdater> updaterFactory, IKeyValueStore store, ILogger<UpdateCheck> logger)
     {
         _updaterFactory = updaterFactory;
+        _store = store;
         _logger = logger;
     }
 
@@ -24,9 +32,22 @@ public sealed class UpdateCheck
     {
         try
         {
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+            DateTimeOffset lastChecked = _store.GetValue<DateTimeOffset>(LastCheckedKey);
+            if (now - lastChecked < TimeSpan.FromHours(MinIntervalHours))
+            {
+                _logger.LogInformation("Skipping update check; last ran {LastChecked:o}, within the {Hours}h minimum interval.",
+                    lastChecked, MinIntervalHours);
+                return UpdateOutcome.UpToDate;
+            }
+
             var updater = _updaterFactory();
 
             _logger.LogInformation("Checking for updates…");
+            // Record the attempt before the network call so a failure (e.g. a 403 rate-limit) still waits the full
+            // hour rather than retrying on the next launch.
+            _store.SetValue(LastCheckedKey, now);
+
             if (!await updater.CheckForUpdateAsync().ConfigureAwait(false))
             {
                 _logger.LogInformation("No update available.");
