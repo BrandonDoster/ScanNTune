@@ -29,6 +29,13 @@
             <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/>
             <Setter Property="Padding" Value="14"/>
             <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="ClipToBounds" Value="True"/>
+        </Style>
+
+        <!-- The connector arrow points right between the side-by-side slots; when the layout folds to a
+             stack (narrow window or phone) it turns to point down. -->
+        <Style Selector="ctrl|ResponsiveStack:stacked TextBlock.connArrow">
+            <Setter Property="RenderTransform" Value="rotate(90deg)"/>
         </Style>
         <Style Selector="Rectangle.outlineEmpty">
             <Setter Property="RadiusX" Value="12"/>
@@ -97,11 +104,14 @@
                         <Button Grid.Column="1" Content="{Binding CalibrateButtonText}" Command="{Binding CalibrateCommand}"
                                 Classes.accent="{Binding !IsCalibrated}" Padding="10,6" FontSize="12.5"/>
                     </Grid>
-                    <StackPanel Orientation="Horizontal" Spacing="7">
-                        <TextBlock Text="✓" Foreground="{DynamicResource SuccessBrush}" IsVisible="{Binding IsCalibrated}"/>
-                        <TextBlock Text="⚠" Foreground="{DynamicResource WarningBrush}" IsVisible="{Binding !IsCalibrated}"/>
+                    <!-- DockPanel (not a horizontal StackPanel) so the status line wraps instead of clipping on a narrow screen. -->
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Left" Text="✓" Margin="0,0,7,0"
+                                   Foreground="{DynamicResource SuccessBrush}" IsVisible="{Binding IsCalibrated}"/>
+                        <TextBlock DockPanel.Dock="Left" Text="⚠" Margin="0,0,7,0"
+                                   Foreground="{DynamicResource WarningBrush}" IsVisible="{Binding !IsCalibrated}"/>
                         <TextBlock Text="{Binding CalibrationLineText}" Classes="tip"/>
-                    </StackPanel>
+                    </DockPanel>
                 </StackPanel>
             </Border>
 
@@ -132,10 +142,10 @@
                         <TextBlock Classes="tip" Text="{Binding ScanDpiHint}" IsVisible="{Binding IsCalibrated}"/>
                     </StackPanel>
 
-                    <Grid ColumnDefinitions="*,64,*" VerticalAlignment="Center">
+                    <ctrl:ResponsiveStack Breakpoint="520" Spacing="12">
 
                         <!-- Slot 1 -->
-                        <Border x:Name="Slot1" Grid.Column="0" Classes="slot" DragDrop.AllowDrop="True"
+                        <Border x:Name="Slot1" ctrl:ResponsiveStack.Fill="True" Classes="slot" DragDrop.AllowDrop="True"
                                 PointerPressed="OnSlot1Pressed">
                             <Panel>
                                 <Rectangle Classes="outlineEmpty" IsVisible="{Binding !HasScan1}"/>
@@ -175,19 +185,29 @@
                                     </Grid>
                                     <Image Source="{Binding Scan1Thumb}" Stretch="Uniform" Margin="0,8"/>
                                 </DockPanel>
+
+                                <!-- Decode of a large photo blocks the single wasm thread; cover the slot while it runs. -->
+                                <Panel IsVisible="{Binding Scan1Loading}" Background="#88000000">
+                                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8">
+                                        <ProgressBar IsIndeterminate="True" Width="120" Height="4"/>
+                                        <TextBlock Text="Loading…" HorizontalAlignment="Center"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12"/>
+                                    </StackPanel>
+                                </Panel>
                             </Panel>
                         </Border>
 
-                        <!-- Connector -->
-                        <StackPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="2">
-                            <TextBlock Text="↻" FontSize="28" HorizontalAlignment="Center"
+                        <!-- Connector: points right between side-by-side slots, turns to point down when they stack -->
+                        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="2" Margin="4,0">
+                            <TextBlock Classes="connArrow" Text="→" FontSize="26" HorizontalAlignment="Center"
+                                       RenderTransformOrigin="50%,50%"
                                        Foreground="{DynamicResource PrimaryBrush}"/>
                             <TextBlock Text="90°" FontSize="11" HorizontalAlignment="Center"
                                        Foreground="{DynamicResource TextSecondaryBrush}"/>
                         </StackPanel>
 
                         <!-- Slot 2 -->
-                        <Border x:Name="Slot2" Grid.Column="2" Classes="slot" DragDrop.AllowDrop="True"
+                        <Border x:Name="Slot2" ctrl:ResponsiveStack.Fill="True" Classes="slot" DragDrop.AllowDrop="True"
                                 PointerPressed="OnSlot2Pressed">
                             <Panel>
                                 <Rectangle Classes="outlineEmpty" IsVisible="{Binding !HasScan2}"/>
@@ -237,29 +257,37 @@
                                     </Grid>
                                     <Image Source="{Binding Scan2Thumb}" Stretch="Uniform" Margin="0,8"/>
                                 </DockPanel>
+
+                                <Panel IsVisible="{Binding Scan2Loading}" Background="#88000000">
+                                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8">
+                                        <ProgressBar IsIndeterminate="True" Width="120" Height="4"/>
+                                        <TextBlock Text="Loading…" HorizontalAlignment="Center"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12"/>
+                                    </StackPanel>
+                                </Panel>
                             </Panel>
                         </Border>
 
-                    </Grid>
+                    </ctrl:ResponsiveStack>
 
-                    <!-- Slim settings strip -->
-                    <StackPanel Orientation="Horizontal" Spacing="18" Margin="2,0,0,0">
-                        <StackPanel Spacing="3" IsVisible="{Binding !IsCalibrated}">
+                    <!-- Slim settings strip: the steppers wrap to the next line on a narrow screen -->
+                    <WrapPanel Margin="2,0,0,0">
+                        <StackPanel Spacing="3" Margin="0,0,18,10" IsVisible="{Binding !IsCalibrated}">
                             <TextBlock Text="Scanner DPI" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                            <TextBox Text="{Binding DpiText}" Width="80"
-                                     ToolTip.Tip="Pixels-per-mm = DPI ÷ 25.4, from 50 to 9600. Needed for absolute scale; leave blank for anisotropy and skew only."/>
+                            <NumericUpDown Value="{Binding Dpi}" Increment="100" Minimum="50" FormatString="0" Width="150"
+                                           ToolTip.Tip="Pixels-per-mm = DPI ÷ 25.4. Needed for absolute scale; clear it for anisotropy and skew only."/>
                         </StackPanel>
-                        <StackPanel Spacing="3">
+                        <StackPanel Spacing="3" Margin="0,0,18,10">
                             <TextBlock Text="Coupon (mm)" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                            <TextBox Text="{Binding BaselineMmText}" Width="70"
-                                     ToolTip.Tip="Centre-to-centre span of the outermost rings. Default 100."/>
+                            <NumericUpDown Value="{Binding BaselineMm}" Increment="10" Minimum="10" FormatString="0.##" Width="150"
+                                           ToolTip.Tip="Centre-to-centre span of the outermost rings. Default 100."/>
                         </StackPanel>
-                        <StackPanel Spacing="3">
+                        <StackPanel Spacing="3" Margin="0,0,18,10">
                             <TextBlock Text="Rings/side" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                            <TextBox Text="{Binding GridText}" Width="55"
-                                     ToolTip.Tip="Rings per side (grid_n in the model). Default 5."/>
+                            <NumericUpDown Value="{Binding Grid}" Increment="1" Minimum="2" FormatString="0" Width="140"
+                                           ToolTip.Tip="Rings per side (grid_n in the model). Default 5."/>
                         </StackPanel>
-                    </StackPanel>
+                    </WrapPanel>
 
                     <Button Content="Analyze both scans" Classes="accent" HorizontalAlignment="Stretch"
                             HorizontalContentAlignment="Center" Padding="12,10" FontSize="15"

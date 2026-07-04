@@ -7,7 +7,6 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using OpenCvSharp;
 using ScanNTune.Core.Calibration;
-using ScanNTune.Core.Input;
 using ScanNTune.UI.Platform;
 
 namespace ScanNTune.UI.ViewModels;
@@ -29,15 +28,18 @@ public partial class CalibrationPageViewModel : ViewModelBase
     private readonly IPlatformImaging _imaging;
     private readonly Action _onDone;
     private readonly ILogger<CalibrationPageViewModel> _logger;
-    private readonly UserNumberParser _numbers = new();
     private ScaleReferenceResult? _result;
     private bool _initialized;
 
+    // Stepper-driven (NumericUpDown) rather than free text so the fields work on the Android browser, where
+    // the soft keyboard can't commit typed characters. Defaults to the ISO ID-1 nominal (rounded to 85.5) so a
+    // mobile user is not forced to step up from blank in 0.1 mm increments; they can still adjust to a
+    // calipered value. Nullable so the field can be cleared.
     [ObservableProperty]
-    private string _measuredMmText = string.Empty;
+    private decimal? _measuredMm = 85.5m;
 
     [ObservableProperty]
-    private string _dpiText = "600";
+    private decimal? _dpi = 600m;
 
     [ObservableProperty]
     private bool _isDetecting;
@@ -94,8 +96,8 @@ public partial class CalibrationPageViewModel : ViewModelBase
                 StraightnessPx: existing.StraightnessPx,
                 ParallelismDegrees: existing.ParallelismDegrees,
                 EdgePointCount: 0);
-            MeasuredMmText = existing.ReferenceMm.ToString("0.##", CultureInfo.InvariantCulture);
-            DpiText = existing.Dpi.ToString("0", CultureInfo.InvariantCulture);
+            MeasuredMm = (decimal)existing.ReferenceMm;
+            Dpi = (decimal)existing.Dpi;
             Recompute();
             // Reflect the stored state only if the prefill still passes the input checks — a stored
             // calibration outside today's bounds must not show a saved checkmark over hidden figures.
@@ -109,15 +111,15 @@ public partial class CalibrationPageViewModel : ViewModelBase
     public bool CanUpload => TryInputs(out _, out _);
 
     public bool IsoSanityWarn =>
-        _numbers.TryParseDouble(MeasuredMmText, out double v)
-        && v > 0 && Math.Abs(v - IsoLongMm) > IsoToleranceMm;
+        MeasuredMm is { } m && (double)m > 0 && Math.Abs((double)m - IsoLongMm) > IsoToleranceMm;
 
     public string IsoSanityText
     {
         get
         {
-            if (!_numbers.TryParseDouble(MeasuredMmText, out double v) || v <= 0)
+            if (MeasuredMm is not { } m || (double)m <= 0)
                 return "Enter your calipered value.";
+            double v = (double)m;
             double d = v - IsoLongMm;
             if (Math.Abs(d) <= IsoToleranceMm)
                 return "In range for an ISO card (≈85.60 mm).";
@@ -131,7 +133,7 @@ public partial class CalibrationPageViewModel : ViewModelBase
         if (!TryInputs(out double mm, out double dpi))
         {
             IsError = true;
-            StatusText = "Enter your measured size and a DPI between 50 and 9600 first.";
+            StatusText = "Enter your measured size and a DPI of at least 50 first.";
             return;
         }
 
@@ -250,7 +252,7 @@ public partial class CalibrationPageViewModel : ViewModelBase
 
     partial void OnStatusTextChanged(string value) => OnPropertyChanged(nameof(HasStatus));
 
-    partial void OnMeasuredMmTextChanged(string value)
+    partial void OnMeasuredMmChanged(decimal? value)
     {
         ClearErrorOnEdit();
         OnPropertyChanged(nameof(IsoSanityText));
@@ -259,7 +261,7 @@ public partial class CalibrationPageViewModel : ViewModelBase
         Recompute();
     }
 
-    partial void OnDpiTextChanged(string value)
+    partial void OnDpiChanged(decimal? value)
     {
         ClearErrorOnEdit();
         OnPropertyChanged(nameof(CanUpload));
@@ -278,10 +280,10 @@ public partial class CalibrationPageViewModel : ViewModelBase
 
     private bool TryInputs(out double mm, out double dpi)
     {
-        // 50-9600 dpi spans every real flatbed; anything outside is a typo or a misread
-        // thousands separator ("1.200" parsing as 1.2), same bounds as the scan page.
-        dpi = 0;
-        return _numbers.TryParseDouble(MeasuredMmText, out mm) && mm > 0
-            && _numbers.TryParseDouble(DpiText, out dpi) && dpi >= 50 && dpi <= 9600;
+        // A DPI floor of 50 rules out a mistyped value; there is no ceiling, so an unusually high-resolution
+        // scan is never rejected. The steppers already prevent non-numeric or negative entries.
+        mm = MeasuredMm is { } m ? (double)m : 0;
+        dpi = Dpi is { } d ? (double)d : 0;
+        return mm > 0 && dpi >= 50;
     }
 }

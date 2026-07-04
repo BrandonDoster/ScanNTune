@@ -109,9 +109,9 @@ public partial class ScanPageView : UserControl
         {
             byte[] data = await _files.ReadAllBytesAsync(file);
             if (isFirst)
-                vm.LoadScan1(file.Name, data);
+                await vm.LoadScan1Async(file.Name, data);
             else
-                vm.LoadScan2(file.Name, data);
+                await vm.LoadScan2Async(file.Name, data);
         }
         catch (Exception ex)
         {

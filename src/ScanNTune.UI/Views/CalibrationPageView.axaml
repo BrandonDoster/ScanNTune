@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:ScanNTune.UI.ViewModels"
+             xmlns:ctrl="using:ScanNTune.UI.Controls"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="820"
@@ -109,10 +110,10 @@
                     </StackPanel>
                 </Border>
 
-                <!-- 2 · What to measure  +  3 · Your numbers -->
-                <Grid ColumnDefinitions="*,*" ColumnSpacing="14">
+                <!-- 2 · What to measure  +  3 · Your numbers (side by side on a wide window, stacked when narrow) -->
+                <ctrl:ResponsiveStack Breakpoint="620" Spacing="14">
 
-                    <Border Grid.Column="0" Classes="panel">
+                    <Border ctrl:ResponsiveStack.Fill="True" Classes="panel">
                         <StackPanel Spacing="8">
                             <StackPanel Orientation="Horizontal" Spacing="7">
                                 <TextBlock Text="2" Foreground="{DynamicResource PrimaryBrush}" Classes="h4"/>
@@ -146,7 +147,7 @@
                         </StackPanel>
                     </Border>
 
-                    <Border Grid.Column="1" Classes="panel">
+                    <Border ctrl:ResponsiveStack.Fill="True" Classes="panel">
                         <StackPanel Spacing="10">
                             <StackPanel Orientation="Horizontal" Spacing="7">
                                 <TextBlock Text="3" Foreground="{DynamicResource PrimaryBrush}" Classes="h4"/>
@@ -155,14 +156,16 @@
                             <StackPanel Spacing="4">
                                 <TextBlock Text="Measured long side" Classes="tlab"/>
                                 <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <TextBox Text="{Binding MeasuredMmText}" Width="110" PlaceholderText="85.50"/>
+                                    <NumericUpDown Value="{Binding MeasuredMm}" Increment="0.02" Minimum="1"
+                                                   FormatString="0.00" Width="150" PlaceholderText="85.50"/>
                                     <TextBlock Text="mm" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}"/>
                                 </StackPanel>
                             </StackPanel>
                             <StackPanel Spacing="4">
                                 <TextBlock Text="Scan resolution" Classes="tlab"/>
                                 <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <TextBox Text="{Binding DpiText}" Width="110" PlaceholderText="600"/>
+                                    <NumericUpDown Value="{Binding Dpi}" Increment="100" Minimum="50"
+                                                   FormatString="0" Width="150" PlaceholderText="600"/>
                                     <TextBlock Text="dpi" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}"/>
                                 </StackPanel>
                                 <TextBlock Text="For best results, scan at 600 dpi. Use the same resolution for your coupon."
@@ -172,7 +175,7 @@
                                        Classes="sanity" Classes.warn="{Binding IsoSanityWarn}"/>
                         </StackPanel>
                     </Border>
-                </Grid>
+                </ctrl:ResponsiveStack>
 
                 <!-- Upload (the whole page is also a drop target) -->
                 <Border BorderBrush="{DynamicResource BorderStrongBrush}" BorderThickness="1.4" CornerRadius="12"
