@@ -153,8 +153,7 @@
                     <ctrl:ResponsiveStack Breakpoint="520" Spacing="12">
 
                         <!-- Slot 1 -->
-                        <Border x:Name="Slot1" ctrl:ResponsiveStack.Fill="True" Classes="slot" DragDrop.AllowDrop="True"
-                                Tapped="OnSlot1Tapped">
+                        <Border x:Name="Slot1" ctrl:ResponsiveStack.Fill="True" Classes="slot" DragDrop.AllowDrop="True">
                             <Panel>
                                 <Rectangle Classes="outlineEmpty" IsVisible="{Binding !HasScan1}"/>
                                 <Rectangle Classes="outlineFilled" IsVisible="{Binding HasScan1}"/>
@@ -215,8 +214,7 @@
                         </StackPanel>
 
                         <!-- Slot 2 -->
-                        <Border x:Name="Slot2" ctrl:ResponsiveStack.Fill="True" Classes="slot" DragDrop.AllowDrop="True"
-                                Tapped="OnSlot2Tapped">
+                        <Border x:Name="Slot2" ctrl:ResponsiveStack.Fill="True" Classes="slot" DragDrop.AllowDrop="True">
                             <Panel>
                                 <Rectangle Classes="outlineEmpty" IsVisible="{Binding !HasScan2}"/>
                                 <Rectangle Classes="outlineFilled" IsVisible="{Binding HasScan2}"/>
