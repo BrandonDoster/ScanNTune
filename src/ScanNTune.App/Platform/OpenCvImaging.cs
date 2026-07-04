@@ -17,4 +17,14 @@ public sealed class OpenCvImaging : IPlatformImaging
         }
         return image;
     }
+
+    public (int Width, int Height) GetImageSize(byte[] data)
+    {
+        // Desktop decodes natively and fast, so a full decode to read the size is fine here; there is no
+        // memory pressure to warrant a header-only path as there is in the browser.
+        using Mat image = Cv2.ImDecode(data, ImreadModes.Color);
+        if (image.Empty())
+            throw new InvalidOperationException("Could not decode the image.");
+        return (image.Width, image.Height);
+    }
 }

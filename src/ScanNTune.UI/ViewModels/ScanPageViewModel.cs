@@ -35,10 +35,15 @@ public partial class ScanPageViewModel : ViewModelBase
     private readonly ScannerCalibration? _calibration;
     private readonly ILogger<ScanPageViewModel> _logger;
 
+    // A downscaled preview is decoded for display; the caption still shows the scan's true pixel size, kept here.
+    private const int ThumbnailWidth = 1000;
+
     private byte[]? _scan1Data;
     private byte[]? _scan2Data;
     private string? _scan1Name;
     private string? _scan2Name;
+    private (int Width, int Height)? _scan1Size;
+    private (int Width, int Height)? _scan2Size;
 
     [ObservableProperty]
     private Bitmap? _scan1Thumb;
@@ -147,14 +152,14 @@ public partial class ScanPageViewModel : ViewModelBase
 
     public bool HasStatus => !string.IsNullOrEmpty(StatusText);
 
-    public string Scan1Caption => Caption(_scan1Name, Scan1Thumb);
+    public string Scan1Caption => Caption(_scan1Name, _scan1Size);
 
-    public string Scan2Caption => Caption(_scan2Name, Scan2Thumb);
+    public string Scan2Caption => Caption(_scan2Name, _scan2Size);
 
-    private string Caption(string? name, Bitmap? bitmap) =>
-        name is null || bitmap is null
+    private string Caption(string? name, (int Width, int Height)? size) =>
+        name is null || size is not { } s
             ? string.Empty
-            : $"{name} · {bitmap.PixelSize.Width}×{bitmap.PixelSize.Height}";
+            : $"{name} · {s.Width}×{s.Height}";
 
     /// <summary>Load the first (0°) scan from its encoded bytes; a bad image is surfaced, not thrown.</summary>
     public Task LoadScan1Async(string name, byte[] data) => LoadAsync(name, data, isFirst: true);
@@ -174,15 +179,26 @@ public partial class ScanPageViewModel : ViewModelBase
         await Task.Yield();
         try
         {
-            // Avalonia decodes with Skia on every platform, so the thumbnail works in the browser too.
+            // Decode the preview downscaled. A full-resolution decode of a large phone photo would allocate
+            // tens to hundreds of MB on the single wasm thread near the heap ceiling: that is the multi-minute
+            // wait and the intermittent out-of-memory that only shows on mobile. DecodeToWidth samples at the
+            // codec level, so the preview stays small and fast. The true pixel size for the caption comes from
+            // the image header via the platform imaging, so the downscale does not misreport the resolution.
+            // Read the true size first (cheap header read): it feeds the caption, and getting it before the
+            // decode means a bad header fails fast with no preview bitmap left orphaned. Decode the preview to
+            // the smaller of the target and the source width, so a small scan stays crisp (never upscaled) while
+            // a large photo is sampled down.
+            (int Width, int Height) size = _imaging.GetImageSize(data);
+            int targetWidth = size.Width > 0 ? Math.Min(ThumbnailWidth, size.Width) : ThumbnailWidth;
             using var stream = new MemoryStream(data);
-            var bitmap = new Bitmap(stream);
+            Bitmap bitmap = Bitmap.DecodeToWidth(stream, targetWidth);
             if (isFirst)
             {
                 Scan1Thumb?.Dispose();
                 Scan1Thumb = bitmap;
                 _scan1Data = data;
                 _scan1Name = name;
+                _scan1Size = size;
                 Scan1Failed = false;
                 Scan1Note = string.Empty;
                 OnPropertyChanged(nameof(HasScan1));
@@ -194,6 +210,7 @@ public partial class ScanPageViewModel : ViewModelBase
                 Scan2Thumb = bitmap;
                 _scan2Data = data;
                 _scan2Name = name;
+                _scan2Size = size;
                 Scan2Failed = false;
                 Scan2Note = string.Empty;
                 OnPropertyChanged(nameof(HasScan2));

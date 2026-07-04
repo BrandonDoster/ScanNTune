@@ -12,4 +12,10 @@ public interface IPlatformImaging
 {
     /// <summary>Decode encoded image bytes into a 3-channel BGR Mat, the layout the engine expects.</summary>
     Mat DecodeBgr(byte[] data);
+
+    /// <summary>
+    /// Read only the pixel dimensions of encoded image bytes, cheaply (from the header where the codec allows),
+    /// so a downscaled preview thumbnail can still report the scan's true resolution.
+    /// </summary>
+    (int Width, int Height) GetImageSize(byte[] data);
 }
