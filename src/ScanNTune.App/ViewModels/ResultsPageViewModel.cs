@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using ScanNTune.Core;
+using ScanNTune.Core.Input;
 using ScanNTune.Core.Output;
 
 namespace ScanNTune.App.ViewModels;
@@ -20,6 +20,7 @@ public partial class ResultsPageViewModel : ViewModelBase
     private readonly CouponSpec _coupon;
     private readonly ICorrectionFormatter _corrections;
     private readonly Action _onStartOver;
+    private readonly UserNumberParser _numbers = new();
 
     [ObservableProperty]
     private string _selectedSkewFlavour;
@@ -126,9 +127,11 @@ public partial class ResultsPageViewModel : ViewModelBase
 
     public bool RotationWarningVisible => !_result.RotationLooksValid;
 
-    public string RotationWarningText =>
-        $"The two scans are {_result.RelativeRotationDegrees:0}° apart, not a quarter-turn. " +
-        "The scanner error was not cancelled. Turn the coupon ~90° between scans and try again.";
+    public string RotationWarningText => _result.FlipMismatch
+        ? "One scan is mirror-flipped relative to the other, so the scanner error was not cancelled. " +
+          "Scan both with the same face on the glass and try again."
+        : $"The two scans are {_result.RelativeRotationDegrees:0}° apart, not a quarter-turn. " +
+          "The scanner error was not cancelled. Turn the coupon ~90° between scans and try again.";
 
     [RelayCommand]
     private void StartOver() => _onStartOver();
@@ -148,8 +151,8 @@ public partial class ResultsPageViewModel : ViewModelBase
 
     private void RecomputeSize()
     {
-        double? currentX = ShowCurrentInputs && double.TryParse(CurrentXText, NumberStyles.Float, CultureInfo.InvariantCulture, out double x) ? x : null;
-        double? currentY = ShowCurrentInputs && double.TryParse(CurrentYText, NumberStyles.Float, CultureInfo.InvariantCulture, out double y) ? y : null;
+        double? currentX = ShowCurrentInputs && _numbers.TryParseDouble(CurrentXText, out double x) ? x : null;
+        double? currentY = ShowCurrentInputs && _numbers.TryParseDouble(CurrentYText, out double y) ? y : null;
 
         Correction correction = _corrections.Size(SelectedSizeFlavour, Combined.XScalePercent, Combined.YScalePercent, currentX, currentY);
         SizeCode = correction.Code;

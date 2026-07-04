@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using ScanNTune.Core;
 using ScanNTune.Core.Calibration;
 using ScanNTune.Core.Combining;
+using ScanNTune.Core.Input;
 using ScanNTune.Core.Output;
 
 namespace ScanNTune.App.ViewModels;
@@ -28,6 +29,7 @@ public partial class ScanPageViewModel : ViewModelBase
     private readonly Action _onCalibrate;
     private readonly ScannerCalibration? _calibration;
     private readonly ILogger<ScanPageViewModel> _logger;
+    private readonly UserNumberParser _numbers = new();
 
     [ObservableProperty]
     private string? _scan1Path;
@@ -187,15 +189,35 @@ public partial class ScanPageViewModel : ViewModelBase
         {
             // With a stored calibration, use the scanner's measured px/mm directly (the coupon is
             // scanned at the calibrated DPI); otherwise fall back to the entered nominal DPI/25.4
-            // (anisotropy + skew stay correct either way).
+            // (anisotropy + skew stay correct either way). A typed DPI that doesn't parse or is
+            // outside any real scanner's range is an error, not a silent fallback: a misread DPI
+            // corrupts the absolute scale without a trace.
             double? pxPerMm;
             if (_calibration is not null)
+            {
                 pxPerMm = _calibration.PxPerMm;
+            }
+            else if (string.IsNullOrWhiteSpace(DpiText))
+            {
+                pxPerMm = null; // deliberate: anisotropy + skew only
+            }
+            else if (_numbers.TryParseDouble(DpiText, out double dpi) && dpi is >= 50 and <= 9600)
+            {
+                pxPerMm = dpi / 25.4;
+            }
             else
-                pxPerMm = double.TryParse(DpiText, NumberStyles.Float, CultureInfo.InvariantCulture, out double dpi) && dpi > 0
-                    ? dpi / 25.4
-                    : null;
-            CouponSpec coupon = BuildCoupon();
+            {
+                IsError = true;
+                StatusText = "Scanner DPI must be a number between 50 and 9600, or left blank for anisotropy and skew only.";
+                return;
+            }
+
+            if (!TryBuildCoupon(out CouponSpec coupon, out string couponError))
+            {
+                IsError = true;
+                StatusText = couponError;
+                return;
+            }
             var options = new AnalysisOptions { PxPerMm = pxPerMm, Coupon = coupon };
 
             (TwoScanResult result, byte[] overlayA, byte[] overlayB) = await Task.Run(() =>
@@ -282,14 +304,37 @@ public partial class ScanPageViewModel : ViewModelBase
 
     partial void OnStatusTextChanged(string value) => OnPropertyChanged(nameof(HasStatus));
 
-    private CouponSpec BuildCoupon()
+    /// <summary>
+    /// Builds the coupon spec from the text fields. A blank field keeps the default; a filled
+    /// field that doesn't parse is an ERROR — silently reverting to the 100 mm default would
+    /// make every scale figure and the Klipper skew lengths wrong with no indication.
+    /// </summary>
+    private bool TryBuildCoupon(out CouponSpec coupon, out string error)
     {
-        var coupon = new CouponSpec();
-        if (double.TryParse(BaselineMmText, NumberStyles.Float, CultureInfo.InvariantCulture, out double baseline) && baseline > 0)
+        coupon = new CouponSpec();
+        error = string.Empty;
+
+        if (!string.IsNullOrWhiteSpace(BaselineMmText))
+        {
+            if (!_numbers.TryParseDouble(BaselineMmText, out double baseline) || baseline <= 0)
+            {
+                error = $"Coupon size \"{BaselineMmText}\" is not a valid length in mm.";
+                return false;
+            }
             coupon = coupon with { BaselineMm = baseline };
-        if (int.TryParse(GridText, NumberStyles.Integer, CultureInfo.InvariantCulture, out int grid) && grid >= 2)
+        }
+
+        if (!string.IsNullOrWhiteSpace(GridText))
+        {
+            if (!_numbers.TryParseInt(GridText, out int grid) || grid < 2)
+            {
+                error = $"Rings per side \"{GridText}\" is not a whole number of 2 or more.";
+                return false;
+            }
             coupon = coupon with { GridN = grid };
-        return coupon;
+        }
+
+        return true;
     }
 
     private Bitmap ToBitmap(byte[] png)

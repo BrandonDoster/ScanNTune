@@ -247,7 +247,7 @@
                         <StackPanel Spacing="3" IsVisible="{Binding !IsCalibrated}">
                             <TextBlock Text="Scanner DPI" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
                             <TextBox Text="{Binding DpiText}" Width="80"
-                                     ToolTip.Tip="Pixels-per-mm = DPI ÷ 25.4. Needed for absolute scale; leave blank for anisotropy only."/>
+                                     ToolTip.Tip="Pixels-per-mm = DPI ÷ 25.4, from 50 to 9600. Needed for absolute scale; leave blank for anisotropy and skew only."/>
                         </StackPanel>
                         <StackPanel Spacing="3">
                             <TextBlock Text="Coupon (mm)" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>

@@ -36,7 +36,12 @@ public sealed class CorrectionFormatter : ICorrectionFormatter
     {
         ArgumentNullException.ThrowIfNull(coupon);
 
-        double tan = Math.Tan(skewDegrees * Math.PI / 180.0);
+        // skewDegrees is the measured corner-angle error (angle − 90°). The shear the firmwares
+        // model, x' = x + tan·y, CLOSES the corner, so its coefficient is the negation of the
+        // angle error. All three emissions below are stated in terms of that shear coefficient
+        // and are verified against the firmware sources (klippy skew_correction.py applies
+        // x − y·factor; Marlin planner.h subtracts; RRF Move.cpp adds).
+        double tan = Math.Tan(-skewDegrees * Math.PI / 180.0);
         if (!double.IsFinite(tan) || Math.Abs(skewDegrees) >= 45.0)
             return new Correction("skew out of range, check the scan", "A real coupon skews well under 1°; this suggests a detection problem.");
 
@@ -48,8 +53,10 @@ public sealed class CorrectionFormatter : ICorrectionFormatter
                     string.Format(_inv, "Send via console; M500 saves it. Or set #define XY_SKEW_FACTOR {0:0.000000} in Configuration.h.", tan));
 
             case RepRap:
+                // RRF's user-to-machine transform ADDS tanXY·Y (Move.cpp AxisTransform), the
+                // opposite of Marlin's planner which subtracts — so RRF needs the negated factor.
                 return new Correction(
-                    string.Format(_inv, "M556 S100 X{0:0.000}", 100.0 * tan),
+                    string.Format(_inv, "M556 S100 X{0:0.000}", -100.0 * tan),
                     "Add to config.g.");
 
             default: // Klipper
@@ -68,20 +75,32 @@ public sealed class CorrectionFormatter : ICorrectionFormatter
 
     public Correction Size(string flavour, double xScalePercent, double yScalePercent, double? currentX, double? currentY)
     {
+        // A real printer's dimensional error is well under 2%; a reading beyond a few percent means
+        // a wrong DPI (a 2x mismatch reads ±50-100%) or a broken detection. Refusing to synthesize
+        // firmware commands from it matters: at +100% the steps/mm branch would emit M92 X0.000.
+        if (!double.IsFinite(xScalePercent) || !double.IsFinite(yScalePercent)
+            || Math.Abs(xScalePercent) >= 10.0 || Math.Abs(yScalePercent) >= 10.0)
+            return new Correction(
+                "scale out of range, check the scan and DPI",
+                "A real printer errs well under 2%; this suggests the scan DPI doesn't match the calibration, or a detection problem.");
+
         double xf = xScalePercent / 100.0;
         double yf = yScalePercent / 100.0;
         double avg = (xf + yf) / 2.0;
 
+        // The exact correction is the nominal/measured ratio: new = current / (1 + error). The
+        // first-order form current × (1 − error) leaves an error² residual, so the ratio is used
+        // throughout (shrinkage and rotation distance are already exact in their (1 + error) form).
         switch (flavour)
         {
             case StepsPerMm:
                 if (currentX is { } sx && currentY is { } sy)
                     return new Correction(
-                        string.Format(_inv, "M92 X{0:0.000} Y{1:0.000}\nM500", sx * (1.0 - xf), sy * (1.0 - yf)),
-                        "Send via console; M500 saves. (Marlin M92 / Klipper steps.)");
+                        string.Format(_inv, "M92 X{0:0.000} Y{1:0.000}\nM500", sx / (1.0 + xf), sy / (1.0 + yf)),
+                        "Send via console; M500 saves (Marlin). On Klipper use the Rotation distance flavour.");
                 return new Correction(
                     "enter current steps/mm above",
-                    "New = current × (1 − error), per axis.");
+                    "New = current / (1 + error), per axis.");
 
             case RotationDistance:
                 if (currentX is { } rx && currentY is { } ry)
@@ -94,7 +113,7 @@ public sealed class CorrectionFormatter : ICorrectionFormatter
 
             case Scale:
                 return new Correction(
-                    string.Format(_inv, "X {0:0.00} %   Y {1:0.00} %", (1.0 - xf) * 100.0, (1.0 - yf) * 100.0),
+                    string.Format(_inv, "X {0:0.00} %   Y {1:0.00} %", 100.0 / (1.0 + xf), 100.0 / (1.0 + yf)),
                     "Scale the model per-axis in your slicer (X and Y can differ).");
 
             default: // Shrinkage

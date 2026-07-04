@@ -70,8 +70,9 @@ Two rings are printed SOLID (no hole) as the **orientation marker**: the origin 
 `GridMapper` finds the unique "corner + edge-neighbour" pair of missing (holeless) grid vertices;
 `origin → neighbour` is the coupon's +X. Because that gives the true physical axes, X/Y labels **and** the
 skew sign come out correct at any rotation or mirror-flip — **no manual flip flag**. The marker is
-**required**: if it can't be located `GridMapper.Map` throws (it tolerates one stray missed hole, but not an
-absent marker — there is deliberately no rotation-only fallback).
+**required**: if it can't be located `GridMapper.Map` throws (it tolerates at most one stray missed hole — a stray adjacent to a corner
+makes the marker ambiguous and is rejected too — but not an absent marker; there is deliberately no
+rotation-only fallback).
 
 `RingDetector` gotcha: the circularity gate is **loose (0.20)** because real printed/scanned holes are rough
 (~0.2–0.8 circularity). Rings are separated from the much larger square lattice cells by a **size cluster**
@@ -129,3 +130,10 @@ The coding rules are strict; each is numbered for unambiguous reference:
    titles via `.github/release.yml`: a PR appears only if it carries `feature` (→ Features) or
    `fix`/`bug` (→ Fixes). Label any user-facing change accordingly (pairs with rule 8 — the PR title
    is the release-note sentence); leave CI/chore/docs-only PRs unlabeled.
+
+10. **Never use the em-dash character `—`, and never use a hyphen `-` as a substitute for it.** The
+    em-dash is banned everywhere you write: source, comments, docs, UI text, commit messages, PR
+    titles and bodies, issue/PR comments, and chat replies. Do not swap in a hyphen `-` to get the
+    same dash-like pause either. Rewrite the sentence: use a colon, parentheses, a comma, or two
+    separate sentences. A hyphen is allowed ONLY where grammar genuinely requires one, such as a
+    compound modifier ("sub-pixel", "user-facing") or a hyphenated name.

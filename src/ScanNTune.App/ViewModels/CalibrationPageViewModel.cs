@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using ScanNTune.Core.Calibration;
+using ScanNTune.Core.Input;
 
 namespace ScanNTune.App.ViewModels;
 
@@ -24,6 +25,7 @@ public partial class CalibrationPageViewModel : ViewModelBase
     private readonly ICalibrationStore _store;
     private readonly Action _onDone;
     private readonly ILogger<CalibrationPageViewModel> _logger;
+    private readonly UserNumberParser _numbers = new();
     private ScaleReferenceResult? _result;
     private bool _initialized;
 
@@ -90,7 +92,9 @@ public partial class CalibrationPageViewModel : ViewModelBase
             MeasuredMmText = existing.ReferenceMm.ToString("0.##", CultureInfo.InvariantCulture);
             DpiText = existing.Dpi.ToString("0", CultureInfo.InvariantCulture);
             Recompute();
-            Saved = true;
+            // Reflect the stored state only if the prefill still passes the input checks — a stored
+            // calibration outside today's bounds must not show a saved checkmark over hidden figures.
+            Saved = HasResult;
         }
         _initialized = true;
     }
@@ -100,14 +104,14 @@ public partial class CalibrationPageViewModel : ViewModelBase
     public bool CanUpload => TryInputs(out _, out _);
 
     public bool IsoSanityWarn =>
-        double.TryParse(MeasuredMmText, NumberStyles.Float, CultureInfo.InvariantCulture, out double v)
+        _numbers.TryParseDouble(MeasuredMmText, out double v)
         && v > 0 && Math.Abs(v - IsoLongMm) > IsoToleranceMm;
 
     public string IsoSanityText
     {
         get
         {
-            if (!double.TryParse(MeasuredMmText, NumberStyles.Float, CultureInfo.InvariantCulture, out double v) || v <= 0)
+            if (!_numbers.TryParseDouble(MeasuredMmText, out double v) || v <= 0)
                 return "Enter your calipered value.";
             double d = v - IsoLongMm;
             if (Math.Abs(d) <= IsoToleranceMm)
@@ -122,7 +126,7 @@ public partial class CalibrationPageViewModel : ViewModelBase
         if (!TryInputs(out double mm, out double dpi))
         {
             IsError = true;
-            StatusText = "Enter your measured size and DPI first.";
+            StatusText = "Enter your measured size and a DPI between 50 and 9600 first.";
             return;
         }
 
@@ -188,7 +192,8 @@ public partial class CalibrationPageViewModel : ViewModelBase
         string entered = mm.ToString("0.00", CultureInfo.InvariantCulture);
         SizeSentence = SizeCheckOk
             ? $"Detected {detected} mm, matches your {entered} mm."
-            : $"Detected {detected} mm doesn't match your {entered} mm. Re-check the DPI or your measurement.";
+            : $"Detected {detected} mm doesn't match your {entered} mm. Re-check the DPI and your " +
+              "measurement. Printed artwork near the card edge can also mislead the detection; a plain edge works best.";
         HasResult = true;
         Persist();
     }
@@ -261,8 +266,10 @@ public partial class CalibrationPageViewModel : ViewModelBase
 
     private bool TryInputs(out double mm, out double dpi)
     {
+        // 50-9600 dpi spans every real flatbed; anything outside is a typo or a misread
+        // thousands separator ("1.200" parsing as 1.2), same bounds as the scan page.
         dpi = 0;
-        return double.TryParse(MeasuredMmText, NumberStyles.Float, CultureInfo.InvariantCulture, out mm) && mm > 0
-            && double.TryParse(DpiText, NumberStyles.Float, CultureInfo.InvariantCulture, out dpi) && dpi > 0;
+        return _numbers.TryParseDouble(MeasuredMmText, out mm) && mm > 0
+            && _numbers.TryParseDouble(DpiText, out dpi) && dpi >= 50 && dpi <= 9600;
     }
 }

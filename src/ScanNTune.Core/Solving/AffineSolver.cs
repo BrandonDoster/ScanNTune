@@ -20,10 +20,12 @@ public sealed class AffineSolver : IAffineSolver
     private readonly double _huberTune;
     private readonly int _iterations;
 
-    // 1.345 is the standard Huber tuning constant: it gives ~95% efficiency relative to least
-    // squares on clean Gaussian data while still bounding an outlier's influence. It is a property
-    // of the M-estimator, not a value fitted to any scan.
-    public AffineSolver(bool robust = true, double huberTune = 1.345, int iterations = 4)
+    // The residuals weighted here are 2D norms, so the tuning constant is set on the Rayleigh
+    // distribution those norms follow under isotropic Gaussian noise: sqrt(2·ln 20) ≈ 2.4477 is
+    // the Rayleigh 95th percentile (in per-axis sigma units), so ~5% of clean points are
+    // down-weighted — the 2D analogue of Huber's 1D 1.345 at ~95% efficiency. A distribution
+    // property, not a value fitted to any scan.
+    public AffineSolver(bool robust = true, double huberTune = 2.4477, int iterations = 4)
     {
         _robust = robust;
         _huberTune = huberTune;
@@ -71,6 +73,12 @@ public sealed class AffineSolver : IAffineSolver
         double scaleX = Math.Sqrt(a * a + c2 * c2);
         double scaleY = Math.Sqrt(b * b + d * d);
 
+        // Skew is reported as the measured ERROR, like the scale figures: the X/Y corner angle
+        // minus its nominal 90°. Positive = the corner opened past square, negative = it closed
+        // (the part sheared x' = x + t·y). The firmware shear factor is the NEGATION of this
+        // error — that conversion lives in CorrectionFormatter, at the firmware boundary. The dot
+        // product is invariant under rotation and reflection, so the sign holds at any pose,
+        // mirrored or not.
         double cosBetween = (a * b + c2 * d) / (scaleX * scaleY);
         cosBetween = Math.Clamp(cosBetween, -1.0, 1.0);
         double skewDegrees = Math.Acos(cosBetween) * 180.0 / Math.PI - 90.0;
@@ -126,13 +134,15 @@ public sealed class AffineSolver : IAffineSolver
             residuals[i] = Math.Sqrt(ex * ex + ey * ey);
         }
 
-        // Robust scale via the median absolute residual (MAD, scaled to a Gaussian sigma). Average
-        // the two central order statistics for even n so the median is unbiased regardless of hole
-        // count.
+        // Robust scale from the median of the 2D residual norms. Under isotropic Gaussian noise
+        // the norm is Rayleigh-distributed with median sigma·sqrt(2·ln 2), so dividing by that
+        // constant makes the estimate consistent for the per-axis sigma (the 1D MAD constant
+        // 1.4826 would overestimate it by ~1.75x and blunt the down-weighting). Average the two
+        // central order statistics for even n so the median is unbiased regardless of hole count.
         var sorted = (double[])residuals.Clone();
         Array.Sort(sorted);
         double median = n % 2 == 1 ? sorted[n / 2] : 0.5 * (sorted[n / 2 - 1] + sorted[n / 2]);
-        double sigma = 1.4826 * median;
+        double sigma = median / Math.Sqrt(2.0 * Math.Log(2.0));
         if (sigma < 1e-6)
             return false;
 
