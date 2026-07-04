@@ -54,25 +54,23 @@ export function pickImageFile(title) {
         heading.textContent = title;
         heading.style.cssText = "font-size:15px;font-weight:500;margin-bottom:14px;";
 
-        // Our own styled button is what the user sees; the real <input> is layered transparently over it, so
-        // all of the browser's default file-input chrome (the plain button, the "No file chosen" text) is
-        // hidden underneath and only this styling shows.
-        const button = document.createElement("div");
-        button.textContent = "Choose file";
-        button.style.cssText = "position:relative;overflow:hidden;background:#3f6fd8;color:#fff;text-align:center;padding:14px;border-radius:10px;font-size:16px;font-weight:500;cursor:pointer;";
+        // Show the REAL <input type=file> directly and visibly. iOS Safari opens the OS file dialog only from a
+        // genuine tap on a visible input; a transparent overlay input (opacity:0) does get tapped but iOS will
+        // not honour it, so the dialog never opens (confirmed on a device). Its button chrome is themed via
+        // ::file-selector-button; the 16px font stops iOS zooming in on focus.
+        const style = document.createElement("style");
+        style.textContent =
+            ".snt-file{display:block;margin:2px auto 0;font-size:16px;color:#e6e8f0;max-width:100%;}" +
+            ".snt-file::file-selector-button,.snt-file::-webkit-file-upload-button{" +
+            "background:#3f6fd8;color:#fff;border:0;border-radius:10px;padding:13px 16px;" +
+            "font-size:16px;font-weight:500;margin-right:10px;cursor:pointer;font-family:inherit;}";
 
         const input = document.createElement("input");
         input.type = "file";
+        input.className = "snt-file";
         // Only the raster formats the engine can actually decode (OpenCV on desktop, Skia in the browser), so
         // the user is not offered SVG/HEIC/AVIF and the like that would just fail after upload.
         input.accept = ".png,.jpg,.jpeg,.bmp,.tif,.tiff,.webp,image/png,image/jpeg,image/bmp,image/tiff,image/webp";
-        // Transparent, covering the WHOLE button so the finger taps the <input> itself. iOS Safari opens the
-        // file dialog only from a genuine tap directly on the input element (a label that forwards the tap to a
-        // hidden input, or a programmatic .click() after an await, counts as synthetic there and opens nothing).
-        // 16px font stops iOS zooming in on focus; top/left + 100% (not the inset shorthand) so the overlay
-        // still covers the button on older iOS Safari (< 14.5).
-        input.style.cssText = "position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;font-size:16px;cursor:pointer;";
-        button.appendChild(input);
 
         const cancel = document.createElement("button");
         cancel.type = "button";
@@ -92,8 +90,9 @@ export function pickImageFile(title) {
         // close the sheet the instant it opened. A pointerdown only fires for a new, deliberate tap outside.
         overlay.addEventListener("pointerdown", (e) => { if (e.target === overlay) finish(null); });
 
+        sheet.appendChild(style);
         sheet.appendChild(heading);
-        sheet.appendChild(button);
+        sheet.appendChild(input);
         sheet.appendChild(cancel);
         overlay.appendChild(sheet);
         document.body.appendChild(overlay);
