@@ -7,6 +7,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
+using Avalonia.VisualTree;
 using ScanNTune.UI.Platform;
 using ScanNTune.UI.ViewModels;
 
@@ -20,37 +21,43 @@ public partial class ScanPageView : UserControl
     private const double TapMoveTolerance = 12;
 
     private readonly StorageFileReader _files = new();
-    // Press origin keyed by slot, so a press on one slot never consumes or confuses another slot's release
-    // (e.g. two fingers, one on each slot).
-    private readonly Dictionary<Border, Point> _pressOrigins = new();
+    private Border? _slot1;
+    private Border? _slot2;
+    // A press that landed on a slot, keyed by pointer id so several fingers never confuse each other; an entry
+    // is added on press and consumed on release.
+    private readonly Dictionary<int, (bool IsFirst, Point Origin)> _slotPresses = new();
 
     public ScanPageView()
     {
         InitializeComponent();
 
-        // None of these routed events has a XAML attribute, so wire them in code. Tap-to-open is detected
-        // from pointer press + release (not the built-in Tapped gesture, which a ScrollViewer preempts on a
-        // touch screen so a real finger tap almost never registers), letting a scroll drag through untouched.
-        WireSlot("Slot1", isFirst: true);
-        WireSlot("Slot2", isFirst: false);
+        _slot1 = this.FindControl<Border>("Slot1");
+        _slot2 = this.FindControl<Border>("Slot2");
+
+        // Drag-and-drop has no XAML attribute for its routed events, so wire it per slot in code.
+        WireDrop(_slot1, isFirst: true);
+        WireDrop(_slot2, isFirst: false);
+
+        // Tap-to-open is detected here at the page root, not on the slots, and not via the built-in Tapped
+        // gesture (which the ScrollViewer preempts on a touch screen, so a real finger tap almost never fires).
+        // Once the ScrollViewer captures the pointer to test for a scroll, the release routes up from IT; a slot
+        // sits below the ScrollViewer so it never sees the release, but the root always does. We only observe
+        // (never capture or mark handled), so scrolling stays intact. Bubble only: a Tunnel|Bubble subscription
+        // would fire each handler twice.
+        AddHandler(InputElement.PointerPressedEvent, OnRootPointerPressed,
+            RoutingStrategies.Bubble, handledEventsToo: true);
+        AddHandler(InputElement.PointerReleasedEvent, OnRootPointerReleased,
+            RoutingStrategies.Bubble, handledEventsToo: true);
     }
 
     private void InitializeComponent() => AvaloniaXamlLoader.Load(this);
 
-    private void WireSlot(string slotName, bool isFirst)
+    private void WireDrop(Border? slot, bool isFirst)
     {
-        if (this.FindControl<Border>(slotName) is not { } slot)
+        if (slot is null)
             return;
         slot.AddHandler(DragDrop.DragOverEvent, OnDragOver);
         slot.AddHandler(DragDrop.DropEvent, (_, e) => _ = HandleDropAsync(e, isFirst));
-        // Bubble phase only (a Tunnel|Bubble subscription would fire each handler twice, since Avalonia's
-        // pointer events carry both). handledEventsToo so a child inside the slot (image, labels) marking the
-        // press/release handled doesn't rob the slot of it; we only observe (never capture or mark handled), so
-        // scrolling is left intact.
-        slot.AddHandler(InputElement.PointerPressedEvent, OnSlotPointerPressed,
-            RoutingStrategies.Bubble, handledEventsToo: true);
-        slot.AddHandler(InputElement.PointerReleasedEvent, (s, e) => OnSlotPointerReleased(s, e, isFirst),
-            RoutingStrategies.Bubble, handledEventsToo: true);
     }
 
     private void OnDragOver(object? sender, DragEventArgs e) =>
@@ -72,26 +79,40 @@ public partial class ScanPageView : UserControl
             vm.GetCouponCommand.Execute(null);
     }
 
-    private void OnSlotPointerPressed(object? sender, PointerPressedEventArgs e)
+    private void OnRootPointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        // Positions are taken relative to this UserControl, which hosts the ScrollViewer and does not itself
-        // scroll, so press and release compare in the same (viewport) frame even if the content scrolls.
-        if (sender is Border slot)
-            _pressOrigins[slot] = e.GetPosition(this);
+        // Record which slot the press landed on, and where. e.Source is the true target here: any capture (for
+        // a scroll) happens later, on move. Positions are relative to this UserControl, which hosts the
+        // ScrollViewer and does not itself scroll, so press and release compare in the same frame.
+        if (SlotOf(e.Source) is { } isFirst)
+            _slotPresses[e.Pointer.Id] = (isFirst, e.GetPosition(this));
     }
 
-    // A press followed by a release on the same slot that barely moved is a tap: open the picker. A larger move
-    // was a scroll and is ignored (and the ScrollViewer, which we never blocked, has already panned). Opening on
-    // release is fine for iOS: the sheet is only DOM here, and the OS dialog opens later from its own input tap.
-    private void OnSlotPointerReleased(object? sender, PointerReleasedEventArgs e, bool isFirst)
+    // A press that started on a slot and lifts having barely moved is a tap: open that slot's picker. A larger
+    // move was a scroll and is ignored. Opening on release is fine for iOS: the sheet is only DOM here, and the
+    // OS dialog opens later from its own input tap.
+    private void OnRootPointerReleased(object? sender, PointerReleasedEventArgs e)
     {
-        if (sender is not Border slot || !_pressOrigins.Remove(slot, out Point origin))
+        if (!_slotPresses.Remove(e.Pointer.Id, out (bool IsFirst, Point Origin) press))
             return;
         Point released = e.GetPosition(this);
-        double dx = released.X - origin.X;
-        double dy = released.Y - origin.Y;
+        double dx = released.X - press.Origin.X;
+        double dy = released.Y - press.Origin.Y;
         if (dx * dx + dy * dy <= TapMoveTolerance * TapMoveTolerance)
-            _ = PickAsync(isFirst);
+            _ = PickAsync(press.IsFirst);
+    }
+
+    // Which slot (if any) the pressed element sits inside: true = first, false = second, null = neither.
+    private bool? SlotOf(object? source)
+    {
+        Visual? v = source as Visual;
+        while (v is not null)
+        {
+            if (ReferenceEquals(v, _slot1)) return true;
+            if (ReferenceEquals(v, _slot2)) return false;
+            v = v.GetVisualParent();
+        }
+        return null;
     }
 
     // async work is kept guarded so a failure surfaces to the status line rather than escaping to the
