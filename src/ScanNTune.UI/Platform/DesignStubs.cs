@@ -16,3 +16,8 @@ internal sealed class DesignCouponExporter : ICouponExporter
 {
     public Task ExportAsync() => Task.CompletedTask;
 }
+
+internal sealed class DesignFilePicker : IFilePicker
+{
+    public Task<PickedFile?> PickImageAsync(string title) => Task.FromResult<PickedFile?>(null);
+}

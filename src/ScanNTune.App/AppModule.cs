@@ -20,6 +20,7 @@ public sealed class AppModule : Module
     {
         builder.RegisterInstance(_loggerFactory).As<ILoggerFactory>().SingleInstance();
         builder.RegisterType<OpenCvImaging>().As<IPlatformImaging>().SingleInstance();
+        builder.RegisterType<AvaloniaFilePicker>().As<IFilePicker>().SingleInstance();
         builder.RegisterType<WindowsCouponExporter>().As<ICouponExporter>().SingleInstance();
         builder.Register(c => new JsonCalibrationStore(null, c.Resolve<ILogger<JsonCalibrationStore>>()))
             .As<ICalibrationStore>().SingleInstance();

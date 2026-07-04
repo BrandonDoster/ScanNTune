@@ -22,6 +22,7 @@ public sealed class DesignGraph
         builder.RegisterModule(new UiModule());
         builder.RegisterInstance<ILoggerFactory>(NullLoggerFactory.Instance).SingleInstance();
         builder.RegisterType<DesignImaging>().As<IPlatformImaging>().SingleInstance();
+        builder.RegisterType<DesignFilePicker>().As<IFilePicker>().SingleInstance();
         builder.RegisterType<DesignCouponExporter>().As<ICouponExporter>().SingleInstance();
         builder.Register(c => new JsonCalibrationStore(null, c.Resolve<ILogger<JsonCalibrationStore>>()))
             .As<ICalibrationStore>().SingleInstance();

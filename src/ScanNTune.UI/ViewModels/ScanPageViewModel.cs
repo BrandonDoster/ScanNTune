@@ -29,6 +29,7 @@ public partial class ScanPageViewModel : ViewModelBase
     private readonly IOverlayRenderer _overlayRenderer;
     private readonly ICalibrationStore _calibrationStore;
     private readonly IPlatformImaging _imaging;
+    private readonly IFilePicker _filePicker;
     private readonly ICouponExporter _couponExporter;
     private readonly Action<TwoScanResult, CouponSpec, Bitmap?, Bitmap?> _onAnalyzed;
     private readonly Action _onCalibrate;
@@ -96,6 +97,7 @@ public partial class ScanPageViewModel : ViewModelBase
         IOverlayRenderer overlayRenderer,
         ICalibrationStore calibrationStore,
         IPlatformImaging imaging,
+        IFilePicker filePicker,
         ICouponExporter couponExporter,
         Action<TwoScanResult, CouponSpec, Bitmap?, Bitmap?> onAnalyzed,
         Action onCalibrate,
@@ -106,12 +108,16 @@ public partial class ScanPageViewModel : ViewModelBase
         _overlayRenderer = overlayRenderer;
         _calibrationStore = calibrationStore;
         _imaging = imaging;
+        _filePicker = filePicker;
         _couponExporter = couponExporter;
         _onAnalyzed = onAnalyzed;
         _onCalibrate = onCalibrate;
         _logger = logger;
         _calibration = calibrationStore.Load();
     }
+
+    // The view initiates the pick (it must run from the tap), so it reaches the head's picker through here.
+    internal IFilePicker FilePicker => _filePicker;
 
     public bool IsCalibrated => _calibration is not null;
 
