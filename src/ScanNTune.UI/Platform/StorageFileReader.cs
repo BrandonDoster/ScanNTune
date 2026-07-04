@@ -15,9 +15,10 @@ internal sealed class StorageFileReader
     {
         await using Stream stream = await file.OpenReadAsync();
         using var buffer = new MemoryStream();
-        // In the browser the file is read in slices across the JS boundary, so a bigger copy buffer means far
-        // fewer round-trips (a handful instead of a hundred for a several-MB photo). Harmless on the desktop.
-        await stream.CopyToAsync(buffer, 1 << 20);
+        // In the browser the file is read in slices across the JS boundary and each slice is marshalled on the
+        // UI thread. A moderate chunk keeps round-trips down while still yielding often enough that the slot's
+        // busy spinner keeps animating during a large read instead of freezing in long bursts. Harmless on desktop.
+        await stream.CopyToAsync(buffer, 1 << 18);
         return buffer.ToArray();
     }
 }

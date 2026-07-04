@@ -105,6 +105,13 @@ public partial class ScanPageView : UserControl
     // (real files) and in the browser (no local path exists), then hand them to the view model.
     private async Task LoadAsync(ScanPageViewModel vm, IStorageFile file, bool isFirst)
     {
+        // Turn the slot's busy spinner on before the read, not just the decode. On mobile the read of a large
+        // scan is the slow part (Avalonia marshals the bytes across the JS boundary), so without this the user
+        // taps, waits several seconds, and sees nothing happening.
+        if (isFirst)
+            vm.Scan1Loading = true;
+        else
+            vm.Scan2Loading = true;
         try
         {
             byte[] data = await _files.ReadAllBytesAsync(file);
@@ -116,6 +123,13 @@ public partial class ScanPageView : UserControl
         catch (Exception ex)
         {
             vm.ReportLoadError("Could not read the file", ex);
+        }
+        finally
+        {
+            if (isFirst)
+                vm.Scan1Loading = false;
+            else
+                vm.Scan2Loading = false;
         }
     }
 }

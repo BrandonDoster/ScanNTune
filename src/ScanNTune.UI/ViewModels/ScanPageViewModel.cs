@@ -169,12 +169,9 @@ public partial class ScanPageViewModel : ViewModelBase
 
     private async Task LoadAsync(string name, byte[] data, bool isFirst)
     {
-        // Show the slot's spinner before decoding: on single-threaded wasm a large phone photo decodes on
-        // the UI thread and blocks it, so yield once to let the busy state paint first.
-        if (isFirst)
-            Scan1Loading = true;
-        else
-            Scan2Loading = true;
+        // The view turns the slot's busy spinner on before the file read and clears it when this returns, so it
+        // already covers this decode too. Yield once so any pending state paints before the decode briefly
+        // blocks the single wasm thread.
         IsError = false;
         await Task.Yield();
         try
@@ -224,13 +221,6 @@ public partial class ScanPageViewModel : ViewModelBase
         catch (Exception ex)
         {
             ReportLoadError("Could not load image", ex);
-        }
-        finally
-        {
-            if (isFirst)
-                Scan1Loading = false;
-            else
-                Scan2Loading = false;
         }
     }
 
