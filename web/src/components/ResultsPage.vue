@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useApp } from '../stores/useApp'
 import {
   skewFlavours,
@@ -27,6 +27,13 @@ const scannerExpanded = ref(false)
 
 const currentLabel = computed(() => currentValueLabel(sizeFlavour.value))
 const showCurrent = computed(() => currentLabel.value !== null)
+
+// A steps/mm value is meaningless as a rotation distance, so clear the entered current values when the
+// size format changes.
+watch(sizeFlavour, () => {
+  currentX.value = null
+  currentY.value = null
+})
 
 const skew = computed(() =>
   combined.value && payload.value

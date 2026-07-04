@@ -1,5 +1,6 @@
 import type { CouponSpec, DetectedRing, GridCorrespondence, GridMapping } from './types'
 import { couponPitchMm } from './types'
+import { median } from './math'
 
 // Estimates the grid axes/pitch from nearest-neighbour vectors, indexes the rings, then resolves
 // orientation from the two-solid marker: the coupon's origin-corner ring AND its neighbour are
@@ -229,13 +230,6 @@ function estimateGeometry(points: Vec[]): Geometry {
   const cx = points.reduce((s, p) => s + p.x, 0) / n
   const cy = points.reduce((s, p) => s + p.y, 0) / n
   return { u, v, pitchPx: median(neighbourDistances), cx, cy }
-}
-
-function median(values: number[]): number {
-  const sorted = values.slice().sort((a, b) => a - b)
-  const m = sorted.length
-  if (m === 0) return 0
-  return m % 2 === 1 ? sorted[(m - 1) / 2] : (sorted[m / 2 - 1] + sorted[m / 2]) / 2.0
 }
 
 function key(c: number, r: number): string {

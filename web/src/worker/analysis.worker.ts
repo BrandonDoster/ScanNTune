@@ -80,8 +80,10 @@ async function analyzeTwoScans(
 ): Promise<TwoScanResponse> {
   const cv = await loadOpenCv()
   const img1 = await decodeToBgr(cv, bytes1)
-  const img2 = await decodeToBgr(cv, bytes2)
+  // Decode the second scan inside the try so a decode failure still deletes img1.
+  let img2: Mat | null = null
   try {
+    img2 = await decodeToBgr(cv, bytes2)
     const a = analyzeOne(cv, img1, options)
     if (!a.ok) return await failureResponse(cv, img1, a.error, true)
     const b = analyzeOne(cv, img2, options)
@@ -94,7 +96,7 @@ async function analyzeTwoScans(
     return Comlink.transfer(response, [overlayA, overlayB])
   } finally {
     img1.delete()
-    img2.delete()
+    img2?.delete()
   }
 }
 

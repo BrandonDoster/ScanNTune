@@ -10,6 +10,11 @@ export async function decodeToBgr(cv: OpenCv, bytes: ArrayBuffer): Promise<Mat> 
     const canvas = new OffscreenCanvas(bitmap.width, bitmap.height)
     const ctx = canvas.getContext('2d')
     if (!ctx) throw new Error('Could not get a 2D context to decode the image.')
+    // Paint an opaque white background first so any alpha in the source composites over white (a
+    // sensible scan background) rather than the canvas's default transparent black, keeping the BGR
+    // the engine reads close to what Cv2.ImRead(Color) would give. Opaque scans are unaffected.
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, bitmap.width, bitmap.height)
     ctx.drawImage(bitmap, 0, 0)
     const imgData = ctx.getImageData(0, 0, bitmap.width, bitmap.height)
     return rgbaToBgrMat(cv, { data: imgData.data, width: imgData.width, height: imgData.height })

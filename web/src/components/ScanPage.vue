@@ -67,10 +67,18 @@ async function onPick(slot: Slot, event: Event): Promise<void> {
   try {
     slot.name = file.name
     slot.bytes = await readBytes(file)
-    slot.preview = await makePreviewUrl(file)
   } catch (e) {
+    slot.failed = true
     slot.note = 'Could not read the file.'
     console.error('Could not read the picked file', e)
+    slot.loading = false
+    return
+  }
+  // A preview failure is not fatal: the raw bytes are already loaded, so analysis can still run.
+  try {
+    slot.preview = await makePreviewUrl(file)
+  } catch (e) {
+    console.warn('Could not render a preview for the picked file', e)
   } finally {
     slot.loading = false
   }

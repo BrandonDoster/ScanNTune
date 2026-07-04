@@ -1,5 +1,8 @@
 import type { Mat, OpenCv } from './opencv'
 import type { CalibrationResult, DetectedRing, Orientation } from './types'
+import { median } from './math'
+
+const radiusMedian = (rings: DetectedRing[]): number => median(rings.map((r) => r.radiusPx))
 
 // Draws each detected ring (green outline plus a yellow centre dot), and for a full result the
 // resolved origin (red) and +X axis arrow (cyan), over a copy of the scan cropped to the detected
@@ -19,7 +22,8 @@ export function renderOverlayMat(cv: OpenCv, image: Mat, result: CalibrationResu
   drawRings(cv, canvas, result.rings, thickness)
 
   const orientation = result.orientation
-  let axisLength = medianRadius(result.rings) * 6.0
+  const medR = radiusMedian(result.rings)
+  let axisLength = medR * 6.0
   if (axisLength <= 0) axisLength = Math.max(image.cols, image.rows) * 0.15
 
   const origin = fixedPoint(cv, orientation.originX, orientation.originY)
@@ -33,13 +37,13 @@ export function renderOverlayMat(cv: OpenCv, image: Mat, result: CalibrationResu
   cv.circle(canvas, origin, thickness * 3 * SCALE, originColor, thickness, cv.LINE_AA, SHIFT)
   cv.arrowedLine(canvas, origin, axisEnd, axisColor, thickness + 1, cv.LINE_AA, SHIFT, 0.2)
 
-  return crop(cv, canvas, result.rings, orientation)
+  return crop(cv, canvas, result.rings, orientation, medR)
 }
 
 export function renderDetectionOverlayMat(cv: OpenCv, image: Mat, rings: DetectedRing[]): Mat {
   const canvas = toBgr(cv, image)
   drawRings(cv, canvas, rings, strokeThickness(image))
-  return crop(cv, canvas, rings, null)
+  return crop(cv, canvas, rings, null, radiusMedian(rings))
 }
 
 function toBgr(cv: OpenCv, image: Mat): Mat {
@@ -69,7 +73,13 @@ function fixedPoint(cv: OpenCv, x: number, y: number) {
 
 // Crops to the content and takes ownership of the canvas: returns either the canvas (nothing
 // detected) or a new cropped Mat, deleting the original in the latter case.
-function crop(cv: OpenCv, canvas: Mat, rings: DetectedRing[], orientation: Orientation | null): Mat {
+function crop(
+  cv: OpenCv,
+  canvas: Mat,
+  rings: DetectedRing[],
+  orientation: Orientation | null,
+  medR: number,
+): Mat {
   if (rings.length === 0) return canvas
 
   let minX = Number.MAX_VALUE
@@ -84,14 +94,14 @@ function crop(cv: OpenCv, canvas: Mat, rings: DetectedRing[], orientation: Orien
   }
 
   if (orientation) {
-    const axisLength = medianRadius(rings) * 6.0
+    const axisLength = medR * 6.0
     minX = Math.min(minX, orientation.originX)
     minY = Math.min(minY, orientation.originY)
     maxX = Math.max(maxX, orientation.originX + orientation.xAxisX * axisLength)
     maxY = Math.max(maxY, orientation.originY + orientation.xAxisY * axisLength)
   }
 
-  const margin = Math.max(medianRadius(rings) * 1.2, (maxX - minX) * 0.05)
+  const margin = Math.max(medR * 1.2, (maxX - minX) * 0.05)
   const x0 = clampInt(Math.floor(minX - margin), 0, canvas.cols - 1)
   const y0 = clampInt(Math.floor(minY - margin), 0, canvas.rows - 1)
   const x1 = clampInt(Math.ceil(maxX + margin), x0 + 1, canvas.cols)
@@ -102,13 +112,6 @@ function crop(cv: OpenCv, canvas: Mat, rings: DetectedRing[], orientation: Orien
   roi.delete()
   canvas.delete()
   return cropped
-}
-
-function medianRadius(rings: DetectedRing[]): number {
-  if (rings.length === 0) return 0
-  const sorted = rings.map((r) => r.radiusPx).sort((a, b) => a - b)
-  const n = sorted.length
-  return n % 2 === 1 ? sorted[(n - 1) / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2.0
 }
 
 function clampInt(value: number, lo: number, hi: number): number {

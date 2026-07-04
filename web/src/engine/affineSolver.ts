@@ -1,5 +1,6 @@
 import { Matrix, QrDecomposition } from 'ml-matrix'
 import type { AffineModel, GridCorrespondence } from './types'
+import { median } from './math'
 
 // Solves the over-determined system mapping nominal millimetres to measured pixels:
 //   px = a*mx + b*my + tx
@@ -130,10 +131,7 @@ function updateWeights(
   // Robust scale from the median of the 2D residual norms. Under isotropic Gaussian noise the norm
   // is Rayleigh-distributed with median sigma*sqrt(2*ln 2), so dividing by that constant makes the
   // estimate consistent for the per-axis sigma. Average the two central order statistics for even n.
-  const sorted = residuals.slice().sort((p, q) => p - q)
-  const median =
-    n % 2 === 1 ? sorted[(n - 1) / 2] : 0.5 * (sorted[n / 2 - 1] + sorted[n / 2])
-  const sigma = median / Math.sqrt(2.0 * Math.log(2.0))
+  const sigma = median(residuals) / Math.sqrt(2.0 * Math.log(2.0))
   if (sigma < 1e-6) return false
 
   const threshold = huberTune * sigma

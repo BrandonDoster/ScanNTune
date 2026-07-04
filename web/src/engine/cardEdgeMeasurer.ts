@@ -1,5 +1,7 @@
 import type { Mat, OpenCv } from './opencv'
 import type { ScaleReferenceResult } from './types'
+import { median } from './math'
+import { borderMean } from './cvUtils'
 
 // Measures a reference card's long side to sub-pixel precision: locates the card as the largest
 // object contrasting with the background, fits each long edge as a straight line from sub-pixel
@@ -238,26 +240,6 @@ function rms(ys: number[], xs: number[], m: number, c: number): number {
     s += e * e
   }
   return Math.sqrt(s / ys.length)
-}
-
-function borderMean(cv: OpenCv, binary: Mat): number {
-  const top = binary.row(0)
-  const bottom = binary.row(binary.rows - 1)
-  const left = binary.col(0)
-  const right = binary.col(binary.cols - 1)
-  const mean = (cv.mean(top)[0] + cv.mean(bottom)[0] + cv.mean(left)[0] + cv.mean(right)[0]) / 4.0
-  top.delete()
-  bottom.delete()
-  left.delete()
-  right.delete()
-  return mean
-}
-
-function median(values: number[]): number {
-  const sorted = values.slice().sort((a, b) => a - b)
-  const n = sorted.length
-  if (n === 0) return 0
-  return n % 2 === 1 ? sorted[(n - 1) / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2.0
 }
 
 function clampInt(value: number, lo: number, hi: number): number {

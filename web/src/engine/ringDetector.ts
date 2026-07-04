@@ -1,5 +1,7 @@
 import type { Mat, OpenCv } from './opencv'
 import type { DetectedRing } from './types'
+import { median } from './math'
+import { borderMean } from './cvUtils'
 
 // Thresholds the part against the background on the HSV value channel, finds the enclosed holes, and
 // keeps the ring centres (the binary area centroid, immune to over/under extrusion). Ring holes are
@@ -83,28 +85,12 @@ function extractValueChannel(cv: OpenCv, image: Mat): Mat {
   cv.cvtColor(image, hsv, cv.COLOR_BGR2HSV)
   const channels = new cv.MatVector()
   cv.split(hsv, channels)
-  const v = channels.get(2).clone() // V = max(B, G, R)
+  // MatVector.get(i) hands out a new Mat wrapper that channels.delete() does not free, so delete it
+  // explicitly after cloning the value channel (V = max(B, G, R)).
+  const channel = channels.get(2)
+  const v = channel.clone()
+  channel.delete()
   channels.delete()
   hsv.delete()
   return v
-}
-
-function borderMean(cv: OpenCv, binary: Mat): number {
-  const top = binary.row(0)
-  const bottom = binary.row(binary.rows - 1)
-  const left = binary.col(0)
-  const right = binary.col(binary.cols - 1)
-  const mean = (cv.mean(top)[0] + cv.mean(bottom)[0] + cv.mean(left)[0] + cv.mean(right)[0]) / 4.0
-  top.delete()
-  bottom.delete()
-  left.delete()
-  right.delete()
-  return mean
-}
-
-function median(values: number[]): number {
-  const sorted = values.slice().sort((a, b) => a - b)
-  const n = sorted.length
-  if (n === 0) return 0
-  return n % 2 === 1 ? sorted[(n - 1) / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2.0
 }

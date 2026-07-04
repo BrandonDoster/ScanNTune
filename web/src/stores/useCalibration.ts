@@ -5,13 +5,30 @@ import { isUsableCalibration } from '../engine/scannerCalibration'
 
 const STORAGE_KEY = 'scanntune.calibration'
 
+const NUMERIC_FIELDS = [
+  'pxPerMm',
+  'dpi',
+  'referenceMm',
+  'measuredWidthPx',
+  'straightnessPx',
+  'parallelismDegrees',
+] as const
+
+function hasFiniteNumbers(value: unknown): value is ScannerCalibration {
+  if (typeof value !== 'object' || value === null) return false
+  const record = value as Record<string, unknown>
+  return NUMERIC_FIELDS.every((k) => typeof record[k] === 'number' && Number.isFinite(record[k]))
+}
+
 function loadFromStorage(): ScannerCalibration | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
-    const cal = JSON.parse(raw) as ScannerCalibration
-    // A degenerate (partial or hand-edited) value would silently apply no correction, so drop it.
-    return isUsableCalibration(cal) ? cal : null
+    const parsed: unknown = JSON.parse(raw)
+    // A partial or hand-edited value (missing/NaN/string fields) would coerce to NaN downstream and
+    // silently apply no correction, so require finite numbers, then the usability check.
+    if (!hasFiniteNumbers(parsed) || !isUsableCalibration(parsed)) return null
+    return parsed
   } catch (e) {
     console.warn('Could not read the stored calibration', e)
     return null
