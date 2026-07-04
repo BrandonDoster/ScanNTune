@@ -30,6 +30,7 @@ public partial class ScanPageViewModel : ViewModelBase
     private readonly ICalibrationStore _calibrationStore;
     private readonly IPlatformImaging _imaging;
     private readonly IFilePicker _filePicker;
+    private readonly IDeviceInfo _deviceInfo;
     private readonly ICouponExporter _couponExporter;
     private readonly Action<TwoScanResult, CouponSpec, Bitmap?, Bitmap?> _onAnalyzed;
     private readonly Action _onCalibrate;
@@ -98,6 +99,7 @@ public partial class ScanPageViewModel : ViewModelBase
         ICalibrationStore calibrationStore,
         IPlatformImaging imaging,
         IFilePicker filePicker,
+        IDeviceInfo deviceInfo,
         ICouponExporter couponExporter,
         Action<TwoScanResult, CouponSpec, Bitmap?, Bitmap?> onAnalyzed,
         Action onCalibrate,
@@ -109,6 +111,7 @@ public partial class ScanPageViewModel : ViewModelBase
         _calibrationStore = calibrationStore;
         _imaging = imaging;
         _filePicker = filePicker;
+        _deviceInfo = deviceInfo;
         _couponExporter = couponExporter;
         _onAnalyzed = onAnalyzed;
         _onCalibrate = onCalibrate;
@@ -118,6 +121,10 @@ public partial class ScanPageViewModel : ViewModelBase
 
     // The view initiates the pick (it must run from the tap), so it reaches the head's picker through here.
     internal IFilePicker FilePicker => _filePicker;
+
+    // On a touch device the numeric fields drop text entry (the view binds this) so tapping one cannot raise a
+    // soft keyboard or leave an uneditable caret; the +/- steppers remain the input.
+    public bool IsTouchDevice => _deviceInfo.IsTouchPrimary;
 
     public bool IsCalibrated => _calibration is not null;
 

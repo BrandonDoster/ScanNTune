@@ -21,6 +21,7 @@ public sealed class BrowserModule : Module
         builder.RegisterInstance(_loggerFactory).As<ILoggerFactory>().SingleInstance();
         builder.RegisterType<SkiaImaging>().As<IPlatformImaging>().SingleInstance();
         builder.RegisterType<BrowserFilePicker>().As<IFilePicker>().SingleInstance();
+        builder.RegisterType<BrowserDeviceInfo>().As<IDeviceInfo>().SingleInstance();
         builder.RegisterType<BrowserCouponExporter>().As<ICouponExporter>().SingleInstance();
         builder.RegisterType<LocalStorageCalibrationStore>().As<ICalibrationStore>().SingleInstance();
     }

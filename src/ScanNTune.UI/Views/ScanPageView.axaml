@@ -70,6 +70,14 @@
             <Setter Property="FontSize" Value="12"/>
         </Style>
 
+        <!-- On a touch device the numeric fields drop text entry so tapping one cannot raise a soft keyboard or
+             leave an uneditable caret; the field's own +/- steppers stay live (they are separate template parts,
+             not gated by the inner text box). Toggled by the view model's IsTouchDevice. -->
+        <Style Selector="NumericUpDown.touchInput /template/ TextBox">
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="IsHitTestVisible" Value="False"/>
+        </Style>
+
         <!-- Slot 2's coupon rests quarter-turned (90°); while the slot is hovered it replays the turn from
              upright, holding at the start and end so the motion is easy to follow. -->
         <Style Selector="Border#Slot2:pointerover Border.turn">
@@ -146,7 +154,7 @@
 
                         <!-- Slot 1 -->
                         <Border x:Name="Slot1" ctrl:ResponsiveStack.Fill="True" Classes="slot" DragDrop.AllowDrop="True"
-                                PointerPressed="OnSlot1Pressed">
+                                Tapped="OnSlot1Tapped">
                             <Panel>
                                 <Rectangle Classes="outlineEmpty" IsVisible="{Binding !HasScan1}"/>
                                 <Rectangle Classes="outlineFilled" IsVisible="{Binding HasScan1}"/>
@@ -208,7 +216,7 @@
 
                         <!-- Slot 2 -->
                         <Border x:Name="Slot2" ctrl:ResponsiveStack.Fill="True" Classes="slot" DragDrop.AllowDrop="True"
-                                PointerPressed="OnSlot2Pressed">
+                                Tapped="OnSlot2Tapped">
                             <Panel>
                                 <Rectangle Classes="outlineEmpty" IsVisible="{Binding !HasScan2}"/>
                                 <Rectangle Classes="outlineFilled" IsVisible="{Binding HasScan2}"/>
@@ -275,16 +283,19 @@
                         <StackPanel Spacing="3" Margin="0,0,18,10" IsVisible="{Binding !IsCalibrated}">
                             <TextBlock Text="Scanner DPI" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
                             <NumericUpDown Value="{Binding Dpi}" Increment="100" Minimum="50" FormatString="0" Width="150"
+                                           Classes.touchInput="{Binding IsTouchDevice}"
                                            ToolTip.Tip="Pixels-per-mm = DPI ÷ 25.4. Needed for absolute scale; clear it for anisotropy and skew only."/>
                         </StackPanel>
                         <StackPanel Spacing="3" Margin="0,0,18,10">
                             <TextBlock Text="Coupon (mm)" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
                             <NumericUpDown Value="{Binding BaselineMm}" Increment="10" Minimum="10" FormatString="0.##" Width="150"
+                                           Classes.touchInput="{Binding IsTouchDevice}"
                                            ToolTip.Tip="Centre-to-centre span of the outermost rings. Default 100."/>
                         </StackPanel>
                         <StackPanel Spacing="3" Margin="0,0,18,10">
                             <TextBlock Text="Rings/side" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
                             <NumericUpDown Value="{Binding Grid}" Increment="1" Minimum="2" FormatString="0" Width="140"
+                                           Classes.touchInput="{Binding IsTouchDevice}"
                                            ToolTip.Tip="Rings per side (grid_n in the model). Default 5."/>
                         </StackPanel>
                     </WrapPanel>

@@ -29,6 +29,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly ICalibrationStore _calibrationStore;
     private readonly IPlatformImaging _imaging;
     private readonly IFilePicker _filePicker;
+    private readonly IDeviceInfo _deviceInfo;
     private readonly ICouponExporter _couponExporter;
     private readonly ILoggerFactory _loggerFactory;
 
@@ -66,7 +67,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private MainWindowViewModel(DesignGraph design)
         : this(design.Get<ICouponAnalyzer>(), design.Get<IScanCombiner>(), design.Get<IOverlayRenderer>(),
                design.Get<ICorrectionFormatter>(), design.Get<IScaleReferenceMeasurer>(), design.Get<ICalibrationStore>(),
-               design.Get<IPlatformImaging>(), design.Get<IFilePicker>(), design.Get<ICouponExporter>(), design.Get<ILoggerFactory>())
+               design.Get<IPlatformImaging>(), design.Get<IFilePicker>(), design.Get<IDeviceInfo>(), design.Get<ICouponExporter>(), design.Get<ILoggerFactory>())
     {
     }
 
@@ -79,6 +80,7 @@ public partial class MainWindowViewModel : ViewModelBase
         ICalibrationStore calibrationStore,
         IPlatformImaging imaging,
         IFilePicker filePicker,
+        IDeviceInfo deviceInfo,
         ICouponExporter couponExporter,
         ILoggerFactory loggerFactory)
     {
@@ -90,6 +92,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _calibrationStore = calibrationStore;
         _imaging = imaging;
         _filePicker = filePicker;
+        _deviceInfo = deviceInfo;
         _couponExporter = couponExporter;
         _loggerFactory = loggerFactory;
         CurrentPage = CreateScanPage();
@@ -98,14 +101,14 @@ public partial class MainWindowViewModel : ViewModelBase
     public void MarkUpdateReady() => UpdateReady = true;
 
     private ScanPageViewModel CreateScanPage() =>
-        new(_analyzer, _combiner, _overlayRenderer, _calibrationStore, _imaging, _filePicker, _couponExporter,
+        new(_analyzer, _combiner, _overlayRenderer, _calibrationStore, _imaging, _filePicker, _deviceInfo, _couponExporter,
             ShowResults, ShowCalibration, _loggerFactory.CreateLogger<ScanPageViewModel>());
 
     private void ShowResults(TwoScanResult result, CouponSpec coupon, Bitmap? overlayA, Bitmap? overlayB) =>
         CurrentPage = new ResultsPageViewModel(result, coupon, overlayA, overlayB, _corrections, StartOver);
 
     private void ShowCalibration() =>
-        CurrentPage = new CalibrationPageViewModel(_measurer, _calibrationStore, _imaging, _filePicker, StartOver,
+        CurrentPage = new CalibrationPageViewModel(_measurer, _calibrationStore, _imaging, _filePicker, _deviceInfo, StartOver,
             _loggerFactory.CreateLogger<CalibrationPageViewModel>());
 
     // Rebuilding the scan page re-reads the stored calibration, so the status pill reflects a

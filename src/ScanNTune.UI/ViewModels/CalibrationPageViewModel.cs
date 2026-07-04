@@ -27,6 +27,7 @@ public partial class CalibrationPageViewModel : ViewModelBase
     private readonly ICalibrationStore _store;
     private readonly IPlatformImaging _imaging;
     private readonly IFilePicker _filePicker;
+    private readonly IDeviceInfo _deviceInfo;
     private readonly Action _onDone;
     private readonly ILogger<CalibrationPageViewModel> _logger;
     private ScaleReferenceResult? _result;
@@ -76,12 +77,14 @@ public partial class CalibrationPageViewModel : ViewModelBase
     private bool _saved;
 
     public CalibrationPageViewModel(IScaleReferenceMeasurer measurer, ICalibrationStore store,
-        IPlatformImaging imaging, IFilePicker filePicker, Action onDone, ILogger<CalibrationPageViewModel> logger)
+        IPlatformImaging imaging, IFilePicker filePicker, IDeviceInfo deviceInfo, Action onDone,
+        ILogger<CalibrationPageViewModel> logger)
     {
         _measurer = measurer;
         _store = store;
         _imaging = imaging;
         _filePicker = filePicker;
+        _deviceInfo = deviceInfo;
         _onDone = onDone;
         _logger = logger;
 
@@ -110,6 +113,10 @@ public partial class CalibrationPageViewModel : ViewModelBase
 
     // The view initiates the pick (it must run from the tap), so it reaches the head's picker through here.
     internal IFilePicker FilePicker => _filePicker;
+
+    // On a touch device the numeric fields drop text entry (the view binds this) so tapping one cannot raise a
+    // soft keyboard or leave an uneditable caret; the +/- steppers remain the input.
+    public bool IsTouchDevice => _deviceInfo.IsTouchPrimary;
 
     public bool HasStatus => !string.IsNullOrEmpty(StatusText);
 

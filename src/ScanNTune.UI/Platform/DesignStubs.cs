@@ -21,3 +21,8 @@ internal sealed class DesignFilePicker : IFilePicker
 {
     public Task<PickedFile?> PickImageAsync(string title) => Task.FromResult<PickedFile?>(null);
 }
+
+internal sealed class DesignDeviceInfo : IDeviceInfo
+{
+    public bool IsTouchPrimary => false;
+}

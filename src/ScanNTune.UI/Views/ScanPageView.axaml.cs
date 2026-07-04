@@ -18,8 +18,8 @@ public partial class ScanPageView : UserControl
     {
         InitializeComponent();
 
-        // Drag-and-drop has no XAML attribute for its routed events, so wire it in code. Clicking a
-        // slot is handled separately (PointerPressed in XAML) and opens the file picker.
+        // Drag-and-drop has no XAML attribute for its routed events, so wire it in code. Tapping a
+        // slot is handled separately (Tapped in XAML) and opens the file picker.
         WireDrop("Slot1", isFirst: true);
         WireDrop("Slot2", isFirst: false);
     }
@@ -53,18 +53,13 @@ public partial class ScanPageView : UserControl
             vm.GetCouponCommand.Execute(null);
     }
 
-    private void OnSlot1Pressed(object? sender, PointerPressedEventArgs e) => OpenPicker(e, isFirst: true);
+    // Open on the Tapped gesture, not PointerPressed: Tapped fires only on a press-and-release without a drag,
+    // so a scroll that starts on a slot pans the page instead of popping the picker. The old press-phase
+    // handling is no longer needed either, because the OS file dialog now opens later, from the genuine tap on
+    // the sheet's own <input>, so the slot tap itself no longer has to preserve the user activation.
+    private void OnSlot1Tapped(object? sender, TappedEventArgs e) => _ = PickAsync(isFirst: true);
 
-    private void OnSlot2Pressed(object? sender, PointerPressedEventArgs e) => OpenPicker(e, isFirst: false);
-
-    // Release the implicit pointer capture before opening the picker. In the browser the native file dialog
-    // swallows the pointer-up, so the press capture would otherwise stay stuck on this slot and route every
-    // later click here. Desktop's modal dialog completes the pointer sequence, so this is a harmless no-op there.
-    private void OpenPicker(PointerPressedEventArgs e, bool isFirst)
-    {
-        e.Pointer.Capture(null);
-        _ = PickAsync(isFirst);
-    }
+    private void OnSlot2Tapped(object? sender, TappedEventArgs e) => _ = PickAsync(isFirst: false);
 
     // async work is kept guarded so a failure surfaces to the status line rather than escaping to the
     // dispatcher (these are invoked from synchronous event handlers).
