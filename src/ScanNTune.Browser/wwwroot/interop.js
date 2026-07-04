@@ -38,9 +38,11 @@ export function pickImageFile(title) {
         overlay.style.cssText = "position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,0.55);display:flex;align-items:flex-end;justify-content:center;";
 
         let settled = false;
+        let diagCleanup = null;
         const finish = (value) => {
             if (settled) return;
             settled = true;
+            if (diagCleanup) diagCleanup();
             if (_activeFinish === finish) _activeFinish = null;
             overlay.remove();
             resolve(value);
@@ -82,6 +84,21 @@ export function pickImageFile(title) {
         dadd("UA " + navigator.userAgent);
         ["touchstart", "touchend", "pointerdown", "pointerup", "pointercancel", "click", "change"].forEach((t) =>
             input.addEventListener(t, (e) => dadd(t + " defaultPrevented=" + e.defaultPrevented)));
+        // Also surface thrown errors, unhandled promise rejections, and console.error (where .NET/Avalonia
+        // report failures) in the same box, so a crash on tap is visible on the phone, not just in devtools.
+        const onDiagError = (e) => dadd("ERROR " + (e && (e.message || (e.reason && (e.reason.message || e.reason)) || e.type) || e));
+        const origConsoleError = console.error;
+        console.error = (...a) => {
+            try { dadd("console.error " + a.map((x) => (x && x.message) || String(x)).join(" ")); } catch (_) { /* keep logging even if formatting a value throws */ }
+            origConsoleError.apply(console, a);
+        };
+        globalThis.addEventListener("error", onDiagError);
+        globalThis.addEventListener("unhandledrejection", onDiagError);
+        diagCleanup = () => {
+            globalThis.removeEventListener("error", onDiagError);
+            globalThis.removeEventListener("unhandledrejection", onDiagError);
+            console.error = origConsoleError;
+        };
         sheet.appendChild(dlog);
 
         const cancel = document.createElement("button");
