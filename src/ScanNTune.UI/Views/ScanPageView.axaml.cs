@@ -75,29 +75,35 @@ public partial class ScanPageView : UserControl
 
         try
         {
-            IStorageProvider? storage = TopLevel.GetTopLevel(this)?.StorageProvider;
-            if (storage is null)
+            // The head's picker owns the dialog: a native OS dialog on desktop, a sheet with a real tapped
+            // <input> in the browser (so iOS Safari actually opens it). It returns the bytes directly.
+            PickedFile? file = await vm.FilePicker.PickImageAsync(
+                isFirst ? "First scan (as placed)" : "Second scan (quarter-turned)");
+            if (file is null)
                 return;
 
-            var files = await storage.OpenFilePickerAsync(new FilePickerOpenOptions
+            if (isFirst)
+                vm.Scan1Loading = true;
+            else
+                vm.Scan2Loading = true;
+            try
             {
-                Title = isFirst ? "Open first scan" : "Open second scan (quarter-turned)",
-                AllowMultiple = false,
-                FileTypeFilter =
-                [
-                    new FilePickerFileType("Images")
-                    {
-                        Patterns = ["*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tif", "*.tiff"]
-                    }
-                ]
-            });
-
-            if (files.Count > 0)
-                await LoadAsync(vm, files[0], isFirst);
+                if (isFirst)
+                    await vm.LoadScan1Async(file.Name, file.Data);
+                else
+                    await vm.LoadScan2Async(file.Name, file.Data);
+            }
+            finally
+            {
+                if (isFirst)
+                    vm.Scan1Loading = false;
+                else
+                    vm.Scan2Loading = false;
+            }
         }
         catch (Exception ex)
         {
-            vm.ReportLoadError("Could not open file picker", ex);
+            vm.ReportLoadError("Could not open the file", ex);
         }
     }
 

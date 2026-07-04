@@ -7,9 +7,9 @@ namespace ScanNTune.UI.Platform;
 /// <summary>
 /// Reads an Avalonia <see cref="IStorageFile"/> to a byte[] through its storage stream, which works on the
 /// desktop (real files) and in the browser (where no local path exists). Shared by the pages that ingest a
-/// picked or dropped scan so the read path lives in one place.
+/// picked or dropped scan so the read path lives in one place (shared by the views and the desktop picker).
 /// </summary>
-internal sealed class StorageFileReader
+public sealed class StorageFileReader
 {
     public async Task<byte[]> ReadAllBytesAsync(IStorageFile file)
     {

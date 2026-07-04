@@ -48,25 +48,21 @@ public partial class CalibrationPageView : UserControl
 
         try
         {
-            IStorageProvider? storage = TopLevel.GetTopLevel(this)?.StorageProvider;
-            if (storage is null)
+            // The head's picker owns the dialog (native on desktop, a real tapped <input> sheet in the browser
+            // so iOS Safari opens it) and returns the bytes directly.
+            PickedFile? file = await vm.FilePicker.PickImageAsync("Reference card scan");
+            if (file is null)
                 return;
 
-            var files = await storage.OpenFilePickerAsync(new FilePickerOpenOptions
+            vm.IsDetecting = true;
+            try
             {
-                Title = "Open the reference card scan",
-                AllowMultiple = false,
-                FileTypeFilter =
-                [
-                    new FilePickerFileType("Images")
-                    {
-                        Patterns = ["*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tif", "*.tiff"]
-                    }
-                ]
-            });
-
-            if (files.Count > 0)
-                await LoadAsync(vm, files[0]);
+                await vm.LoadScanAsync(file.Name, file.Data);
+            }
+            finally
+            {
+                vm.IsDetecting = false;
+            }
         }
         catch (Exception ex)
         {

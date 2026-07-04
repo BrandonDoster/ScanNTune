@@ -1,4 +1,6 @@
+using System;
 using System.Runtime.InteropServices.JavaScript;
+using System.Threading.Tasks;
 
 namespace ScanNTune.Browser.Platform;
 
@@ -28,4 +30,15 @@ internal static partial class BrowserInterop
 
     [JSImport("downloadFile", ModuleName)]
     internal static partial void DownloadFile(string name, string base64, string mime);
+
+    // Shows the file sheet and resolves to "name\nlength" once a real file input is tapped and read, or null
+    // on cancel. The chosen bytes are held on the JS side and copied out in one shot by CopyPickedBytes.
+    [JSImport("pickImageFile", ModuleName)]
+    internal static partial Task<string?> PickImageFile(string title);
+
+    [JSImport("copyPickedBytes", ModuleName)]
+    internal static partial void CopyPickedBytes([JSMarshalAs<JSType.MemoryView>] Span<byte> destination);
+
+    [JSImport("clearPickedBytes", ModuleName)]
+    internal static partial void ClearPickedBytes();
 }

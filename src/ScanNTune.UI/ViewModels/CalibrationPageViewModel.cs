@@ -26,6 +26,7 @@ public partial class CalibrationPageViewModel : ViewModelBase
     private readonly IScaleReferenceMeasurer _measurer;
     private readonly ICalibrationStore _store;
     private readonly IPlatformImaging _imaging;
+    private readonly IFilePicker _filePicker;
     private readonly Action _onDone;
     private readonly ILogger<CalibrationPageViewModel> _logger;
     private ScaleReferenceResult? _result;
@@ -75,11 +76,12 @@ public partial class CalibrationPageViewModel : ViewModelBase
     private bool _saved;
 
     public CalibrationPageViewModel(IScaleReferenceMeasurer measurer, ICalibrationStore store,
-        IPlatformImaging imaging, Action onDone, ILogger<CalibrationPageViewModel> logger)
+        IPlatformImaging imaging, IFilePicker filePicker, Action onDone, ILogger<CalibrationPageViewModel> logger)
     {
         _measurer = measurer;
         _store = store;
         _imaging = imaging;
+        _filePicker = filePicker;
         _onDone = onDone;
         _logger = logger;
 
@@ -105,6 +107,9 @@ public partial class CalibrationPageViewModel : ViewModelBase
         }
         _initialized = true;
     }
+
+    // The view initiates the pick (it must run from the tap), so it reaches the head's picker through here.
+    internal IFilePicker FilePicker => _filePicker;
 
     public bool HasStatus => !string.IsNullOrEmpty(StatusText);
 
