@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -9,6 +10,7 @@ using Serilog;
 using Serilog.Extensions.Logging;
 using ScanNTune.App.ViewModels;
 using ScanNTune.App.Views;
+using ScanNTune.Core.Storage;
 using ScanNTune.Core.Updates;
 
 namespace ScanNTune.App;
@@ -53,9 +55,13 @@ public partial class App : Application
         ILogger<VelopackAppUpdater> updaterLog = _loggerFactory.CreateLogger<VelopackAppUpdater>();
         ILogger<UpdateCheck> checkLog = _loggerFactory.CreateLogger<UpdateCheck>();
 
+        string appDataDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ScanNTune");
+        IKeyValueStore store = new JsonKeyValueStore(appDataDir);
+
         _ = Task.Run(async () =>
         {
-            UpdateOutcome outcome = await new UpdateCheck(() => new VelopackAppUpdater(updaterLog), checkLog).RunAsync();
+            UpdateOutcome outcome = await new UpdateCheck(() => new VelopackAppUpdater(updaterLog), store, checkLog).RunAsync();
             if (outcome == UpdateOutcome.UpdateStaged)
                 Dispatcher.UIThread.Post(mainViewModel.MarkUpdateReady);
         });
