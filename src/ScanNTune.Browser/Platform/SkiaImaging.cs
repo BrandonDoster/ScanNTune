@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using OpenCvSharp;
 using ScanNTune.UI.Platform;
 using SkiaSharp;
@@ -25,5 +26,15 @@ public sealed class SkiaImaging : IPlatformImaging
         Mat bgr = new Mat();
         Cv2.CvtColor(wrapper, bgr, ColorConversionCodes.BGRA2BGR);
         return bgr;
+    }
+
+    public (int Width, int Height) GetImageSize(byte[] data)
+    {
+        // SKCodec reads just the image header, so this stays cheap and low-memory even for a large photo
+        // (no full-resolution decode, which is the whole point of not doing it on the wasm thread).
+        using var stream = new MemoryStream(data);
+        using SKCodec codec = SKCodec.Create(stream)
+            ?? throw new InvalidOperationException("Skia could not read the image header.");
+        return (codec.Info.Width, codec.Info.Height);
     }
 }

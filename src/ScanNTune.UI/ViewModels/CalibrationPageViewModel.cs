@@ -137,7 +137,8 @@ public partial class CalibrationPageViewModel : ViewModelBase
             return;
         }
 
-        IsDetecting = true;
+        // The view owns IsDetecting (it turns the busy indicator on before the file read and clears it when
+        // this returns), so it already covers this detection too.
         IsError = false;
         HasResult = false;
         StatusText = "Detecting the card…";
@@ -165,10 +166,6 @@ public partial class CalibrationPageViewModel : ViewModelBase
             _result = null;
             IsError = true;
             StatusText = $"Couldn't read the scan: {ex.Message}";
-        }
-        finally
-        {
-            IsDetecting = false;
         }
     }
 

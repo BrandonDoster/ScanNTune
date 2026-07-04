@@ -8,6 +8,8 @@ namespace ScanNTune.UI.Platform;
 internal sealed class DesignImaging : IPlatformImaging
 {
     public Mat DecodeBgr(byte[] data) => new();
+
+    public (int Width, int Height) GetImageSize(byte[] data) => (0, 0);
 }
 
 internal sealed class DesignCouponExporter : ICouponExporter

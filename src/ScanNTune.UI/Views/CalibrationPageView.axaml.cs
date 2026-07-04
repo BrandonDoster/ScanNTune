@@ -78,6 +78,9 @@ public partial class CalibrationPageView : UserControl
 
     private async Task LoadAsync(CalibrationPageViewModel vm, IStorageFile file)
     {
+        // Turn the busy indicator on before the read (the slow part on mobile), not just the detect, so a large
+        // card scan shows progress the whole time instead of appearing frozen.
+        vm.IsDetecting = true;
         try
         {
             byte[] data = await _files.ReadAllBytesAsync(file);
@@ -88,6 +91,10 @@ public partial class CalibrationPageView : UserControl
             vm.IsError = true;
             vm.StatusText = $"Could not read the file: {ex.Message}";
             vm.LogError("Could not read the card scan file.", ex);
+        }
+        finally
+        {
+            vm.IsDetecting = false;
         }
     }
 }

@@ -171,3 +171,18 @@ The coding rules are strict; each is numbered for unambiguous reference:
     same dash-like pause either. Rewrite the sentence: use a colon, parentheses, a comma, or two
     separate sentences. A hyphen is allowed ONLY where grammar genuinely requires one, such as a
     compound modifier ("sub-pixel", "user-facing") or a hyphenated name.
+
+11. **Mobile / WebAssembly usability: the web app must stay usable on a phone, not just the desktop.**
+    Two browser constraints have already cost real debugging time; do not reintroduce either.
+    - **No free-text inputs.** The Android browser soft keyboard cannot commit typed characters into an
+      Avalonia `TextBox` (you can delete but not type; framework bugs AvaloniaUI/Avalonia#11662 and #11665,
+      still unfixed as of Avalonia 12.0.x). Every user-entered value uses a `NumericUpDown` stepper, or another
+      control that needs no keyboard. Do not add a `TextBox` for real input to the shared UI. Give steppers a
+      sensible per-field increment and floor, and no `Maximum` (never cap what the user may enter).
+    - **Large file loads must show progress and must not exhaust memory.** A real scan is 30+ MB and 35+ MP.
+      Decode previews downscaled with `Bitmap.DecodeToWidth`, never `new Bitmap(stream)`: a full-resolution
+      decode allocates well over 100 MB against the 256 MB wasm heap and intermittently runs out of memory (the
+      original "upload takes minutes, works after a few tries"). The slow part of a load is the file read
+      itself, because Avalonia marshals the bytes one at a time across the JS boundary, so turn the slot busy
+      indicator on before the read, not just the decode. Every file-ingest path (each upload slot and page)
+      must do both. The proper cure for the slow read is a bulk browser-side read, still to be done.
