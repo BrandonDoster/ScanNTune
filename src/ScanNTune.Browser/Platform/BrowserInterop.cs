@@ -28,6 +28,9 @@ internal static partial class BrowserInterop
     [JSImport("openUrl", ModuleName)]
     internal static partial void OpenUrl(string url);
 
+    [JSImport("isTouchPrimary", ModuleName)]
+    internal static partial bool IsTouchPrimary();
+
     [JSImport("downloadFile", ModuleName)]
     internal static partial void DownloadFile(string name, string base64, string mime);
 

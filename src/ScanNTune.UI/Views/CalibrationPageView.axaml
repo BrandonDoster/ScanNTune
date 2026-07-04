@@ -9,6 +9,13 @@
              x:DataType="vm:CalibrationPageViewModel">
 
     <UserControl.Styles>
+        <!-- On a touch device the numeric fields drop text entry so tapping one cannot raise a soft keyboard or
+             leave an uneditable caret; the field's own +/- steppers stay live (separate template parts, not
+             gated by the inner text box). Toggled by the view model's IsTouchDevice. -->
+        <Style Selector="NumericUpDown.touchInput /template/ TextBox">
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="IsHitTestVisible" Value="False"/>
+        </Style>
         <Style Selector="Border.panel">
             <Setter Property="Background" Value="{DynamicResource SurfaceAltBrush}"/>
             <Setter Property="CornerRadius" Value="12"/>
@@ -157,6 +164,7 @@
                                 <TextBlock Text="Measured long side" Classes="tlab"/>
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                     <NumericUpDown Value="{Binding MeasuredMm}" Increment="0.02" Minimum="1"
+                                                   Classes.touchInput="{Binding IsTouchDevice}"
                                                    FormatString="0.00" Width="150" PlaceholderText="85.50"/>
                                     <TextBlock Text="mm" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}"/>
                                 </StackPanel>
@@ -165,6 +173,7 @@
                                 <TextBlock Text="Scan resolution" Classes="tlab"/>
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                     <NumericUpDown Value="{Binding Dpi}" Increment="100" Minimum="50"
+                                                   Classes.touchInput="{Binding IsTouchDevice}"
                                                    FormatString="0" Width="150" PlaceholderText="600"/>
                                     <TextBlock Text="dpi" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}"/>
                                 </StackPanel>

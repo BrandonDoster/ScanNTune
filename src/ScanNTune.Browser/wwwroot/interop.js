@@ -5,6 +5,10 @@ export function setItem(key, value) { globalThis.localStorage.setItem(key, value
 export function removeItem(key) { globalThis.localStorage.removeItem(key); }
 export function openUrl(url) { globalThis.open(url, "_blank"); }
 
+// True when the primary pointer is a touch screen (phone/tablet). The shared UI uses this to turn off text
+// entry in the numeric fields, since a mobile soft keyboard cannot type into them.
+export function isTouchPrimary() { return globalThis.matchMedia("(pointer: coarse)").matches; }
+
 // Trigger a browser download of base64-encoded bytes under the given filename.
 export function downloadFile(name, base64, mime) {
     const binary = atob(base64);
@@ -50,18 +54,25 @@ export function pickImageFile(title) {
         heading.textContent = title;
         heading.style.cssText = "font-size:15px;font-weight:500;margin-bottom:14px;";
 
-        const label = document.createElement("label");
-        label.textContent = "Choose file";
-        label.style.cssText = "display:block;background:#3f6fd8;color:#fff;text-align:center;padding:14px;border-radius:10px;font-size:16px;cursor:pointer;";
+        // Our own styled button is what the user sees; the real <input> is layered transparently over it, so
+        // all of the browser's default file-input chrome (the plain button, the "No file chosen" text) is
+        // hidden underneath and only this styling shows.
+        const button = document.createElement("div");
+        button.textContent = "Choose file";
+        button.style.cssText = "position:relative;overflow:hidden;background:#3f6fd8;color:#fff;text-align:center;padding:14px;border-radius:10px;font-size:16px;font-weight:500;cursor:pointer;";
 
         const input = document.createElement("input");
         input.type = "file";
         // Only the raster formats the engine can actually decode (OpenCV on desktop, Skia in the browser), so
         // the user is not offered SVG/HEIC/AVIF and the like that would just fail after upload.
         input.accept = ".png,.jpg,.jpeg,.bmp,.tif,.tiff,.webp,image/png,image/jpeg,image/bmp,image/tiff,image/webp";
-        // Visually hidden but NOT display:none, so the enclosing label still forwards the tap to it on iOS.
-        input.style.cssText = "position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;";
-        label.appendChild(input);
+        // Transparent, covering the WHOLE button so the finger taps the <input> itself. iOS Safari opens the
+        // file dialog only from a genuine tap directly on the input element (a label that forwards the tap to a
+        // hidden input, or a programmatic .click() after an await, counts as synthetic there and opens nothing).
+        // 16px font stops iOS zooming in on focus; top/left + 100% (not the inset shorthand) so the overlay
+        // still covers the button on older iOS Safari (< 14.5).
+        input.style.cssText = "position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;font-size:16px;cursor:pointer;";
+        button.appendChild(input);
 
         const cancel = document.createElement("button");
         cancel.type = "button";
@@ -79,7 +90,7 @@ export function pickImageFile(title) {
         overlay.addEventListener("click", (e) => { if (e.target === overlay) finish(null); });
 
         sheet.appendChild(heading);
-        sheet.appendChild(label);
+        sheet.appendChild(button);
         sheet.appendChild(cancel);
         overlay.appendChild(sheet);
         document.body.appendChild(overlay);
