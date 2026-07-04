@@ -1,14 +1,18 @@
 <script setup lang="ts">
-// Phase 0 scaffold shell. The three pages (Scan, Calibration, Results) land in a later phase.
+import { useApp } from './stores/useApp'
+import ScanPage from './components/ScanPage.vue'
+import CalibrationPage from './components/CalibrationPage.vue'
+import ResultsPage from './components/ResultsPage.vue'
+
+const app = useApp()
 </script>
 
 <template>
   <v-app>
     <v-main>
-      <v-container>
-        <h1 class="text-h4">ScanNTune</h1>
-        <p class="text-body-1">Web rewrite scaffold.</p>
-      </v-container>
+      <ScanPage v-if="app.screen === 'scan'" />
+      <CalibrationPage v-else-if="app.screen === 'calibration'" />
+      <ResultsPage v-else />
     </v-main>
   </v-app>
 </template>
