@@ -136,3 +136,103 @@ export function copyPickedBytes(dest) {
 export function clearPickedBytes() {
     _pickedBytes = null;
 }
+
+// ---------------------------------------------------------------------------------------------------------
+// In-app debug console (web app only; this module is not loaded by the desktop head). A discreet floating
+// button opens a panel that shows captured console output plus uncaught errors and promise rejections, with
+// Copy and Share, so a phone user can send us the log without any devtools. The C# side logs through the
+// browser console too (BrowserConsoleLogger), so its output appears here as well. Add console.log anywhere in
+// the JS or C# and it shows up.
+(function initDebugConsole() {
+    if (typeof document === "undefined" || typeof window === "undefined") return;
+    if (window.__sntDebug) return; // a re-import must not double-hook the console
+    window.__sntDebug = true;
+
+    const MAX = 500;
+    const lines = [];
+    let bodyEl = null; // the <pre> in the open panel, or null when closed
+
+    const fmt = (a) => {
+        try {
+            if (a instanceof Error) return a.stack || (a.name + ": " + a.message);
+            if (a !== null && typeof a === "object") return JSON.stringify(a);
+            return String(a);
+        } catch (_) { return "[unserializable]"; }
+    };
+    const stamp = () => { try { return new Date().toLocaleTimeString(); } catch (_) { return ""; } };
+    const text = () => lines.join("\n");
+    const push = (level, args) => {
+        lines.push(stamp() + " [" + level + "] " + args.map(fmt).join(" "));
+        if (lines.length > MAX) lines.shift();
+        if (bodyEl) { bodyEl.textContent = text(); bodyEl.scrollTop = bodyEl.scrollHeight; }
+    };
+
+    ["log", "info", "warn", "error"].forEach((m) => {
+        const orig = console[m] ? console[m].bind(console) : function () { };
+        console[m] = function (...a) { try { push(m, a); } catch (_) { /* logging must never throw */ } orig(...a); };
+    });
+    window.addEventListener("error", (e) => push("error", [e.message + " @ " + (e.filename || "") + ":" + (e.lineno || "")]));
+    window.addEventListener("unhandledrejection", (e) => push("reject", [(e.reason && (e.reason.stack || e.reason.message)) || e.reason]));
+
+    const mkBtn = (label, bg, fg) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = label;
+        b.style.cssText = "background:" + bg + ";color:" + fg + ";border:0;border-radius:8px;padding:8px 12px;font:14px system-ui,sans-serif;cursor:pointer;";
+        return b;
+    };
+
+    let panel = null;
+    const close = () => { if (panel) { panel.remove(); panel = null; bodyEl = null; } };
+    const open = () => {
+        if (panel) return;
+        panel = document.createElement("div");
+        panel.style.cssText = "position:fixed;inset:0;z-index:2147483646;background:#14151f;color:#e6e8f0;display:flex;flex-direction:column;";
+        const bar = document.createElement("div");
+        bar.style.cssText = "display:flex;gap:8px;padding:10px;flex-wrap:wrap;align-items:center;border-bottom:1px solid rgba(255,255,255,0.1);";
+        const title = document.createElement("div");
+        title.textContent = "Debug log";
+        title.style.cssText = "font:600 14px system-ui,sans-serif;margin-right:auto;";
+        const copy = mkBtn("Copy", "#3f6fd8", "#fff");
+        const share = mkBtn("Share", "#3f6fd8", "#fff");
+        const clear = mkBtn("Clear", "#5a3f3f", "#fff");
+        const closeBtn = mkBtn("Close", "transparent", "#9aa0b8");
+        bodyEl = document.createElement("pre");
+        bodyEl.style.cssText = "flex:1;margin:0;padding:10px;overflow:auto;white-space:pre-wrap;word-break:break-word;font:11px/1.5 monospace;background:#0c0d14;";
+        bodyEl.textContent = text();
+        copy.addEventListener("click", async () => {
+            try { await navigator.clipboard.writeText(text()); }
+            catch (_) {
+                const ta = document.createElement("textarea");
+                ta.value = text();
+                document.body.appendChild(ta);
+                ta.select();
+                try { document.execCommand("copy"); } catch (e2) { /* nothing else to try */ }
+                ta.remove();
+            }
+            copy.textContent = "Copied";
+            setTimeout(() => { copy.textContent = "Copy"; }, 1200);
+        });
+        share.addEventListener("click", async () => {
+            try { if (navigator.share) { await navigator.share({ title: "ScanNTune debug log", text: text() }); } else { share.textContent = "No share"; } }
+            catch (_) { /* user cancelled the share sheet */ }
+        });
+        clear.addEventListener("click", () => { lines.length = 0; bodyEl.textContent = ""; });
+        closeBtn.addEventListener("click", close);
+        bar.append(title, copy, share, clear, closeBtn);
+        panel.append(bar, bodyEl);
+        document.body.appendChild(panel);
+    };
+
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.textContent = "debug";
+    toggle.setAttribute("aria-label", "Open the debug log");
+    toggle.style.cssText = "position:fixed;left:8px;bottom:8px;z-index:2147483645;background:rgba(40,42,58,0.7);color:#9aa0b8;border:1px solid rgba(255,255,255,0.15);border-radius:8px;font:11px system-ui,sans-serif;padding:5px 8px;opacity:0.55;cursor:pointer;";
+    toggle.addEventListener("click", () => (panel ? close() : open()));
+
+    const attach = () => { if (document.body) document.body.appendChild(toggle); };
+    if (document.body) attach(); else window.addEventListener("DOMContentLoaded", attach);
+
+    push("info", ["debug console ready"]);
+})();
