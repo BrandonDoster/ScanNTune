@@ -18,7 +18,54 @@ Orientation is automatic. The coupon's origin-corner ring **and its +X neighbour
 hole) — a two-ring marker the software reads: `origin → neighbour` is the coupon's +X, which resolves
 rotation AND mirror-flip with no manual input (see "Coupon & orientation" below).
 
-## Build & Run
+## Web app (Vue 3 rewrite): the active development target
+
+The project is being rewritten as a plain web app under `web/` (Vue 3 + TypeScript + Vite + Vuetify),
+replacing the Avalonia desktop and WebAssembly heads. **Web is now the only target.** The rewrite exists
+because the C# browser head **froze during analysis**: WebAssembly there is single-threaded (so `Task.Run`
+cannot offload the CV work), interpreted, links OpenCV at `-O0`, and runs on a 256 MB heap. The Vue app
+runs the exact same measurement pipeline, ported to TypeScript, in a **Web Worker** using **OpenCV.js**, so
+analysis is off the main thread (no freeze), needs no cross-origin-isolation headers (works on GitHub
+Pages), and is far faster. Native `<input type=file>` and `<input type=number>` also delete the entire
+Avalonia mobile-input saga (rule 11 below is now historical).
+
+Commands (run inside `web/`):
+
+```bash
+npm install
+npm run dev       # Vite dev server at http://localhost:5173/ScanNTune/
+npm run build     # vue-tsc typecheck + production build to web/dist
+npm test          # Vitest: engine unit tests + fixture-backed CV tests
+npm run e2e       # Playwright end-to-end over the real scans in web/e2e/fixtures
+```
+
+Structure: a framework-agnostic engine in `web/src/engine/` (the faithful port of `ScanNTune.Core`:
+`ringDetector`, `gridMapper`, `affineSolver`, `couponAnalyzer`, `scanCombiner`, `cardEdgeMeasurer`,
+`overlayRenderer`, `correctionFormatter`), a Comlink Web Worker in `web/src/worker/`, thin Vue pages in
+`web/src/components/` (Scan / Calibration / Results) over Pinia stores, and tests in `web/tests` (Vitest)
+and `web/e2e` (Playwright). The engine takes the loaded `cv` instance as a parameter, so OpenCV.js stays
+out of the main bundle (it lives in the worker chunk, loaded on first analysis) and tests can inject it.
+
+Measurement integrity is preserved: every stage is a 1:1 port validated against the same fixture as the C#
+suite (`web/tests/fixtures/TestData_2solid.png`) at the same tolerances (23 rings, ~0 skew, isotropy), plus
+Playwright over the real scans (the card recovers ~23.6 px/mm; the two-scan flow completes on 35 MP scans
+without freezing). Do not change the ported math without re-validating those fixtures (rule 7).
+
+Two durable gotchas:
+- **OpenCV.js loads via a default import** (`import cvReady from '@techstark/opencv-js'`), NOT a namespace or
+  dynamic `import()`. Its `module.exports` is a Promise, which a namespace/dynamic import turns into a broken
+  thenable ("Promise.prototype.then called on incompatible receiver") in both Vitest and the browser build; a
+  bundler default import returns `module.exports` (the real Promise) directly. In Vitest the engine CV tests
+  load it with a native `require` instead (see `web/tests/helpers/cv.ts`), because even the default import is
+  re-wrapped by Vitest's module runner.
+- **Vite `base` is `/ScanNTune/`** (the GitHub Pages project path); asset URLs and the STL download depend on
+  `import.meta.env.BASE_URL`.
+
+The C# solution (`src/`) is kept during the transition and still builds; it will be retired at cutover. CI:
+`.github/workflows/web-ci.yml` builds/tests/e2e-tests the web app on PRs; `deploy-web-vue.yml` is the cutover
+Pages deploy (manual `workflow_dispatch` only, so it cannot clobber the live C# site yet).
+
+## Build & Run (C# solution, being retired)
 
 The solution lives at `src/ScanNTune.slnx` (new XML solution format). Core, UI, App and Tests target
 `net10.0`; the browser head targets `net10.0-browser` and needs the `wasm-tools` workload
@@ -172,17 +219,43 @@ The coding rules are strict; each is numbered for unambiguous reference:
     separate sentences. A hyphen is allowed ONLY where grammar genuinely requires one, such as a
     compound modifier ("sub-pixel", "user-facing") or a hyphenated name.
 
-11. **Mobile / WebAssembly usability: the web app must stay usable on a phone, not just the desktop.**
-    Two browser constraints have already cost real debugging time; do not reintroduce either.
+11. **Mobile / WebAssembly usability (HISTORICAL: applied to the retired Avalonia-on-wasm browser head).**
+    These constraints are superseded by the Vue rewrite in `web/`, which uses native HTML `<input type=file>`
+    and `<input type=number>` and so has none of the problems below (no soft-keyboard `TextBox` bug, no
+    iOS file-input hacks, no touch read-only steppers). Keep this section only as context for the C# code
+    while it still exists; do NOT reintroduce these workarounds in the Vue app. The full story is in
+    `HANDOFF.md` and the `mobile-web-constraints` memory.
     - **No free-text inputs.** The Android browser soft keyboard cannot commit typed characters into an
       Avalonia `TextBox` (you can delete but not type; framework bugs AvaloniaUI/Avalonia#11662 and #11665,
       still unfixed as of Avalonia 12.0.x). Every user-entered value uses a `NumericUpDown` stepper, or another
       control that needs no keyboard. Do not add a `TextBox` for real input to the shared UI. Give steppers a
       sensible per-field increment and floor, and no `Maximum` (never cap what the user may enter).
+    - **On a touch device, turn text entry OFF in the numeric fields** so tapping one raises no soft keyboard
+      or caret. A head-supplied `IDeviceInfo.IsTouchPrimary` (browser reads `matchMedia('(pointer: coarse)')`;
+      desktop app is false) drives a `NumericUpDown.touchInput /template/ TextBox { Focusable=False;
+      IsHitTestVisible=False }` style. Do NOT use `NumericUpDown.IsReadOnly`: it also disables the +/- spinner
+      (`OnSpinnerSpin` is gated on `AllowSpin && !IsReadOnly`). Make only the inner `PART_TextBox` non-focusable.
+    - **The file picker is app-owned (`IFilePicker`), and its browser sheet
+      (`ScanNTune.Browser/wwwroot/interop.js`) has strict, non-obvious iOS requirements. Do not "simplify" any
+      of them without a real iPhone to re-test.** (a) Open the sheet from a small dedicated button on
+      `PointerPressed` (touch-DOWN), never on release or the `Tapped` gesture: a mobile browser drops the
+      release as a cancel when it suspects a scroll, so open-on-release is unreliable, and a small button leaves
+      the rest of the slot free to scroll. (b) The sheet dismisses on `pointerdown`, not `click`: the opening
+      tap's follow-up click hits the backdrop and a click-dismiss self-closes the sheet instantly. (c) The sheet
+      holds a real, VISIBLE `<input type=file>` (not `opacity:0`, not label-forwarded): iOS ignores taps on an
+      invisible input. (d) That input must carry real event listeners (passive touch/pointer/click listeners):
+      iOS only opens the OS dialog when it treats the element as interactive, and a bare styled input does not
+      qualify. Those listeners look like debug code but are load-bearing; do not remove them.
     - **Large file loads must show progress and must not exhaust memory.** A real scan is 30+ MB and 35+ MP.
       Decode previews downscaled with `Bitmap.DecodeToWidth`, never `new Bitmap(stream)`: a full-resolution
       decode allocates well over 100 MB against the 256 MB wasm heap and intermittently runs out of memory (the
-      original "upload takes minutes, works after a few tries"). The slow part of a load is the file read
-      itself, because Avalonia marshals the bytes one at a time across the JS boundary, so turn the slot busy
-      indicator on before the read, not just the decode. Every file-ingest path (each upload slot and page)
-      must do both. The proper cure for the slow read is a bulk browser-side read, still to be done.
+      original "upload takes minutes, works after a few tries"). The read is the slow part; the browser picker
+      reads the bytes in one bulk `file.arrayBuffer()` copy, and every file-ingest path turns the busy indicator
+      on BEFORE the read, not just the decode.
+    - **Debugging mobile: instrument the device, and never claim an iOS fix works from desktop or
+      synthetic-event testing.** Desktop sends clean events; real mobile touch differs (release becomes a cancel
+      on scroll intent, iOS clickability heuristics, ghost clicks), and several iOS "fixes" that passed on
+      desktop failed on the phone. The web app has an in-app debug console (the discreet "debug" button, in
+      `interop.js`) that captures `console.*` plus errors and rejections, including C# logs via
+      `BrowserConsoleLogger`, with Copy / Share. Add `console.log` / logger calls and read it on the phone
+      rather than shipping a desktop-only-verified iOS fix.
