@@ -24,9 +24,8 @@
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <!--
       The wasm SDK turns System.Text.Json reflection off by default, so JsonSerializer.Serialize on the
-      calibration/settings types throws "JsonSerializerIsReflectionDisabled". Re-enable it: the serialized
-      types live in ScanNTune.Core/ScanNTune.UI, which are rooted against trimming above, so their members
-      are preserved.
+      calibration types throws "JsonSerializerIsReflectionDisabled". Re-enable it: the serialized types live
+      in ScanNTune.Core/ScanNTune.UI, which are rooted against trimming below, so their members are preserved.
     -->
     <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
   </PropertyGroup>
@@ -50,14 +49,18 @@
   </ItemGroup>
 
   <!--
-    Autofac and the ViewLocator resolve types by reflection, which IL trimming can strip. Root the app
-    assemblies so their view/view-model/service types and constructors survive; the framework is still
-    trimmed, keeping the wasm bundle far smaller than disabling trimming outright.
+    Autofac, the ViewLocator, and System.Text.Json resolve types by reflection, which IL trimming can strip.
+    Root the app assemblies so their view/view-model/service types and constructors survive, and root Autofac
+    so its registration sources survive: without it the container throws a TypeInitializationException on
+    Autofac.Core.ImplicitRegistrationSource at startup (a black screen). The framework itself is still trimmed,
+    which keeps the wasm bundle smaller and, unlike disabling trimming outright, keeps the runtime able to
+    start (an untrimmed publish fails in mono_wasm_load_runtime).
   -->
   <ItemGroup>
     <TrimmerRootAssembly Include="ScanNTune.UI" />
     <TrimmerRootAssembly Include="ScanNTune.Core" />
     <TrimmerRootAssembly Include="ScanNTune.Browser" />
+    <TrimmerRootAssembly Include="Autofac" />
   </ItemGroup>
 
   <!--

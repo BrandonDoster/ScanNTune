@@ -72,8 +72,8 @@ logic stays reusable and each platform carries only its own glue:
   `OpenCvSharp4.runtime.wasm` + `SkiaSharp`. Runs entirely client-side. Several deliberate wasm workarounds
   are commented in `ScanNTune.Browser.csproj` and the platform files (P/Invoke module rename to
   `OpenCvSharpExtern.a`, `EmccLinkOptimizationFlag=-O0`, `WasmAllowUndefinedSymbols`, a raised heap size,
-  `JsonSerializerIsReflectionEnabledByDefault`, and `TrimmerRootAssembly` roots for the reflection users):
-  keep them, do not "simplify" them away.
+  `JsonSerializerIsReflectionEnabledByDefault`, and `TrimmerRootAssembly` roots for the reflection users,
+  including Autofac whose registration sources the trimmer otherwise strips): keep them, do not "simplify" them away.
 - **ScanNTune.Tests**, NUnit; end-to-end pipeline tests over fixture scans. Carries `runtime.win` so
   OpenCV runs on Windows.
 
