@@ -87,7 +87,10 @@ export function pickImageFile(title) {
             finish(file.name + "\n" + bytes.length);
         });
         cancel.addEventListener("click", () => finish(null));
-        overlay.addEventListener("click", (e) => { if (e.target === overlay) finish(null); });
+        // Dismiss on a fresh press on the backdrop, NOT on click: the tap that opens the sheet is a touch-down
+        // on the button, and its follow-up click lands mid-screen on this backdrop; a click handler would then
+        // close the sheet the instant it opened. A pointerdown only fires for a new, deliberate tap outside.
+        overlay.addEventListener("pointerdown", (e) => { if (e.target === overlay) finish(null); });
 
         sheet.appendChild(heading);
         sheet.appendChild(button);
