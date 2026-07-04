@@ -1,6 +1,8 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading.Tasks;
 using Avalonia.Platform;
 using Microsoft.Extensions.Logging;
@@ -30,14 +32,15 @@ public sealed class WindowsCouponExporter : ICouponExporter
             using (FileStream file = File.Create(dest))
                 source.CopyTo(file);
 
-            // The "openas" verb is the shell's canonical "Open with..." action and shows the chooser for a
-            // type (like .stl) that has no default handler. Letting the shell resolve the path means a
-            // profile path containing a space (e.g. C:\Users\First Last\...) is handled correctly, unlike a
-            // bare space-delimited OpenAs_RunDLL argument.
-            Process.Start(new ProcessStartInfo(dest)
+            // OpenAs_RunDLL forces the "Open with..." chooser regardless of file associations. The
+            // ShellExecute "openas" verb instead fails with "no application associated" for a type (like
+            // .stl) that has no default handler. It reads the rest of the command line as the path, which a
+            // space would split, so pass the 8.3 short path when the temp path happens to contain a space.
+            string arg = dest.Contains(' ') ? ShortPath(dest) : dest;
+            Process.Start(new ProcessStartInfo("rundll32.exe")
             {
-                UseShellExecute = true,
-                Verb = "openas",
+                Arguments = $"shell32.dll,OpenAs_RunDLL {arg}",
+                UseShellExecute = false,
             });
         }
         catch (Exception ex)
@@ -48,4 +51,17 @@ public sealed class WindowsCouponExporter : ICouponExporter
 
         return Task.CompletedTask;
     }
+
+    // Win32 8.3 short path (e.g. C:\Users\FIRSTL~1\...): a space-free form of an existing path, so the
+    // space-delimited OpenAs_RunDLL argument can't be truncated. Falls back to the original path if the
+    // short name is unavailable (8.3 generation disabled on the volume).
+    private string ShortPath(string path)
+    {
+        var buffer = new StringBuilder(260);
+        uint length = GetShortPathName(path, buffer, (uint)buffer.Capacity);
+        return length > 0 && length < buffer.Capacity ? buffer.ToString() : path;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern uint GetShortPathName(string lpszLongPath, StringBuilder lpszShortPath, uint cchBuffer);
 }
