@@ -8,3 +8,11 @@ html, body {
     height: 100vh;
     height: 100dvh;
 }
+
+/* iOS Safari auto-zooms the whole page when a focused input's font is under 16px, and over the Avalonia
+   canvas the pinch gesture can't zoom back out. Avalonia's hidden text-entry element is 13.3px, so focusing
+   a field (for example tapping a stepper's number box) zooms in with no way out. Force it to 16px: the
+   element is invisible, so this only changes iOS's zoom decision, nothing visual. */
+.avalonia-input-element {
+    font-size: 16px !important;
+}
