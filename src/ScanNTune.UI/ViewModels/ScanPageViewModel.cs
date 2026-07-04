@@ -10,7 +10,6 @@ using OpenCvSharp;
 using ScanNTune.Core;
 using ScanNTune.Core.Calibration;
 using ScanNTune.Core.Combining;
-using ScanNTune.Core.Input;
 using ScanNTune.Core.Output;
 using ScanNTune.UI.Platform;
 
@@ -35,7 +34,6 @@ public partial class ScanPageViewModel : ViewModelBase
     private readonly Action _onCalibrate;
     private readonly ScannerCalibration? _calibration;
     private readonly ILogger<ScanPageViewModel> _logger;
-    private readonly UserNumberParser _numbers = new();
 
     private byte[]? _scan1Data;
     private byte[]? _scan2Data;
@@ -48,17 +46,26 @@ public partial class ScanPageViewModel : ViewModelBase
     [ObservableProperty]
     private Bitmap? _scan2Thumb;
 
+    // Numeric fields are stepper-driven (NumericUpDown) rather than free text: on the Android browser the
+    // soft keyboard can't commit typed characters (an Avalonia framework limitation), so the +/- spinners
+    // are the reliable input. Nullable so DPI can be left blank for the anisotropy-and-skew-only path.
     [ObservableProperty]
-    private string _dpiText = "1200";
+    private decimal? _dpi = 1200m;
 
     [ObservableProperty]
-    private string _baselineMmText = "100";
+    private decimal? _baselineMm = 100m;
 
     [ObservableProperty]
-    private string _gridText = "5";
+    private decimal? _grid = 5m;
 
     [ObservableProperty]
     private bool _isBusy;
+
+    [ObservableProperty]
+    private bool _scan1Loading;
+
+    [ObservableProperty]
+    private bool _scan2Loading;
 
     [ObservableProperty]
     private bool _isError;
@@ -150,16 +157,23 @@ public partial class ScanPageViewModel : ViewModelBase
             : $"{name} · {bitmap.PixelSize.Width}×{bitmap.PixelSize.Height}";
 
     /// <summary>Load the first (0°) scan from its encoded bytes; a bad image is surfaced, not thrown.</summary>
-    public void LoadScan1(string name, byte[] data) => Load(name, data, isFirst: true);
+    public Task LoadScan1Async(string name, byte[] data) => LoadAsync(name, data, isFirst: true);
 
     /// <summary>Load the second (quarter-turned) scan.</summary>
-    public void LoadScan2(string name, byte[] data) => Load(name, data, isFirst: false);
+    public Task LoadScan2Async(string name, byte[] data) => LoadAsync(name, data, isFirst: false);
 
-    private void Load(string name, byte[] data, bool isFirst)
+    private async Task LoadAsync(string name, byte[] data, bool isFirst)
     {
+        // Show the slot's spinner before decoding: on single-threaded wasm a large phone photo decodes on
+        // the UI thread and blocks it, so yield once to let the busy state paint first.
+        if (isFirst)
+            Scan1Loading = true;
+        else
+            Scan2Loading = true;
+        IsError = false;
+        await Task.Yield();
         try
         {
-            IsError = false;
             // Avalonia decodes with Skia on every platform, so the thumbnail works in the browser too.
             using var stream = new MemoryStream(data);
             var bitmap = new Bitmap(stream);
@@ -194,6 +208,13 @@ public partial class ScanPageViewModel : ViewModelBase
         {
             ReportLoadError("Could not load image", ex);
         }
+        finally
+        {
+            if (isFirst)
+                Scan1Loading = false;
+            else
+                Scan2Loading = false;
+        }
     }
 
     /// <summary>Logs a load/open failure and surfaces it on the status line. Called by the view's glue too.</summary>
@@ -225,35 +246,17 @@ public partial class ScanPageViewModel : ViewModelBase
         {
             // With a stored calibration, use the scanner's measured px/mm directly (the coupon is
             // scanned at the calibrated DPI); otherwise fall back to the entered nominal DPI/25.4
-            // (anisotropy + skew stay correct either way). A typed DPI that doesn't parse or is
-            // outside any real scanner's range is an error, not a silent fallback: a misread DPI
-            // corrupts the absolute scale without a trace.
+            // (anisotropy + skew stay correct either way). A blank DPI is the deliberate
+            // anisotropy-and-skew-only path; the stepper's floor keeps any entered DPI realistic.
             double? pxPerMm;
             if (_calibration is not null)
-            {
                 pxPerMm = _calibration.PxPerMm;
-            }
-            else if (string.IsNullOrWhiteSpace(DpiText))
-            {
-                pxPerMm = null; // deliberate: anisotropy + skew only
-            }
-            else if (_numbers.TryParseDouble(DpiText, out double dpi) && dpi is >= 50 and <= 9600)
-            {
-                pxPerMm = dpi / 25.4;
-            }
+            else if (Dpi is { } dpi && dpi >= 50)
+                pxPerMm = (double)dpi / 25.4;
             else
-            {
-                IsError = true;
-                StatusText = "Scanner DPI must be a number between 50 and 9600, or left blank for anisotropy and skew only.";
-                return;
-            }
+                pxPerMm = null;
 
-            if (!TryBuildCoupon(out CouponSpec coupon, out string couponError))
-            {
-                IsError = true;
-                StatusText = couponError;
-                return;
-            }
+            CouponSpec coupon = BuildCoupon();
             var options = new AnalysisOptions { PxPerMm = pxPerMm, Coupon = coupon };
 
             (TwoScanResult result, Bitmap overlayA, Bitmap overlayB) = await Task.Run(() =>
@@ -372,35 +375,17 @@ public partial class ScanPageViewModel : ViewModelBase
     partial void OnStatusTextChanged(string value) => OnPropertyChanged(nameof(HasStatus));
 
     /// <summary>
-    /// Builds the coupon spec from the text fields. A blank field keeps the default; a filled
-    /// field that doesn't parse is an ERROR: silently reverting to the 100 mm default would
-    /// make every scale figure and the Klipper skew lengths wrong with no indication.
+    /// Builds the coupon spec from the stepper fields. Each field carries a valid default and the steppers
+    /// clamp to a sensible floor (baseline &gt; 0, at least two rings a side), so a blank field simply keeps
+    /// the <see cref="CouponSpec"/> default rather than needing a separate validation error path.
     /// </summary>
-    private bool TryBuildCoupon(out CouponSpec coupon, out string error)
+    private CouponSpec BuildCoupon()
     {
-        coupon = new CouponSpec();
-        error = string.Empty;
-
-        if (!string.IsNullOrWhiteSpace(BaselineMmText))
-        {
-            if (!_numbers.TryParseDouble(BaselineMmText, out double baseline) || baseline <= 0)
-            {
-                error = $"Coupon size \"{BaselineMmText}\" is not a valid length in mm.";
-                return false;
-            }
-            coupon = coupon with { BaselineMm = baseline };
-        }
-
-        if (!string.IsNullOrWhiteSpace(GridText))
-        {
-            if (!_numbers.TryParseInt(GridText, out int grid) || grid < 2)
-            {
-                error = $"Rings per side \"{GridText}\" is not a whole number of 2 or more.";
-                return false;
-            }
-            coupon = coupon with { GridN = grid };
-        }
-
-        return true;
+        var coupon = new CouponSpec();
+        if (BaselineMm is { } baseline && baseline > 0)
+            coupon = coupon with { BaselineMm = (double)baseline };
+        if (Grid is { } grid && grid >= 2)
+            coupon = coupon with { GridN = (int)Math.Round(grid) };
+        return coupon;
     }
 }

@@ -4,7 +4,6 @@ using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using ScanNTune.Core;
-using ScanNTune.Core.Input;
 using ScanNTune.Core.Output;
 
 namespace ScanNTune.UI.ViewModels;
@@ -20,7 +19,6 @@ public partial class ResultsPageViewModel : ViewModelBase
     private readonly CouponSpec _coupon;
     private readonly ICorrectionFormatter _corrections;
     private readonly Action _onStartOver;
-    private readonly UserNumberParser _numbers = new();
 
     [ObservableProperty]
     private string _selectedSkewFlavour;
@@ -62,11 +60,12 @@ public partial class ResultsPageViewModel : ViewModelBase
     [ObservableProperty]
     private string _currentLabel = string.Empty;
 
+    // Stepper-driven so the fields work on the Android browser (its soft keyboard can't commit typed text).
     [ObservableProperty]
-    private string _currentXText = string.Empty;
+    private decimal? _currentX;
 
     [ObservableProperty]
-    private string _currentYText = string.Empty;
+    private decimal? _currentY;
 
     [ObservableProperty]
     private bool _scannerExpanded;
@@ -151,8 +150,8 @@ public partial class ResultsPageViewModel : ViewModelBase
 
     private void RecomputeSize()
     {
-        double? currentX = ShowCurrentInputs && _numbers.TryParseDouble(CurrentXText, out double x) ? x : null;
-        double? currentY = ShowCurrentInputs && _numbers.TryParseDouble(CurrentYText, out double y) ? y : null;
+        double? currentX = ShowCurrentInputs && CurrentX is { } x ? (double)x : null;
+        double? currentY = ShowCurrentInputs && CurrentY is { } y ? (double)y : null;
 
         Correction correction = _corrections.Size(SelectedSizeFlavour, Combined.XScalePercent, Combined.YScalePercent, currentX, currentY);
         SizeCode = correction.Code;
@@ -169,7 +168,7 @@ public partial class ResultsPageViewModel : ViewModelBase
         RecomputeSize();
     }
 
-    partial void OnCurrentXTextChanged(string value) => RecomputeSize();
+    partial void OnCurrentXChanged(decimal? value) => RecomputeSize();
 
-    partial void OnCurrentYTextChanged(string value) => RecomputeSize();
+    partial void OnCurrentYChanged(decimal? value) => RecomputeSize();
 }
