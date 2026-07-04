@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "browser-wasm",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--project", "src/ScanNTune.Browser", "-c", "Debug"],
+      "port": 5235
+    }
+  ]
+}

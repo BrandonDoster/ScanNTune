@@ -29,11 +29,7 @@ public sealed class JsonCalibrationStore : ICalibrationStore
             if (!File.Exists(_path))
                 return null;
             ScannerCalibration? calibration = JsonSerializer.Deserialize<ScannerCalibration>(File.ReadAllText(_path), _json);
-            // A non-positive DPI or px/mm is degenerate (a partial or hand-edited file) and would
-            // silently apply no scale correction — treat it as uncalibrated instead.
-            if (calibration is null || calibration.Dpi <= 0 || calibration.PxPerMm <= 0)
-                return null;
-            return calibration;
+            return calibration is { IsUsable: true } ? calibration : null;
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
         {

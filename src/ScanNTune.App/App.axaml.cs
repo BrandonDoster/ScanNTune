@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
+using Autofac;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
@@ -8,10 +9,11 @@ using Avalonia.Threading;
 using Microsoft.Extensions.Logging;
 using Serilog;
 using Serilog.Extensions.Logging;
-using ScanNTune.App.ViewModels;
 using ScanNTune.App.Views;
 using ScanNTune.Core.Storage;
 using ScanNTune.Core.Updates;
+using ScanNTune.UI.DependencyInjection;
+using ScanNTune.UI.ViewModels;
 
 namespace ScanNTune.App;
 
@@ -20,6 +22,7 @@ public partial class App : Application
     // Bridge Serilog (configured in Program.Main) to ILogger<T> for the whole UI layer. At design time
     // Serilog's Log.Logger is a silent logger, so this is a no-op there.
     private readonly ILoggerFactory _loggerFactory = new SerilogLoggerFactory(Log.Logger);
+    private IContainer? _container;
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
@@ -37,9 +40,15 @@ public partial class App : Application
             e.SetObserved();
         };
 
+        // Compose the shared UI with the desktop head's platform services through Autofac.
+        var builder = new ContainerBuilder();
+        builder.RegisterModule(new UiModule());
+        builder.RegisterModule(new AppModule(_loggerFactory));
+        _container = builder.Build();
+
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            var mainViewModel = new MainWindowViewModel(_loggerFactory);
+            var mainViewModel = _container.Resolve<MainWindowViewModel>();
             desktop.MainWindow = new MainWindow { DataContext = mainViewModel };
 
             StartBackgroundUpdateCheck(mainViewModel);

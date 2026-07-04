@@ -2,18 +2,16 @@ using OpenCvSharp;
 
 namespace ScanNTune.Core.Output;
 
-/// <summary>Draws the detected rings and resolved orientation over a scan, as PNG bytes.</summary>
+/// <summary>Draws the detected rings and resolved orientation over a scan.</summary>
 public interface IOverlayRenderer
 {
-    byte[] RenderPng(Mat image, CalibrationResult result);
-
-    byte[] RenderPng(string imagePath, CalibrationResult result);
-
     /// <summary>
-    /// Draws only the detected rings (no orientation), for a scan that failed to resolve — so the
-    /// user can see what was captured. Crops to the rings when there are any.
+    /// Draws the rings, origin and +X axis over a copy of the scan and crops to the content, returning the
+    /// annotated BGR image. Uses only OpenCV drawing (no image codec), so it works in the browser's wasm
+    /// OpenCV build where the caller turns the Mat into a bitmap directly rather than encoding a PNG.
     /// </summary>
-    byte[] RenderDetectionPng(Mat image, IReadOnlyList<DetectedRing> rings);
+    Mat RenderOverlay(Mat image, CalibrationResult result);
 
-    byte[] RenderDetectionPng(string imagePath, IReadOnlyList<DetectedRing> rings);
+    /// <summary>Draws only the detected rings (no orientation), for a scan that failed to resolve.</summary>
+    Mat RenderDetectionOverlay(Mat image, IReadOnlyList<DetectedRing> rings);
 }
