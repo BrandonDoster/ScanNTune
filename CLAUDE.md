@@ -20,14 +20,23 @@ rotation AND mirror-flip with no manual input (see "Coupon & orientation" below)
 
 ## Build & Run
 
-The solution lives at `src/ScanNTune.slnx` (new XML solution format). Both projects target `net10.0`.
+The solution lives at `src/ScanNTune.slnx` (new XML solution format). Core, UI, App and Tests target
+`net10.0`; the browser head targets `net10.0-browser` and needs the `wasm-tools` workload
+(`dotnet workload install wasm-tools`).
 
 ```bash
 dotnet restore src/ScanNTune.slnx
-dotnet build   src/ScanNTune.slnx
-dotnet run     --project src/ScanNTune.App     # launch the desktop UI
+dotnet build   src/ScanNTune.slnx              # builds every head, incl. the browser wasm native relink
+dotnet run     --project src/ScanNTune.App     # launch the Windows desktop UI
+dotnet run     --project src/ScanNTune.Browser # serve the WebAssembly app for local dev
 dotnet test    src/ScanNTune.Tests             # run the pipeline tests
 ```
+
+The browser head publishes to a static site: `dotnet publish src/ScanNTune.Browser -c Release -o publish`
+produces `publish/wwwroot`, which `.github/workflows/deploy-web.yml` ships to GitHub Pages on every push to
+`master`. If a wasm build ever aborts at load with a Mono "double fault" (usually after changing a native
+build flag), the incremental native build is stale: `rm -rf src/ScanNTune.Browser/bin src/ScanNTune.Browser/obj`
+and rebuild clean.
 
 Tests are NUnit and cover the CV pipeline end-to-end against `ScanNTune.Tests/TestFiles/TestData_2solid.png`
 (a perfect render of the coupon *with the two-solid marker* → ~0% scale, ~0° skew, 23 detectable holes). The
@@ -44,21 +53,46 @@ is no CLI to run the engine on an arbitrary scan yet — use an `[Explicit]` NUn
 
 ## Projects
 
-Keep the **engine separate from the UI** so the CV/calc logic stays headless and reusable:
+The app is split into a headless engine, a shared UI library, and two platform "heads", so the CV/calc
+logic stays reusable and each platform carries only its own glue:
 
-- **ScanNTune.Core** — the engine, **no UI dependency**: load image → detect ring centres (sub-pixel)
-  → map to the grid + resolve orientation from the two-solid marker → affine-fit for X/Y scale + skew.
-  Libraries: `OpenCvSharp4`, `MathNet.Numerics`.
-- **ScanNTune.App** — the Avalonia front-end: load/scan an image, show detected rings overlaid on
-  the scan, display results and copy-paste correction snippets. Optional WIA scanner acquisition on Windows.
-- **ScanNTune.Tests** — NUnit; end-to-end pipeline tests over fixture scans.
+- **ScanNTune.Core**, the engine, with **no UI dependency**: load image, detect ring centres (sub-pixel),
+  map to the grid + resolve orientation from the two-solid marker, affine-fit for X/Y scale + skew.
+  Libraries: managed `OpenCvSharp4`, `MathNet.Numerics`. Core references **only managed OpenCvSharp**;
+  each head supplies the native runtime.
+- **ScanNTune.UI**, shared Avalonia (`net10.0`): the Views, ViewModels, `ViewLocator`, controls, themes,
+  assets (including the bundled coupon STL), the platform abstractions `IPlatformImaging` (decode image
+  bytes to a BGR `Mat`) and `ICouponExporter`, and the Autofac `UiModule`. Both heads reuse it.
+- **ScanNTune.App**, the **Windows desktop head**: `Program`/`App`/`MainWindow`, Velopack updates, the
+  Serilog file sink, `OpenCvImaging`, `WindowsCouponExporter`, `JsonCalibrationStore`, and `AppModule`.
+  References `OpenCvSharp4.runtime.win`. (A WIA scanner source could plug in here as another head service.)
+- **ScanNTune.Browser**, the **WebAssembly head** (`net10.0-browser`): `Avalonia.Browser`, `SkiaImaging`
+  (the wasm OpenCV build ships no image codecs, so Skia decodes), `BrowserCouponExporter`, a localStorage-backed
+  calibration store, a JS interop module (`wwwroot/interop.js`), and `BrowserModule`. References
+  `OpenCvSharp4.runtime.wasm` + `SkiaSharp`. Runs entirely client-side. Several deliberate wasm workarounds
+  are commented in `ScanNTune.Browser.csproj` and the platform files (P/Invoke module rename to
+  `OpenCvSharpExtern.a`, `EmccLinkOptimizationFlag=-O0`, `WasmAllowUndefinedSymbols`, a raised heap size,
+  `JsonSerializerIsReflectionEnabledByDefault`, and `TrimmerRootAssembly` roots for the reflection users):
+  keep them, do not "simplify" them away.
+- **ScanNTune.Tests**, NUnit; end-to-end pipeline tests over fixture scans. Carries `runtime.win` so
+  OpenCV runs on Windows.
 
-The analyze pipeline is three injected stages — `IRingDetector` → `IGridMapper` → `IAffineSolver` — composed
-by `CouponAnalyzer`. Output is produced on demand by two separate services the UI calls: `ICorrectionFormatter`
-(per-flavour firmware/slicer snippets) and `IOverlayRenderer` (annotated scan). The measurement key: ring
-**centres** drive scale/skew (extrusion-immune); absolute scale needs `AnalysisOptions.PxPerMm` (scanner DPI
-/ 25.4) — set the coupon baseline (mm) and scanner DPI in the app — otherwise only anisotropy + skew are
-meaningful.
+**Composition is Autofac.** Each head builds a container from `UiModule` (Core engine services + view models
++ an open-generic `ILogger<>` over a head-supplied `ILoggerFactory`) plus its own module (platform imaging,
+coupon export, the calibration/settings stores, the logger factory), then resolves `MainWindowViewModel`.
+Adding a platform service is a new registration in a head module, with no edits elsewhere (rule 3).
+
+The analyze pipeline is three injected stages, `IRingDetector`, `IGridMapper`, `IAffineSolver`, composed by
+`CouponAnalyzer`. Output is produced on demand by two services the UI calls: `ICorrectionFormatter`
+(per-flavour firmware/slicer snippets) and `IOverlayRenderer` (annotated scan; `RenderOverlay` returns a
+`Mat` the UI turns straight into a bitmap, so overlays work without an image encoder in wasm). The
+measurement key: ring **centres** drive scale/skew (extrusion-immune); absolute scale needs
+`AnalysisOptions.PxPerMm` (scanner DPI / 25.4), set from the coupon baseline (mm) and scanner DPI in the app,
+otherwise only anisotropy + skew are meaningful.
+
+Scans reach the engine as **image bytes**: the shared view models load the picked/dropped file via Avalonia
+`StorageProvider` and decode through `IPlatformImaging` (OpenCV on desktop, Skia in the browser), so the UI
+has no filesystem-path dependency.
 
 The model source (`calibration_coupon.scad`) and its exported `calibration_coupon.stl` live at the repo
 root.

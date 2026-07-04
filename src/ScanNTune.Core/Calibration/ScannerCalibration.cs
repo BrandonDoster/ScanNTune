@@ -35,4 +35,12 @@ public sealed record ScannerCalibration(
 
     /// <summary>The true px/mm for a scan taken at <paramref name="dpi"/>, applying the stored error.</summary>
     public double PxPerMmAtDpi(double dpi) => (dpi / 25.4) * CorrectionFactor;
+
+    /// <summary>
+    /// Whether the calibration is usable. A non-positive DPI or px/mm is degenerate (a partial or
+    /// hand-edited file) and would silently apply no scale correction, so such a value is treated as
+    /// uncalibrated by the stores rather than loaded.
+    /// </summary>
+    [JsonIgnore]
+    public bool IsUsable => Dpi > 0 && PxPerMm > 0;
 }

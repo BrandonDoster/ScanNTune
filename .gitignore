@@ -484,3 +484,7 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Renamed OpenCvSharp wasm native archive: a build artifact the browser head csproj target emits
+# (120 MB, regenerated each build), not source.
+OpenCvSharpExtern.a

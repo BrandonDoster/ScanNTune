@@ -1,0 +1,89 @@
+<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+  <PropertyGroup>
+    <TargetFramework>net10.0-browser</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>enable</Nullable>
+    <WasmBuildNative>true</WasmBuildNative>
+    <!--
+      Workaround for a .NET 10 Emscripten-pack bug: the bundled 3.1.56 wasm-opt rejects a newer binaryen
+      bulk-memory feature flag that emcc emits at link optimization O2, so a Release publish fails. Linking
+      at O0 skips emcc's wasm-opt pass (the same reason Debug builds work); object files are still
+      size-compiled at Oz. Revert to the default once the emscripten pack ships a matching wasm-opt.
+    -->
+    <EmccLinkOptimizationFlag>-O0</EmccLinkOptimizationFlag>
+    <!--
+      The wasm OpenCV build omits some contrib modules (e.g. text/OCR TextDetectorCNN), so a handful of the
+      registered P/Invokes have no native symbol. We never call those, so let the linker leave them as traps
+      that only fire if invoked, instead of failing the whole link.
+    -->
+    <WasmAllowUndefinedSymbols>true</WasmAllowUndefinedSymbols>
+    <!-- OpenCV's static data plus the .NET runtime and app assemblies push the initial linear memory well
+         past the default; give it 256 MiB (linear memory is capped at 2 GB, so this is affordable). -->
+    <WasmInitialHeapSize>268435456</WasmInitialHeapSize>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <!--
+      The wasm SDK turns System.Text.Json reflection off by default, so JsonSerializer.Serialize on the
+      calibration/settings types throws "JsonSerializerIsReflectionDisabled". Re-enable it: the serialized
+      types live in ScanNTune.Core/ScanNTune.UI, which are rooted against trimming above, so their members
+      are preserved.
+    -->
+    <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.0.4" />
+    <PackageReference Include="Avalonia.Browser" Version="12.0.4" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.4" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.0.4" />
+    <PackageReference Include="Autofac" Version="8.1.1" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.0" />
+    <!-- Skia (already linked for Avalonia rendering) decodes PNG/JPEG in wasm; the wasm OpenCV build ships
+         no image codecs, so we decode to pixels with Skia and hand a raw Mat to the engine. -->
+    <PackageReference Include="SkiaSharp" Version="3.119.4" />
+    <PackageReference Include="OpenCvSharp4" Version="4.13.0.20260627" />
+    <PackageReference Include="OpenCvSharp4.runtime.wasm" Version="4.13.0.20260627" GeneratePathProperty="true" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ScanNTune.UI\ScanNTune.UI.csproj" />
+  </ItemGroup>
+
+  <!--
+    Autofac and the ViewLocator resolve types by reflection, which IL trimming can strip. Root the app
+    assemblies so their view/view-model/service types and constructors survive; the framework is still
+    trimmed, keeping the wasm bundle far smaller than disabling trimming outright.
+  -->
+  <ItemGroup>
+    <TrimmerRootAssembly Include="ScanNTune.UI" />
+    <TrimmerRootAssembly Include="ScanNTune.Core" />
+    <TrimmerRootAssembly Include="ScanNTune.Browser" />
+  </ItemGroup>
+
+  <!--
+    Mono derives each statically linked P/Invoke module name from its archive's filename. The wasm runtime
+    package ships libOpenCvSharpExtern.a, which yields the module "libOpenCvSharpExtern", but OpenCvSharp's
+    managed [DllImport] is "OpenCvSharpExtern" (no lib prefix), so the lookup misses and every call throws
+    DllNotFoundException. Re-point the native reference at a copy named OpenCvSharpExtern.a so the derived
+    module name matches. (SkiaSharp and HarfBuzzSharp work unchanged because their DllImport names already
+    carry the lib prefix.)
+  -->
+  <PropertyGroup>
+    <_OpenCvExternRenamed>$(IntermediateOutputPath)OpenCvSharpExtern.a</_OpenCvExternRenamed>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <_OpenCvExternArchive Include="$(PkgOpenCvSharp4_runtime_wasm)\runtimes\browser-wasm\**\libOpenCvSharpExtern.a" />
+    <NativeFileReference Remove="$(PkgOpenCvSharp4_runtime_wasm)\runtimes\browser-wasm\**\libOpenCvSharpExtern.a" />
+    <NativeFileReference Include="$(_OpenCvExternRenamed)" />
+  </ItemGroup>
+
+  <Target Name="_CopyOpenCvExternWithMatchingModuleName"
+          BeforeTargets="_PrepareForBrowserWasmBuildNative;PrepareForWasmBuildNative;Build"
+          Inputs="@(_OpenCvExternArchive)"
+          Outputs="$(_OpenCvExternRenamed)">
+    <Copy SourceFiles="@(_OpenCvExternArchive)"
+          DestinationFiles="$(_OpenCvExternRenamed)"
+          SkipUnchangedFiles="true" />
+  </Target>
+</Project>

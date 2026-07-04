@@ -3,9 +3,9 @@ using OpenCvSharp;
 namespace ScanNTune.Core.Output;
 
 /// <summary>
-/// Default overlay renderer. Draws each detected ring (green + centre dot), and — for a full result —
-/// the resolved origin (red) and +X axis arrow (cyan), over a copy of the scan, cropped to the
-/// detected coupon, encoded as PNG.
+/// Default overlay renderer. Draws each detected ring (green plus a centre dot), and for a full result
+/// the resolved origin (red) and +X axis arrow (cyan), over a copy of the scan cropped to the detected
+/// coupon. Uses only OpenCV drawing (no image codec), so it runs in the browser's wasm build too.
 /// </summary>
 public sealed class OverlayRenderer : IOverlayRenderer
 {
@@ -14,18 +14,12 @@ public sealed class OverlayRenderer : IOverlayRenderer
     private readonly Scalar _originColor = new(0, 0, 255);   // red
     private readonly Scalar _axisColor = new(255, 255, 0);   // cyan
 
-    public byte[] RenderPng(string imagePath, CalibrationResult result)
-    {
-        using Mat image = Load(imagePath);
-        return RenderPng(image, result);
-    }
-
-    public byte[] RenderPng(Mat image, CalibrationResult result)
+    public Mat RenderOverlay(Mat image, CalibrationResult result)
     {
         ArgumentNullException.ThrowIfNull(image);
         ArgumentNullException.ThrowIfNull(result);
 
-        using Mat canvas = ToBgr(image);
+        Mat canvas = ToBgr(image);
         int thickness = Thickness(image);
         DrawRings(canvas, result.Rings, thickness);
 
@@ -44,34 +38,17 @@ public sealed class OverlayRenderer : IOverlayRenderer
         Cv2.Circle(canvas, origin, thickness * 3 * scale, _originColor, thickness, LineTypes.AntiAlias, shift);
         Cv2.ArrowedLine(canvas, origin, axisEnd, _axisColor, thickness + 1, LineTypes.AntiAlias, shift, tipLength: 0.2);
 
-        return Encode(canvas, result.Rings, orientation);
+        return Crop(canvas, result.Rings, orientation);
     }
 
-    public byte[] RenderDetectionPng(string imagePath, IReadOnlyList<DetectedRing> rings)
-    {
-        using Mat image = Load(imagePath);
-        return RenderDetectionPng(image, rings);
-    }
-
-    public byte[] RenderDetectionPng(Mat image, IReadOnlyList<DetectedRing> rings)
+    public Mat RenderDetectionOverlay(Mat image, IReadOnlyList<DetectedRing> rings)
     {
         ArgumentNullException.ThrowIfNull(image);
         ArgumentNullException.ThrowIfNull(rings);
 
-        using Mat canvas = ToBgr(image);
+        Mat canvas = ToBgr(image);
         DrawRings(canvas, rings, Thickness(image));
-        return Encode(canvas, rings, orientation: null);
-    }
-
-    private Mat Load(string imagePath)
-    {
-        Mat image = Cv2.ImRead(imagePath, ImreadModes.Color);
-        if (image.Empty())
-        {
-            image.Dispose();
-            throw new InvalidOperationException($"Could not read image: {imagePath}");
-        }
-        return image;
+        return Crop(canvas, rings, orientation: null);
     }
 
     private Mat ToBgr(Mat image)
@@ -102,13 +79,14 @@ public sealed class OverlayRenderer : IOverlayRenderer
     private Point Fixed(double x, double y, int scale) =>
         new((int)Math.Round(x * scale), (int)Math.Round(y * scale));
 
-    private byte[] Encode(Mat canvas, IReadOnlyList<DetectedRing> rings, Orientation? orientation)
+    // Crops to the content and takes ownership of the canvas: returns either the canvas itself (nothing
+    // detected) or a new cropped Mat, disposing the original in the latter case. The caller owns the result.
+    private Mat Crop(Mat canvas, IReadOnlyList<DetectedRing> rings, Orientation? orientation)
     {
         Mat cropped = CropToContent(canvas, rings, orientation);
-        Cv2.ImEncode(".png", cropped, out byte[] png);
         if (!ReferenceEquals(cropped, canvas))
-            cropped.Dispose();
-        return png;
+            canvas.Dispose();
+        return cropped;
     }
 
     /// <summary>
