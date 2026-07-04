@@ -57,7 +57,7 @@ public partial class App : Application
 
         string appDataDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ScanNTune");
-        IKeyValueStore store = new JsonKeyValueStore(appDataDir);
+        IKeyValueStore store = new JsonKeyValueStore(appDataDir, _loggerFactory.CreateLogger<JsonKeyValueStore>());
 
         _ = Task.Run(async () =>
         {
