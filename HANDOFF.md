@@ -10,11 +10,14 @@ saga (native HTML inputs just work). See `CLAUDE.md` "Web app (Vue 3 rewrite)" f
 
 Status: on branch `feature/vue-web-rewrite`, committed locally (NOT pushed / no PR yet, per rule 8). Done and
 green: scaffold; the full engine port (grid/affine/combiner/corrections + ring detector/card measurer/
-analyzer/overlay) with 61 Vitest tests matching the C# tolerances against the same `TestData_2solid.png`
-fixture; the Comlink worker + decode + overlay; the three Vue pages (Scan/Calibration/Results); and Playwright
-e2e over the real scans (card recovers **px/mm 23.597**, the two-scan flow completes on 35 MP scans without
-freezing, 23 rings, valid quarter-turn). CI: `web-ci.yml` (build + Vitest + Playwright on PRs); the Vue Pages
-deploy `deploy-web-vue.yml` is manual-only until cutover.
+analyzer/overlay) with 60 Vitest tests matching the C# tolerances against the same `TestData_2solid.png`
+fixture; the Comlink worker + decode + overlay; the three Vue pages (Scan/Calibration/Results) with the
+**desktop app's guides fully ported** (numbered steps, the coupon-glyph and the how-to-scan / what-to-measure
+SVG diagrams, the drop zones with the quarter-turn hover animation, the ISO-range hints, a hero + two-column
+results layout, and a dark Vuetify theme); and Playwright e2e over the real scans (card recovers **px/mm
+23.597**, the two-scan flow completes on 35 MP scans without freezing, 23 rings, valid quarter-turn). A medium
+code-review ran and every finding was fixed. CI: `web-ci.yml` (build + Vitest + Playwright on PRs); the Vue
+Pages deploy `deploy-web-vue.yml` is manual-only until cutover.
 
 Key lessons this session:
 - **OpenCV.js (`@techstark/opencv-js`) `module.exports` is a Promise**, so a namespace or dynamic `import()`
@@ -22,12 +25,35 @@ Key lessons this session:
   browser build. Load it with a **default import** (`import cvReady from '@techstark/opencv-js'`) in app code;
   in Vitest, load it with a native `require` (`web/tests/helpers/cv.ts`) since even the default is re-wrapped.
 - **npm installed newer majors** than pinned: Vuetify 4, Pinia 3, OpenCV.js 5, Vite 8, Vitest 4. All work.
+- **Vuetify `VNumberInput.precision` defaults to 0** (integer), which rounds decimals away; set it per field
+  (measured mm = 2, current values = 3). It also strips any separator except the current locale's, so the app
+  locale is set to `navigator.language` (`plugins/vuetify.ts`) for comma-decimal users.
 - A real scan analyzed uncalibrated at the default 1200 dpi reads ~ -50% absolute scale (correct: the scan is
   ~600 dpi); the DPI-independent figures (isotropy, skew, rings, turn) are the meaningful check.
 - The ~100 MB of real scans committed under `web/e2e/fixtures/` bloat git history; Git LFS is the cleaner
   option if that matters (offered, not yet done).
 
-Remaining: owner review + PR; wire the live Pages deploy to the Vue app at cutover and retire `src/`.
+## Next up: remove the C# app (cutover)
+
+Web is the only target and the Vue app is complete and verified, so the C# solution is being retired next.
+Suggested steps:
+- **Flip the deploy.** Change `.github/workflows/deploy-web-vue.yml` from `on: workflow_dispatch` to
+  `on: push: branches: [master]`, and delete the C# `deploy-web.yml` (and `build.yml` / `release.yml` if they
+  only serve the C# app). Confirm GitHub Pages then serves `web/dist` at `/ScanNTune/`.
+- **Delete the C# code.** Remove `src/` (all `ScanNTune.*` projects and `ScanNTune.slnx`), `Directory.Build.props`,
+  `nuget.config`, `.nuke/`, `build.ps1`, `version.json`, and the `artifacts/` and `publish/` output dirs, if
+  they are C#-only. KEEP `calibration_coupon.scad` / `calibration_coupon.stl` (the model, also copied to
+  `web/public/`) and everything under `web/`.
+- **Rewrite `CLAUDE.md`** around the web app: drop "Build & Run (C# solution)", "Projects", the C#-specific
+  conventions, and rule 11 (already marked historical); keep and expand the "Web app (Vue 3 rewrite)" section
+  as the whole guide, and fix the Overview if it still mentions Avalonia/heads.
+- **Prune the docs/memories** of dead C# context: this `HANDOFF.md`, and the `mobile-web-constraints` /
+  `project-state` memories.
+- Once `src/` is gone the C# NUnit tests go with it; the Vue Vitest + Playwright suites become the only tests
+  (the port was code-review-confirmed faithful, so coverage is preserved).
+
+Also still open (independent of the cutover): owner review + push + PR (rule 8); and the Git LFS decision for
+the ~100 MB of e2e fixtures.
 
 ---
 
