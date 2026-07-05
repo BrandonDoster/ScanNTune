@@ -24,6 +24,11 @@ printed coupon.
 > including the scanner built into an all-in-one printer. No camera photos, no special hardware, and no high
 > end machine required. Scan at 600 DPI, which any normal home or office scanner can do.
 
+> [!WARNING]
+> **XY calibration is solid. XZ and YZ are experimental**: the standing-plate scans work, but the
+> correction math for those planes hasn't seen the same real-world validation as XY yet. Sanity-check the
+> results before trusting them on your printer.
+
 ## How you use it
 
 1. **Once per scanner:** scan any plastic card (a credit, debit or loyalty card) so ScanNTune learns your
