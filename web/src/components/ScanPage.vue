@@ -7,7 +7,7 @@ import { analyzeTwoScans } from '../workerClient'
 import { defaultCouponSpec } from '../engine/types'
 import type { CouponSpec } from '../engine/types'
 import NumericField from './NumericField.vue'
-import OverlayCanvas from './OverlayCanvas.vue'
+import DropSlot from './DropSlot.vue'
 
 const app = useApp()
 const calibration = useCalibration()
@@ -17,7 +17,6 @@ const baselineMm = ref<number | null>(100)
 const gridN = ref<number | null>(5)
 
 interface Slot {
-  name: string
   bytes: Uint8Array | null
   preview: string | null
   loading: boolean
@@ -26,7 +25,7 @@ interface Slot {
   overlay: ImageBitmap | null
 }
 function makeSlot(): Slot {
-  return { name: '', bytes: null, preview: null, loading: false, failed: false, note: '', overlay: null }
+  return { bytes: null, preview: null, loading: false, failed: false, note: '', overlay: null }
 }
 const slot1 = reactive(makeSlot())
 const slot2 = reactive(makeSlot())
@@ -38,8 +37,8 @@ const statusText = ref('')
 const isCalibrated = computed(() => calibration.calibration !== null)
 const calibrationLine = computed(() =>
   isCalibrated.value
-    ? `Calibrated at ${Math.round(calibration.calibration!.dpi)} dpi`
-    : 'Optional: calibrate the scanner to report absolute size',
+    ? `Calibrated · ${Math.round(calibration.calibration!.dpi)} dpi. Absolute scale is anchored to your scanner.`
+    : 'Optional. Calibrate to report absolute size; skip it for anisotropy and skew only.',
 )
 const scanDpiHint = computed(() =>
   isCalibrated.value ? `Scan both at ${Math.round(calibration.calibration!.dpi)} dpi.` : '',
@@ -47,25 +46,15 @@ const scanDpiHint = computed(() =>
 const canAnalyze = computed(() => !busy.value && slot1.bytes !== null && slot2.bytes !== null)
 
 function buildCoupon(): CouponSpec {
-  return {
-    ...defaultCouponSpec(),
-    baselineMm: baselineMm.value ?? 100,
-    gridN: gridN.value ?? 5,
-  }
+  return { ...defaultCouponSpec(), baselineMm: baselineMm.value ?? 100, gridN: gridN.value ?? 5 }
 }
 
-async function onPick(slot: Slot, event: Event): Promise<void> {
-  const file = (event.target as HTMLInputElement).files?.[0] ?? null
+async function handleFile(slot: Slot, file: File): Promise<void> {
   slot.failed = false
   slot.note = ''
   slot.overlay = null
-  if (!file) {
-    Object.assign(slot, makeSlot())
-    return
-  }
   slot.loading = true
   try {
-    slot.name = file.name
     slot.bytes = await readBytes(file)
   } catch (e) {
     slot.failed = true
@@ -138,67 +127,92 @@ function getCoupon(): void {
 
 <template>
   <v-container class="page">
-    <h1 class="text-h5 mb-1">ScanNTune</h1>
-    <p class="text-body-2 text-medium-emphasis mb-4">
-      Auto-calibrate XY shrinkage and skew from a flatbed scan of the printed coupon.
-    </p>
+    <header class="mb-4">
+      <h1 class="text-h5 font-weight-bold">Two-scan calibration</h1>
+      <p class="text-body-2 text-medium-emphasis mt-1">
+        Scan the coupon, turn it a quarter-turn, and scan again. Combining the two cancels your scanner's own
+        X/Y stretch and skew.
+      </p>
+    </header>
 
-    <v-card variant="tonal" class="mb-4">
-      <v-card-text class="d-flex align-center justify-space-between flex-wrap ga-2">
-        <span>{{ calibrationLine }}</span>
+    <!-- 1. Calibrate scanner -->
+    <section class="step mb-3">
+      <div class="step-row">
+        <div class="step-head">
+          <span class="num">1</span><span class="step-title">Calibrate scanner</span>
+        </div>
         <v-btn
           data-testid="calibrate-btn"
-          variant="text"
-          prepend-icon="mdi-ruler"
+          :variant="isCalibrated ? 'text' : 'flat'"
+          :color="isCalibrated ? undefined : 'primary'"
+          size="small"
           @click="app.goCalibration()"
         >
           {{ isCalibrated ? 'Recalibrate' : 'Calibrate scanner' }}
         </v-btn>
-      </v-card-text>
-    </v-card>
+      </div>
+      <div class="status-line">
+        <v-icon :color="isCalibrated ? 'success' : 'warning'" size="16" class="mr-2">
+          {{ isCalibrated ? 'mdi-check-circle' : 'mdi-alert-circle-outline' }}
+        </v-icon>
+        <span class="text-medium-emphasis">{{ calibrationLine }}</span>
+      </div>
+    </section>
 
-    <v-card class="mb-4">
-      <v-card-item>
-        <v-card-title class="text-subtitle-1">1. Print the coupon</v-card-title>
-      </v-card-item>
-      <v-card-text>
-        <v-btn variant="tonal" prepend-icon="mdi-download" @click="getCoupon">Download coupon STL</v-btn>
-        <div class="text-caption mt-2">Print flat, single material, then scan on a flatbed with a contrasting backing.</div>
-      </v-card-text>
-    </v-card>
-
-    <v-card class="mb-4">
-      <v-card-item>
-        <v-card-title class="text-subtitle-1">2. Upload two scans</v-card-title>
-        <v-card-subtitle v-if="scanDpiHint">{{ scanDpiHint }}</v-card-subtitle>
-      </v-card-item>
-      <v-card-text>
-        <div class="slots">
-          <div v-for="(slot, i) in [slot1, slot2]" :key="i" class="slot">
-            <div class="text-subtitle-2 mb-1">
-              {{ i === 0 ? 'First scan (as placed)' : 'Second scan (quarter-turned)' }}
-            </div>
-            <input
-              type="file"
-              accept="image/png,image/jpeg,image/tiff,image/webp"
-              class="file-input"
-              :data-testid="i === 0 ? 'scan1-input' : 'scan2-input'"
-              @change="onPick(slot, $event)"
-            />
-            <v-progress-linear v-if="slot.loading" indeterminate class="mt-2" />
-            <img v-if="slot.overlay === null && slot.preview" :src="slot.preview" class="preview mt-2" />
-            <OverlayCanvas v-if="slot.overlay" :bitmap="slot.overlay" class="mt-2" />
-            <v-alert v-if="slot.failed" type="warning" density="compact" class="mt-2" :text="slot.note" />
-          </div>
+    <!-- 2. Print the coupon -->
+    <section class="step mb-3">
+      <div class="step-row">
+        <div class="step-head">
+          <span class="num">2</span><span class="step-title">Print the coupon</span>
         </div>
-      </v-card-text>
-    </v-card>
+        <v-btn variant="tonal" size="small" prepend-icon="mdi-download" @click="getCoupon">Download coupon STL</v-btn>
+      </div>
+      <p class="tip">
+        100 mm model, printed flat. It has to contrast with the scan background: a white coupon on a white lid
+        will not work, so back it with a coloured sheet of paper.
+      </p>
+    </section>
 
-    <v-card class="mb-4">
-      <v-card-item>
-        <v-card-title class="text-subtitle-1">3. Settings</v-card-title>
-      </v-card-item>
-      <v-card-text class="fields">
+    <!-- 3. Add the two scans -->
+    <section class="step mb-3">
+      <div class="step-head mb-1">
+        <span class="num">3</span><span class="step-title">Add the two scans</span>
+      </div>
+      <p v-if="scanDpiHint" class="tip mb-3">{{ scanDpiHint }}</p>
+
+      <div class="slots">
+        <DropSlot
+          class="slot-fill"
+          label="First scan"
+          sublabel="as placed"
+          testid="scan1-input"
+          :preview="slot1.preview"
+          :failed="slot1.failed"
+          :note="slot1.note"
+          :loading="slot1.loading"
+          :overlay="slot1.overlay"
+          @pick="handleFile(slot1, $event)"
+        />
+        <div class="connector">
+          <v-icon class="arrow" color="primary" size="26">mdi-arrow-right</v-icon>
+          <span class="deg">90°</span>
+        </div>
+        <DropSlot
+          class="slot-fill"
+          label="Second scan"
+          sublabel="quarter-turned"
+          testid="scan2-input"
+          :rotate="90"
+          :preview="slot2.preview"
+          :failed="slot2.failed"
+          :note="slot2.note"
+          :loading="slot2.loading"
+          :overlay="slot2.overlay"
+          @pick="handleFile(slot2, $event)"
+        />
+      </div>
+
+      <div class="fields mt-4">
         <NumericField
           v-if="!isCalibrated"
           v-model="dpi"
@@ -209,53 +223,118 @@ function getCoupon(): void {
         />
         <NumericField v-model="baselineMm" label="Coupon baseline (mm)" :step="10" :min="10" />
         <NumericField v-model="gridN" label="Rings per side" :step="1" :min="2" />
-      </v-card-text>
-    </v-card>
+      </div>
 
-    <v-btn
-      data-testid="analyze-btn"
-      color="primary"
-      size="large"
-      block
-      :loading="busy"
-      :disabled="!canAnalyze"
-      @click="analyze"
-    >
-      Analyze both scans
-    </v-btn>
+      <v-btn
+        data-testid="analyze-btn"
+        color="primary"
+        size="large"
+        block
+        class="mt-4"
+        :loading="busy"
+        :disabled="!canAnalyze"
+        @click="analyze"
+      >
+        Analyze both scans
+      </v-btn>
 
-    <v-alert
-      v-if="statusText"
-      :type="isError ? 'error' : 'info'"
-      variant="tonal"
-      class="mt-3"
-      :text="statusText"
-      data-testid="status"
-    />
+      <v-alert
+        v-if="statusText"
+        :type="isError ? 'error' : 'info'"
+        variant="tonal"
+        class="mt-3"
+        :text="statusText"
+        data-testid="status"
+      />
+
+      <p class="text-caption text-medium-emphasis text-center mt-3">
+        The two solid rings mark the coupon's corner. The app uses them to align both scans.
+      </p>
+    </section>
   </v-container>
 </template>
 
 <style scoped>
 .page {
-  max-width: 720px;
+  max-width: 760px;
+}
+.step {
+  background: rgb(var(--v-theme-surface-light));
+  border-radius: 12px;
+  padding: 16px;
+}
+.step-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.step-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.num {
+  color: rgb(var(--v-theme-primary));
+  font-weight: 600;
+  font-size: 14px;
+}
+.step-title {
+  font-weight: 500;
+  font-size: 14px;
+}
+.status-line {
+  display: flex;
+  align-items: center;
+  margin-top: 8px;
+  font-size: 13px;
+}
+.tip {
+  font-size: 12.5px;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  margin-top: 8px;
 }
 .slots {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 16px;
-}
-.fields {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  display: flex;
+  align-items: stretch;
   gap: 12px;
 }
-.file-input {
-  width: 100%;
-  font-size: 16px;
+.slot-fill {
+  flex: 1 1 0;
+  min-width: 0;
 }
-.preview {
-  max-width: 100%;
-  height: auto;
-  border-radius: 6px;
+.connector {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+.connector .arrow {
+  transition: transform 0.2s ease;
+}
+.deg {
+  font-size: 11px;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+}
+
+/* When the slots stack (narrow screen), the connector sits between them and the arrow points down. */
+@media (max-width: 560px) {
+  .slots {
+    flex-direction: column;
+  }
+  .connector .arrow {
+    transform: rotate(90deg);
+  }
+}
+.fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.fields > * {
+  flex: 1 1 160px;
 }
 </style>

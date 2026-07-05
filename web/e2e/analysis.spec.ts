@@ -16,12 +16,13 @@ test.beforeEach(async ({ page }) => {
 
 test('the app loads', async ({ page }) => {
   await page.goto('/ScanNTune/')
-  await expect(page.getByRole('heading', { name: 'ScanNTune' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Two-scan calibration' })).toBeVisible()
 })
 
 test('calibration flow recovers ~23.6 px/mm from the real card scan', async ({ page }) => {
   await page.goto('/ScanNTune/')
   await page.getByTestId('calibrate-btn').click()
+  await page.getByLabel('Measured long side (mm)').fill('85.5')
   await page.getByTestId('card-input').setInputFiles(card)
 
   await expect(page.getByTestId('calibration-result')).toBeVisible({ timeout: 120000 })
