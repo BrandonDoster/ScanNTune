@@ -133,9 +133,10 @@ shipped source, comments, or UI text: they are guidance for how to work, not doc
    `TestData_2solid.png` fixture: it must not regress there, and only then judge it on real scans.
 
 2. **No silently swallowed errors.** A `catch` must do something meaningful: surface the error to the user,
-   rethrow, or return a value the caller can act on. Never leave an empty `catch`. The engine throws typed
-   errors (`ScanAnalysisError` carries the detected rings) so the UI can explain a failed scan; keep that
-   contract.
+   rethrow, or return a value the caller can act on. Never leave an empty `catch`. A scan that cannot be
+   aligned is a normal outcome, not an exception: `analyzeCoupon` returns a `CalibrationResult` with
+   `aligned: false`, the detected rings, and a user-worded `failureReason` so the UI can explain the failed
+   scan; keep that contract. Only a genuinely unreadable image throws.
 
 3. **Keep the engine framework-agnostic and modular.** Code in `web/src/engine/` must not import Vue, Pinia,
    or touch the DOM beyond what OpenCV.js needs; the UI, the worker, and the tests all import it directly. A
