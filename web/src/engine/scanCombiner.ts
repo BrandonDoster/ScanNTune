@@ -65,7 +65,7 @@ export function combineScans(scanA: AlignedResult, scanB: AlignedResult): TwoSca
 }
 
 // Signed-free turn from A's +X to B's +X, folded into [0, 360).
-function turnBetween(angleADegrees: number, angleBDegrees: number): number {
+export function turnBetween(angleADegrees: number, angleBDegrees: number): number {
   const diff = (angleBDegrees - angleADegrees) % 360.0
   return diff < 0 ? diff + 360.0 : diff
 }

@@ -16,6 +16,17 @@ const version = __APP_VERSION__
         <span class="brand-name">ScanNTune</span>
         <span class="brand-version">v{{ version }}</span>
       </div>
+      <v-spacer />
+      <v-btn
+        icon="mdi-github"
+        variant="text"
+        href="https://github.com/jaak0b/ScanNTune"
+        target="_blank"
+        rel="noopener"
+        title="View on GitHub"
+        aria-label="View on GitHub"
+        class="mr-2"
+      />
     </v-app-bar>
     <v-main>
       <ScanPage v-if="app.screen === 'scan'" />

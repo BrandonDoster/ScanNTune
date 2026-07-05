@@ -31,9 +31,14 @@ watch(() => props.bitmap, draw)
 </template>
 
 <style scoped>
+figure {
+  width: 100%;
+  height: 100%;
+}
 .overlay {
   width: 100%;
-  height: auto;
+  height: 100%;
+  object-fit: contain;
   display: block;
   border-radius: 6px;
 }

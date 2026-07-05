@@ -6,7 +6,8 @@ import { useScans } from '../stores/useScans'
 import { readBytes } from '../util/preview'
 import { analyzeScan } from '../workerClient'
 import { reconcileScans } from '../engine/multiPlaneCombiner'
-import { asAligned, defaultCouponSpec } from '../engine/types'
+import { turnBetween } from '../engine/scanCombiner'
+import { asAligned, defaultCouponSpec, xAxisAngleDegrees } from '../engine/types'
 import type { CouponSpec, Plane } from '../engine/types'
 import { ScanState } from '../model/skewCouponScan'
 import {
@@ -28,12 +29,17 @@ const app = useApp()
 const calibration = useCalibration()
 const store = useScans()
 
+const MAX_SCANS = 6
+
 const dpi = ref<number | null>(1200)
 const baselineMm = ref<number | null>(100)
 const gridN = ref<number | null>(5)
 
 const isError = ref(false)
 const statusText = ref('')
+
+const truncatedSnackbar = ref(false)
+const truncatedMessage = ref('')
 
 const isCalibrated = computed(() => calibration.calibration !== null)
 const calibrationLine = computed(() =>
@@ -51,30 +57,71 @@ const fieldsLocked = computed(() => store.scans.length > 0)
 const anyPending = computed(() => store.scans.some((s) => s.state === ScanState.Pending))
 const notReady = computed(() => store.scans.filter((s) => !s.isMeasured))
 
+// A valid plate is exactly two scans of the same plane, a quarter-turn apart. Two problems get
+// flagged directly on the scan, rather than as a vague "planes don't pair up" message: a scan at
+// nearly the SAME orientation as an earlier one for that plane (the plate wasn't actually turned
+// between scans, often the same scan picked twice under a different file name), or a plane that
+// already has its two scans and doesn't need a third. Driven by the measured orientation angle, not
+// the file name, so it holds regardless of what the files are called.
+const ROTATION_DUPLICATE_TOLERANCE_DEGREES = 15
+type PlaneProblem = 'duplicate' | 'extra'
+const planeProblems = computed(() => {
+  const seenByPlane = new Map<Plane, number[]>()
+  const problems = new Map<number, PlaneProblem>()
+  for (const s of store.scans) {
+    if (!s.isMeasured || !s.plane || !s.result?.orientation) continue
+    const angle = xAxisAngleDegrees(s.result.orientation)
+    const seen = seenByPlane.get(s.plane) ?? []
+    const isDuplicate = seen.some((a) => {
+      const turn = turnBetween(a, angle)
+      return turn <= ROTATION_DUPLICATE_TOLERANCE_DEGREES || turn >= 360 - ROTATION_DUPLICATE_TOLERANCE_DEGREES
+    })
+    if (isDuplicate) problems.set(s.id, 'duplicate')
+    else if (seen.length >= 2) problems.set(s.id, 'extra')
+    seen.push(angle)
+    seenByPlane.set(s.plane, seen)
+  }
+  return problems
+})
+
 // Data-driven: analysable only when every scan measured a plane and those planes pair up into
 // complete plates. So the button never lets a bad scan through, and combine can't surface a
 // picture-stage error.
-const planesPair = computed(() => {
-  const measured = store.scans.filter((s) => s.isMeasured)
-  if (measured.length === 0) return false
+const planeCounts = computed(() => {
   const byPlane = new Map<Plane, number>()
-  for (const s of measured) byPlane.set(s.plane!, (byPlane.get(s.plane!) ?? 0) + 1)
-  for (const count of byPlane.values()) if (count !== 2) return false
+  for (const s of store.scans.filter((s) => s.isMeasured)) {
+    byPlane.set(s.plane!, (byPlane.get(s.plane!) ?? 0) + 1)
+  }
+  return byPlane
+})
+const planesPair = computed(() => {
+  if (planeCounts.value.size === 0) return false
+  for (const count of planeCounts.value.values()) if (count !== 2) return false
   return true
 })
 const canAnalyze = computed(() => {
   const n = store.scans.length
-  return !anyPending.value && n >= 2 && n <= 6 && notReady.value.length === 0 && planesPair.value
+  return !anyPending.value && n >= 2 && n <= MAX_SCANS && notReady.value.length === 0 && planesPair.value
 })
+// The button label stays short and action-shaped; the reason it's disabled (if any) goes in a
+// caption below instead, since a long explanation wrapping inside the button looks broken.
 const analyzeLabel = computed(() => {
   if (anyPending.value) return 'Checking scans...'
   const n = store.scans.length
-  if (n === 0) return 'Add 2 scans to analyze'
-  if (n > 6) return `Remove ${n - 6} scan${n - 6 === 1 ? '' : 's'} (6 max)`
+  return canAnalyze.value ? `Analyze ${n} scans` : 'Analyze'
+})
+const analyzeReason = computed(() => {
+  if (anyPending.value) return ''
+  const n = store.scans.length
+  if (n === 0) return 'Add 2 scans to analyze.'
   const bad = notReady.value.length
-  if (bad > 0) return `Fix ${bad} scan${bad === 1 ? '' : 's'} to analyze`
-  if (!planesPair.value) return 'Each plate needs two scans a quarter-turn apart'
-  return `Analyze ${n} scans`
+  if (bad > 0) return `Fix ${bad} scan${bad === 1 ? '' : 's'} to analyze.`
+  if (!planesPair.value) {
+    return planeProblems.value.size > 0
+      ? 'Fix the flagged scan(s) above: each plate needs exactly two, a quarter-turn apart.'
+      : 'Each plate needs two scans a quarter-turn apart.'
+  }
+  return ''
 })
 
 // One firmware choice drives every firmware-specific command on the page (reset, and the skew fix),
@@ -150,9 +197,15 @@ function downloadAllCoupons(): void {
 
 async function onPick(e: Event): Promise<void> {
   const input = e.target as HTMLInputElement
-  const files = Array.from(input.files ?? [])
+  const picked = Array.from(input.files ?? [])
   // Clear the input so picking the same file again still fires change.
   input.value = ''
+  const remaining = MAX_SCANS - store.scans.length
+  const files = picked.slice(0, Math.max(0, remaining))
+  if (files.length < picked.length) {
+    truncatedMessage.value = `Only added ${files.length} of ${picked.length} scans: ${MAX_SCANS} max.`
+    truncatedSnackbar.value = true
+  }
   const coupon = buildCoupon()
   for (const file of files) {
     let bytes: Uint8Array
@@ -335,9 +388,11 @@ function getCoupon(file: string): void {
       <div class="step-head mb-1">
         <span class="num">5</span><span class="step-title">Upload your scans</span>
       </div>
-      <p class="tip mb-3">Drop in every scan at once: two per plate, up to three plates (6 scans).</p>
+      <p class="tip mb-3">
+        Drop in every scan at once: two per plate, up to three plates ({{ MAX_SCANS }} scans).
+      </p>
 
-      <label v-if="!hasResults" class="dropzone">
+      <label v-if="!hasResults && store.scans.length < MAX_SCANS" class="dropzone">
         <input
           type="file"
           accept="image/*"
@@ -357,6 +412,7 @@ function getCoupon(file: string): void {
           :key="s.id"
           :scan="s"
           :removable="!hasResults"
+          :problem="planeProblems.get(s.id)"
           @remove="store.remove(s.id)"
         />
       </div>
@@ -370,24 +426,21 @@ function getCoupon(file: string): void {
           :min="50"
           hint="DPI / 25.4 = px per mm. Clear for anisotropy and skew only."
         />
-        <NumericField
-          v-model="baselineMm"
-          label="Coupon baseline (mm)"
-          :step="10"
-          :min="10"
-          :readonly="fieldsLocked"
-        />
-        <NumericField
-          v-model="gridN"
-          label="Rings per side"
-          :step="1"
-          :min="2"
-          :readonly="fieldsLocked"
-        />
+        <template v-if="fieldsLocked">
+          <div class="locked-field">
+            <span class="lf-label">Coupon baseline (mm)</span>
+            <span class="lf-value">{{ baselineMm }}</span>
+          </div>
+          <div class="locked-field">
+            <span class="lf-label">Rings per side</span>
+            <span class="lf-value">{{ gridN }}</span>
+          </div>
+        </template>
+        <template v-else>
+          <NumericField v-model="baselineMm" label="Coupon baseline (mm)" :step="10" :min="10" />
+          <NumericField v-model="gridN" label="Rings per side" :step="1" :min="2" />
+        </template>
       </div>
-      <p v-if="fieldsLocked" class="lock-hint">
-        Baseline and rings per side lock while scans are loaded. Remove every scan to change them.
-      </p>
 
       <template v-if="!hasResults">
         <v-btn
@@ -401,6 +454,7 @@ function getCoupon(file: string): void {
         >
           {{ analyzeLabel }}
         </v-btn>
+        <p v-if="analyzeReason" class="tip text-center mt-2">{{ analyzeReason }}</p>
 
         <v-alert
           v-if="statusText"
@@ -520,6 +574,13 @@ function getCoupon(file: string): void {
       </div>
     </section>
   </v-container>
+
+  <v-snackbar v-model="truncatedSnackbar" color="warning" :timeout="8000">
+    {{ truncatedMessage }}
+    <template #actions>
+      <v-btn icon="mdi-close" size="small" variant="text" @click="truncatedSnackbar = false" />
+    </template>
+  </v-snackbar>
 </template>
 
 <style scoped>
@@ -695,10 +756,21 @@ function getCoupon(file: string): void {
 .fields > * {
   flex: 1 1 160px;
 }
-.lock-hint {
-  font-size: 11.5px;
-  color: rgba(var(--v-theme-on-surface), 0.42);
-  margin-top: 8px;
+.locked-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 0;
+  flex: 1 1 100px;
+}
+.lf-label {
+  font-size: 12px;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+}
+.lf-value {
+  font-size: 16px;
+  font-weight: 500;
+  font-family: 'Roboto Mono', ui-monospace, monospace;
 }
 .group-label {
   font-size: 11px;
