@@ -25,6 +25,18 @@ export function couponInnerDiameterMm(s: CouponSpec): number {
   return s.ringOuterDiameterMm - 2 * s.ringWallMm
 }
 
+/**
+ * Which pair of printer axes a coupon plate measures. XY is the flat plate; XZ and YZ are the
+ * standing plates. The plate's first in-plane axis (the marker's +X) maps to the first letter and
+ * the perpendicular to the second: XY -> (X, Y), XZ -> (X, Z), YZ -> (Y, Z).
+ */
+export type Plane = 'XY' | 'XZ' | 'YZ'
+
+/** The two physical axes a plane measures, first = marker +X, second = perpendicular. */
+export function planeAxes(p: Plane): ['X' | 'Y' | 'Z', 'X' | 'Y' | 'Z'] {
+  return p === 'XY' ? ['X', 'Y'] : p === 'XZ' ? ['X', 'Z'] : ['Y', 'Z']
+}
+
 /** A ring located in the scan; the sub-pixel centre drives scale/skew (extrusion-immune). */
 export interface DetectedRing {
   centerX: number
@@ -72,6 +84,8 @@ export interface GridMapping {
   xAxisX: number
   xAxisY: number
   flipped: boolean
+  /** Estimated centre-to-centre ring spacing in pixels; sizes the plane-ID read window. */
+  pitchPx: number
 }
 
 export interface CalibrationResult {
@@ -84,6 +98,11 @@ export interface CalibrationResult {
   rmsResidualPx: number
   rings: DetectedRing[]
   orientation: Orientation
+  /**
+   * The plate's plane, read from the plane-ID dots in the origin marker. Undefined when the plate
+   * carries no plane-ID (the original XY-only coupon), in which case callers treat it as XY.
+   */
+  plane?: Plane
 }
 
 export interface ScannerDiagnostic {
@@ -99,6 +118,33 @@ export interface TwoScanResult {
   relativeRotationDegrees: number
   rotationLooksValid: boolean
   flipMismatch: boolean
+}
+
+/** One plane's finished two-scan analysis, tagged with which plane it measures. */
+export interface PlaneAnalysis {
+  plane: Plane
+  twoScan: TwoScanResult
+}
+
+/** A physical-axis scale error, reconciled across the plates that measured it. */
+export interface AxisScale {
+  axis: 'X' | 'Y' | 'Z'
+  scalePercent: number
+  /** The plane(s) whose measurement was averaged into this figure. */
+  sources: Plane[]
+}
+
+/** One plane's skew (the corner-angle error, degrees). */
+export interface PlaneSkew {
+  plane: Plane
+  skewDegrees: number
+}
+
+/** The whole-printer result: every uploaded plane, its skew, and the reconciled per-axis scales. */
+export interface MultiPlaneResult {
+  planes: PlaneAnalysis[]
+  skews: PlaneSkew[]
+  scales: AxisScale[]
 }
 
 export interface AnalysisOptions {

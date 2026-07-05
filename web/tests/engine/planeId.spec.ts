@@ -1,0 +1,53 @@
+// @vitest-environment node
+import { describe, it, expect, beforeAll } from 'vitest'
+import { getCv, decodeFixtureBgr } from '../helpers/cv'
+import { analyzeCoupon } from '../../src/engine/couponAnalyzer'
+import { defaultCouponSpec } from '../../src/engine/types'
+import type { OpenCv, Mat } from '../../src/engine/opencv'
+import type { CalibrationResult } from '../../src/engine/types'
+
+// End-to-end over the three plate models, rendered flat from calibration_coupon.scad (scan_view).
+// The ring/hole/dot centres are exactly the model's, so this pins ring detection on the new thicker
+// on-edge geometry AND the plane-ID read (1/2/3 dots in the origin marker => XY/XZ/YZ).
+
+let cv: OpenCv
+const cases: Array<{ file: string; plane: 'XY' | 'XZ' | 'YZ' }> = [
+  { file: 'render_xy.png', plane: 'XY' },
+  { file: 'render_xz.png', plane: 'XZ' },
+  { file: 'render_yz.png', plane: 'YZ' },
+]
+
+const results: Record<string, CalibrationResult> = {}
+
+beforeAll(async () => {
+  cv = await getCv()
+  for (const c of cases) {
+    const img: Mat = decodeFixtureBgr(cv, c.file)
+    try {
+      results[c.plane] = analyzeCoupon(cv, img, { coupon: defaultCouponSpec(), pxPerMm: null })
+    } finally {
+      img.delete()
+    }
+  }
+}, 60000)
+
+describe('plane-ID and detection on rendered plates', () => {
+  it.each(cases)('reads the plane-ID dots on the $plane plate', ({ plane }) => {
+    expect(results[plane].plane).toBe(plane)
+  })
+
+  it.each(cases)('detects the ring grid on the $plane plate', ({ plane }) => {
+    // 23 holes (25 vertices minus the two solid markers); the pipeline tolerates one stray miss, so
+    // a synthetic render landing on 22 is still a healthy grid.
+    expect(results[plane].ringsDetected).toBeGreaterThanOrEqual(22)
+  })
+
+  it.each(cases)('a perfect $plane render has near-zero skew', ({ plane }) => {
+    expect(Math.abs(results[plane].skewDegrees)).toBeLessThanOrEqual(0.1)
+  })
+
+  it.each(cases)('a perfect $plane render is isotropic', ({ plane }) => {
+    const r = results[plane]
+    expect(Math.abs(r.xScalePercent - r.yScalePercent)).toBeLessThanOrEqual(0.2)
+  })
+})

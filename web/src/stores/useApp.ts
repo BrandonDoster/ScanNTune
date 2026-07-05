@@ -1,13 +1,20 @@
 import { defineStore } from 'pinia'
 import { ref, shallowRef } from 'vue'
-import type { CouponSpec, TwoScanResult } from '../engine/types'
+import type { CouponSpec, MultiPlaneResult, Plane } from '../engine/types'
 
 export type Screen = 'scan' | 'calibration' | 'results'
 
+/** The two annotated scan overlays for one plane, in upload order. */
+export interface PlaneOverlayBitmaps {
+  plane: Plane
+  a: ImageBitmap | null
+  b: ImageBitmap | null
+}
+
 export interface ResultPayload {
-  result: TwoScanResult
-  overlayA: ImageBitmap | null
-  overlayB: ImageBitmap | null
+  result: MultiPlaneResult
+  overlays: PlaneOverlayBitmaps[]
+  notes: string[]
   coupon: CouponSpec
 }
 

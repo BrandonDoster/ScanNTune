@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useApp } from '../stores/useApp'
 import {
   skewFlavours,
   sizeFlavours,
-  skewCorrection,
-  sizeCorrection,
+  skewCorrectionMulti,
+  axisSizeCorrection,
   currentValueLabel,
 } from '../engine/correctionFormatter'
-import { signedPercent, signedDegrees, signedFixed } from '../util/format'
+import { planeAxes } from '../engine/types'
+import type { Plane } from '../engine/types'
+import { signedPercent, signedDegrees } from '../util/format'
 import CodeBlock from './CodeBlock.vue'
 import OverlayCanvas from './OverlayCanvas.vue'
 import NumericField from './NumericField.vue'
@@ -17,73 +19,52 @@ const app = useApp()
 
 const payload = computed(() => app.payload)
 const result = computed(() => payload.value?.result ?? null)
-const combined = computed(() => result.value?.combined ?? null)
+const scales = computed(() => result.value?.scales ?? [])
+const skews = computed(() => result.value?.skews ?? [])
+const planes = computed(() => result.value?.planes ?? [])
 
 const skewFlavour = ref<string>(skewFlavours[0])
 const sizeFlavour = ref<string>(sizeFlavours[0])
-const currentX = ref<number | null>(null)
-const currentY = ref<number | null>(null)
-const scannerExpanded = ref(false)
+const currents = reactive<Record<'X' | 'Y' | 'Z', number | null>>({ X: null, Y: null, Z: null })
 
 const currentLabel = computed(() => currentValueLabel(sizeFlavour.value))
 const showCurrent = computed(() => currentLabel.value !== null)
+const currentAxes = computed(() => scales.value.map((s) => s.axis))
 
-// A steps/mm value is meaningless as a rotation distance, so clear the entered current values when the
-// size format changes.
+// A steps/mm value is meaningless as a rotation distance, so clear entered currents on format change.
 watch(sizeFlavour, () => {
-  currentX.value = null
-  currentY.value = null
+  currents.X = currents.Y = currents.Z = null
 })
 
-const skew = computed(() =>
-  combined.value && payload.value
-    ? skewCorrection(skewFlavour.value, combined.value.skewDegrees, payload.value.coupon)
+const skewFix = computed(() =>
+  result.value && payload.value
+    ? skewCorrectionMulti(skewFlavour.value, skews.value, payload.value.coupon)
     : null,
 )
-const size = computed(() =>
-  combined.value
-    ? sizeCorrection(
-        sizeFlavour.value,
-        combined.value.xScalePercent,
-        combined.value.yScalePercent,
-        currentX.value,
-        currentY.value,
-      )
-    : null,
+const sizeFix = computed(() =>
+  result.value ? axisSizeCorrection(sizeFlavour.value, scales.value, currents) : null,
 )
 
-const summary = computed(() => {
-  const r = result.value
-  if (!r) return ''
-  return `${r.combined.ringsDetected} rings · ${r.combined.rmsResidualPx.toFixed(2)} px fit · ${r.relativeRotationDegrees.toFixed(0)}° turn`
-})
-const rotationWarning = computed(() => {
-  const r = result.value
-  if (!r || r.rotationLooksValid) return ''
-  return r.flipMismatch
-    ? 'One scan is mirror-flipped relative to the other, so the figures cannot be trusted.'
-    : "The scans aren't a quarter-turn apart, so the scanner error could not be cancelled."
-})
+function planeAxisLabel(p: Plane): string {
+  const [a, b] = planeAxes(p)
+  return `${a}${b}`
+}
 
-const scannerLine = computed(() => {
-  const r = result.value
-  if (!r) return ''
-  return `Scanner  X/Y bias ${signedFixed(r.scanner.anisotropyPercent, 3)} %,  skew ${signedDegrees(r.scanner.skewDegrees)}`
-})
-const scanALine = computed(() => {
-  const s = result.value?.scanA
-  if (!s) return ''
-  return `Scan 1   X ${signedFixed(s.xScalePercent, 3)} %,  Y ${signedFixed(s.yScalePercent, 3)} %,  skew ${signedDegrees(s.skewDegrees)}`
-})
-const scanBLine = computed(() => {
-  const s = result.value?.scanB
-  if (!s) return ''
-  return `Scan 2   X ${signedFixed(s.xScalePercent, 3)} %,  Y ${signedFixed(s.yScalePercent, 3)} %,  skew ${signedDegrees(s.skewDegrees)}`
-})
+const overlayFor = (p: Plane) => payload.value?.overlays.find((o) => o.plane === p) ?? null
+
+function planeSummary(p: Plane): string {
+  const a = planes.value.find((x) => x.plane === p)
+  if (!a) return ''
+  const c = a.twoScan.combined
+  return `${c.ringsDetected} rings · ${c.rmsResidualPx.toFixed(2)} px fit · ${a.twoScan.relativeRotationDegrees.toFixed(0)}° turn`
+}
+function planeValid(p: Plane): boolean {
+  return planes.value.find((x) => x.plane === p)?.twoScan.rotationLooksValid ?? true
+}
 </script>
 
 <template>
-  <v-container v-if="result && combined" class="page">
+  <v-container v-if="result && planes.length" class="page">
     <div class="header">
       <h1 class="text-h4 font-weight-bold">Results</h1>
       <v-btn variant="text" prepend-icon="mdi-refresh" data-testid="startover-btn" @click="app.goScan()">
@@ -91,54 +72,37 @@ const scanBLine = computed(() => {
       </v-btn>
     </div>
 
-    <!-- Hero: the answer, plus the collapsible scanner check -->
+    <!-- Hero: the answer -->
     <section class="hero mb-4">
+      <div class="group-label">Scale</div>
       <div class="tiles">
-        <div class="tile">
-          <div class="tlab">X scale</div>
-          <div class="tval" data-testid="x-scale">{{ signedPercent(combined.xScalePercent) }}</div>
-        </div>
-        <div class="tile">
-          <div class="tlab">Y scale</div>
-          <div class="tval" data-testid="y-scale">{{ signedPercent(combined.yScalePercent) }}</div>
-        </div>
-        <div class="tile">
-          <div class="tlab">Skew</div>
-          <div class="tval" data-testid="skew">{{ signedDegrees(combined.skewDegrees) }}</div>
+        <div v-for="s in scales" :key="s.axis" class="tile">
+          <div class="tlab">{{ s.axis }} scale</div>
+          <div class="tval" :data-testid="`scale-${s.axis}`">{{ signedPercent(s.scalePercent) }}</div>
         </div>
       </div>
-
-      <button class="scanner-row" type="button" @click="scannerExpanded = !scannerExpanded">
-        <span class="scanner-name">Scanner</span>
-        <span class="scanner-summary" data-testid="summary">{{ summary }}</span>
-        <v-icon :color="result.rotationLooksValid ? 'primary' : 'warning'" size="18">
-          {{ result.rotationLooksValid ? 'mdi-check' : 'mdi-alert' }}
-        </v-icon>
-        <v-icon size="18" class="chev" :class="{ open: scannerExpanded }">mdi-chevron-down</v-icon>
-      </button>
-      <v-expand-transition>
-        <div v-if="scannerExpanded" class="scanner-detail">
-          <div class="mono">{{ scannerLine }}</div>
-          <div class="mono">{{ scanALine }}</div>
-          <div class="mono">{{ scanBLine }}</div>
-          <div class="text-caption text-medium-emphasis mt-2">
-            Your scanner's own error, measured and removed from the result above.
-          </div>
+      <div class="group-label mt-3">Skew</div>
+      <div class="tiles">
+        <div v-for="k in skews" :key="k.plane" class="tile">
+          <div class="tlab">{{ planeAxisLabel(k.plane) }} skew</div>
+          <div class="tval" :data-testid="`skew-${k.plane}`">{{ signedDegrees(k.skewDegrees) }}</div>
         </div>
-      </v-expand-transition>
+      </div>
     </section>
 
     <v-alert
-      v-if="rotationWarning"
+      v-if="payload && payload.notes.length"
       type="warning"
       variant="tonal"
       density="compact"
       class="mb-4"
-      :text="rotationWarning"
-    />
+    >
+      <ul class="notes">
+        <li v-for="(n, i) in payload.notes" :key="i">{{ n }}</li>
+      </ul>
+    </v-alert>
 
     <div class="result-body">
-      <!-- Corrections: first on mobile, right column on desktop -->
       <div class="fix-col">
         <section class="card mb-3">
           <h2 class="card-title">Fix skew</h2>
@@ -150,10 +114,14 @@ const scanBLine = computed(() => {
             hide-details
             class="mb-3"
           />
-          <template v-if="skew">
-            <CodeBlock :code="skew.code" :caption="skew.primaryCaption" />
-            <CodeBlock v-if="skew.secondaryCode" :code="skew.secondaryCode" :caption="skew.secondaryCaption" />
-            <div v-if="skew.hint" class="hint">{{ skew.hint }}</div>
+          <template v-if="skewFix">
+            <CodeBlock :code="skewFix.code" :caption="skewFix.primaryCaption" data-testid="skew-code" />
+            <CodeBlock
+              v-if="skewFix.secondaryCode"
+              :code="skewFix.secondaryCode"
+              :caption="skewFix.secondaryCaption"
+            />
+            <div v-if="skewFix.hint" class="hint">{{ skewFix.hint }}</div>
           </template>
         </section>
 
@@ -168,24 +136,44 @@ const scanBLine = computed(() => {
             class="mb-3"
           />
           <div v-if="showCurrent" class="current-fields mb-3">
-            <NumericField v-model="currentX" :label="`X ${currentLabel}`" :step="0.1" :min="0" :precision="3" />
-            <NumericField v-model="currentY" :label="`Y ${currentLabel}`" :step="0.1" :min="0" :precision="3" />
+            <NumericField
+              v-for="axis in currentAxes"
+              :key="axis"
+              v-model="currents[axis]"
+              :label="`${axis} ${currentLabel}`"
+              :step="0.1"
+              :min="0"
+              :precision="3"
+            />
           </div>
-          <template v-if="size">
-            <CodeBlock :code="size.code" />
-            <div v-if="size.hint" class="hint">{{ size.hint }}</div>
+          <template v-if="sizeFix">
+            <CodeBlock :code="sizeFix.code" data-testid="size-code" />
+            <div v-if="sizeFix.hint" class="hint">{{ sizeFix.hint }}</div>
           </template>
         </section>
       </div>
 
-      <!-- The annotated scans: below the corrections on mobile, side by side on desktop -->
-      <section class="scan-card scan-a">
-        <div class="scan-title">Scan 1 (as placed)</div>
-        <OverlayCanvas :bitmap="payload!.overlayA" />
-      </section>
-      <section class="scan-card scan-b">
-        <div class="scan-title">Scan 2 (quarter-turned)</div>
-        <OverlayCanvas :bitmap="payload!.overlayB" />
+      <!-- The annotated scans, grouped by plane -->
+      <section class="scans-col">
+        <div v-for="a in planes" :key="a.plane" class="plane-block">
+          <div class="plane-head">
+            <span class="plane-name">{{ planeAxisLabel(a.plane) }} plate</span>
+            <span class="plane-summary">{{ planeSummary(a.plane) }}</span>
+            <v-icon :color="planeValid(a.plane) ? 'primary' : 'warning'" size="16">
+              {{ planeValid(a.plane) ? 'mdi-check' : 'mdi-alert' }}
+            </v-icon>
+          </div>
+          <div class="scan-pair">
+            <div class="scan-card">
+              <div class="scan-title">Scan 1 (as placed)</div>
+              <OverlayCanvas :bitmap="overlayFor(a.plane)?.a ?? null" />
+            </div>
+            <div class="scan-card">
+              <div class="scan-title">Scan 2 (quarter-turned)</div>
+              <OverlayCanvas :bitmap="overlayFor(a.plane)?.b ?? null" />
+            </div>
+          </div>
+        </div>
       </section>
     </div>
   </v-container>
@@ -212,6 +200,13 @@ const scanBLine = computed(() => {
   border-radius: 14px;
   padding: 16px;
 }
+.group-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  margin-bottom: 8px;
+}
 .tiles {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -230,73 +225,22 @@ const scanBLine = computed(() => {
   letter-spacing: 0.05em;
 }
 .tval {
-  /* Shrink to fit a narrow tile and never wrap the value onto a second line. */
   font-size: clamp(15px, 4.2vw, 26px);
   white-space: nowrap;
   font-weight: 500;
   font-family: 'Roboto Mono', ui-monospace, monospace;
   margin-top: 2px;
 }
-
-.scanner-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  margin-top: 12px;
-  padding: 10px 12px;
-  background: rgb(var(--v-theme-surface-bright));
-  border-radius: 10px;
-  border: none;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.scanner-name {
-  font-weight: 500;
-}
-.scanner-summary {
-  flex: 1;
-  color: rgba(var(--v-theme-on-surface), 0.6);
-  font-size: 13px;
-}
-.chev {
-  transition: transform 0.2s ease;
-}
-.chev.open {
-  transform: rotate(180deg);
-}
-.scanner-detail {
-  padding: 12px 4px 2px;
-  overflow-x: auto;
-}
-.mono {
-  font-family: 'Roboto Mono', ui-monospace, monospace;
+.notes {
+  margin: 0;
+  padding-left: 18px;
   font-size: 12.5px;
-  color: rgba(var(--v-theme-on-surface), 0.7);
-  white-space: nowrap;
-  line-height: 1.7;
 }
 
 .result-body {
   display: grid;
   gap: 14px;
-  /* Mobile: single column, corrections first (they are the answer), then the two scans stacked. */
   grid-template-columns: 1fr;
-  grid-template-areas:
-    'fix'
-    'scanA'
-    'scanB';
-}
-.fix-col {
-  grid-area: fix;
-}
-.scan-a {
-  grid-area: scanA;
-}
-.scan-b {
-  grid-area: scanB;
 }
 .card {
   background: rgb(var(--v-theme-surface-light));
@@ -315,6 +259,31 @@ const scanBLine = computed(() => {
 }
 .current-fields {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+}
+.scans-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.plane-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.plane-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+.plane-summary {
+  flex: 1;
+  font-size: 12.5px;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+}
+.scan-pair {
+  display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
 }
@@ -329,13 +298,17 @@ const scanBLine = computed(() => {
   margin: 2px 4px 6px;
 }
 
-/* Desktop: the two scans sit side by side (equal columns, so equal size) with the corrections beside
-   them, so the whole result is visible without scrolling. */
+/* Desktop: corrections beside the scans so the whole result is visible without scrolling. */
 @media (min-width: 900px) {
   .result-body {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 340px;
-    grid-template-areas: 'scanA scanB fix';
+    grid-template-columns: minmax(0, 1fr) 340px;
     align-items: start;
+  }
+  .fix-col {
+    order: 2;
+  }
+  .scans-col {
+    order: 1;
   }
 }
 </style>

@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useApp } from '../stores/useApp'
 import { useCalibration } from '../stores/useCalibration'
 import { readBytes, makePreviewUrl } from '../util/preview'
-import { analyzeTwoScans } from '../workerClient'
+import { analyzeScans } from '../workerClient'
 import { defaultCouponSpec } from '../engine/types'
 import type { CouponSpec } from '../engine/types'
 import NumericField from './NumericField.vue'
-import DropSlot from './DropSlot.vue'
+import CouponGlyph from './CouponGlyph.vue'
 
 const app = useApp()
 const calibration = useCalibration()
@@ -16,23 +16,19 @@ const dpi = ref<number | null>(1200)
 const baselineMm = ref<number | null>(100)
 const gridN = ref<number | null>(5)
 
-interface Slot {
-  bytes: Uint8Array | null
+interface ScanItem {
+  id: number
+  name: string
+  bytes: Uint8Array
   preview: string | null
-  loading: boolean
-  failed: boolean
-  note: string
-  overlay: ImageBitmap | null
 }
-function makeSlot(): Slot {
-  return { bytes: null, preview: null, loading: false, failed: false, note: '', overlay: null }
-}
-const slot1 = reactive(makeSlot())
-const slot2 = reactive(makeSlot())
+let nextId = 0
+const scans = ref<ScanItem[]>([])
 
 const busy = ref(false)
 const isError = ref(false)
 const statusText = ref('')
+const notes = ref<string[]>([])
 
 const isCalibrated = computed(() => calibration.calibration !== null)
 const calibrationLine = computed(() =>
@@ -41,46 +37,74 @@ const calibrationLine = computed(() =>
     : 'Optional. Calibrate to report absolute size; skip it for anisotropy and skew only.',
 )
 const scanDpiHint = computed(() =>
-  isCalibrated.value ? `Scan both at ${Math.round(calibration.calibration!.dpi)} dpi.` : '',
+  isCalibrated.value ? `Scan every plate at ${Math.round(calibration.calibration!.dpi)} dpi.` : '',
 )
-const canAnalyze = computed(() => !busy.value && slot1.bytes !== null && slot2.bytes !== null)
+const loading = ref(false)
+// Analyze stays disabled while a batch of files is still being read, so a user (or a test) can't fire
+// analysis on a partially-loaded set and silently drop the scans that hadn't finished loading yet.
+// A valid batch is an EVEN number (each plate is a flat + quarter-turn pair) from 2 to 6 (at most the
+// three planes). Also stays disabled while a batch is still loading.
+const canAnalyze = computed(() => {
+  const n = scans.value.length
+  return !busy.value && !loading.value && n >= 2 && n <= 6 && n % 2 === 0
+})
+// The button always states what's expected: add the minimum, complete the odd pair, or trim the excess.
+const analyzeLabel = computed(() => {
+  const n = scans.value.length
+  if (n === 0) return 'Add 2 scans to analyze'
+  if (n > 6) return `Remove ${n - 6} scan${n - 6 === 1 ? '' : 's'} (6 max)`
+  if (n % 2 === 1) return 'Add 1 more scan'
+  return `Analyze ${n} scans`
+})
+
+const plates: ReadonlyArray<{ key: string; label: string; file: string }> = [
+  { key: 'xy', label: 'XY plate (flat)', file: 'calibration_coupon_xy.stl' },
+  { key: 'xz', label: 'XZ plate (standing)', file: 'calibration_coupon_xz.stl' },
+  { key: 'yz', label: 'YZ plate (standing)', file: 'calibration_coupon_yz.stl' },
+]
 
 function buildCoupon(): CouponSpec {
   return { ...defaultCouponSpec(), baselineMm: baselineMm.value ?? 100, gridN: gridN.value ?? 5 }
 }
 
-async function handleFile(slot: Slot, file: File): Promise<void> {
-  slot.failed = false
-  slot.note = ''
-  slot.overlay = null
-  slot.loading = true
+async function onPick(e: Event): Promise<void> {
+  const input = e.target as HTMLInputElement
+  const files = Array.from(input.files ?? [])
+  // Clear the input so picking the same file again still fires change.
+  input.value = ''
+  loading.value = true
   try {
-    slot.bytes = await readBytes(file)
-  } catch (e) {
-    slot.failed = true
-    slot.note = 'Could not read the file.'
-    console.error('Could not read the picked file', e)
-    slot.loading = false
-    return
-  }
-  // A preview failure is not fatal: the raw bytes are already loaded, so analysis can still run.
-  try {
-    slot.preview = await makePreviewUrl(file)
-  } catch (e) {
-    console.warn('Could not render a preview for the picked file', e)
+    for (const file of files) {
+      try {
+        const bytes = await readBytes(file)
+        let preview: string | null = null
+        try {
+          preview = await makePreviewUrl(file)
+        } catch (err) {
+          console.warn('Could not render a preview for a picked scan', err)
+        }
+        scans.value = [...scans.value, { id: nextId++, name: file.name, bytes, preview }]
+      } catch (err) {
+        console.error('Could not read a picked scan', err)
+        isError.value = true
+        statusText.value = `Could not read ${file.name}.`
+      }
+    }
   } finally {
-    slot.loading = false
+    loading.value = false
   }
 }
 
+function removeScan(id: number): void {
+  scans.value = scans.value.filter((s) => s.id !== id)
+}
+
 async function analyze(): Promise<void> {
-  if (!slot1.bytes || !slot2.bytes) return
+  if (scans.value.length < 2) return
   busy.value = true
   isError.value = false
-  statusText.value = 'Analyzing both scans...'
-  slot1.failed = slot2.failed = false
-  slot1.note = slot2.note = ''
-  slot1.overlay = slot2.overlay = null
+  notes.value = []
+  statusText.value = `Analyzing ${scans.value.length} scans...`
   try {
     const coupon = buildCoupon()
     let pxPerMm: number | null
@@ -88,39 +112,36 @@ async function analyze(): Promise<void> {
     else if (dpi.value != null && dpi.value >= 50) pxPerMm = dpi.value / 25.4
     else pxPerMm = null
 
-    const response = await analyzeTwoScans(slot1.bytes, slot2.bytes, { coupon, pxPerMm })
+    const response = await analyzeScans(
+      scans.value.map((s) => s.bytes),
+      { coupon, pxPerMm },
+    )
     if (response.ok) {
       statusText.value = ''
       app.showResults({
         result: response.result,
-        overlayA: response.overlayA,
-        overlayB: response.overlayB,
+        overlays: response.overlays.map((o) => ({ plane: o.plane, a: o.a, b: o.b })),
+        notes: response.notes,
         coupon,
       })
     } else {
-      const slot = response.isFirst ? slot1 : slot2
-      slot.failed = true
-      slot.note = response.message
-      slot.overlay = response.overlay
       isError.value = true
-      statusText.value =
-        response.ringCount > 0
-          ? `The ${response.isFirst ? 'first' : 'second'} scan: found ${response.ringCount} rings but could not align the coupon.`
-          : 'No rings detected. The coupon may be out of frame or too faint.'
+      notes.value = response.notes
+      statusText.value = 'No plane could be analyzed. Check that each plate has two scans a quarter-turn apart.'
     }
   } catch (e) {
     isError.value = true
-    statusText.value = `${e instanceof Error ? e.message : String(e)} Check the scan quality and that the two-solid marker is visible.`
-    console.error('Two-scan analysis failed', e)
+    statusText.value = `${e instanceof Error ? e.message : String(e)} Check the scans and that each carries the two-solid marker.`
+    console.error('Multi-scan analysis failed', e)
   } finally {
     busy.value = false
   }
 }
 
-function getCoupon(): void {
+function getCoupon(file: string): void {
   const a = document.createElement('a')
-  a.href = `${import.meta.env.BASE_URL}calibration_coupon.stl`
-  a.download = 'calibration_coupon.stl'
+  a.href = `${import.meta.env.BASE_URL}${file}`
+  a.download = file
   a.click()
 }
 </script>
@@ -128,10 +149,10 @@ function getCoupon(): void {
 <template>
   <v-container class="page">
     <header class="mb-4">
-      <h1 class="text-h5 font-weight-bold">Two-scan calibration</h1>
+      <h1 class="text-h5 font-weight-bold">Scan calibration</h1>
       <p class="text-body-2 text-medium-emphasis mt-1">
-        Scan the coupon, turn it a quarter-turn, and scan again. Combining the two cancels your scanner's own
-        X/Y stretch and skew.
+        Print a plate for each plane you want to calibrate, scan each one twice (flat, then a quarter-turn),
+        and drop all the scans in. The app sorts them by plate and works out X/Y/Z scale and skew.
       </p>
     </header>
 
@@ -159,57 +180,95 @@ function getCoupon(): void {
       </div>
     </section>
 
-    <!-- 2. Print the coupon -->
+    <!-- 2. Print the plates -->
     <section class="step mb-3">
-      <div class="step-row">
-        <div class="step-head">
-          <span class="num">2</span><span class="step-title">Print the coupon</span>
-        </div>
-        <v-btn variant="tonal" size="small" prepend-icon="mdi-download" @click="getCoupon">Download coupon STL</v-btn>
+      <div class="step-head mb-1">
+        <span class="num">2</span><span class="step-title">Print the plate(s)</span>
       </div>
-      <p class="tip">
-        100 mm model, printed flat. It has to contrast with the scan background: a white coupon on a white lid
-        will not work, so back it with a coloured sheet of paper.
+      <p class="tip mb-2">
+        Print only the planes you want. XY is flat; XZ and YZ print standing (add a brim if adhesion is
+        tricky). Each has to contrast with the scan background, so back a light plate with a coloured sheet.
+      </p>
+      <div class="plate-btns">
+        <v-btn
+          v-for="p in plates"
+          :key="p.key"
+          variant="tonal"
+          size="small"
+          prepend-icon="mdi-download"
+          @click="getCoupon(p.file)"
+        >
+          {{ p.label }}
+        </v-btn>
+      </div>
+    </section>
+
+    <!-- 3. Scan your prints -->
+    <section class="step mb-3">
+      <div class="step-head mb-1">
+        <span class="num">3</span><span class="step-title">Scan your prints</span>
+      </div>
+      <p class="tip mb-3">
+        Scan each plate twice: lay it flat and scan, then give it a quarter-turn and scan again. Averaging
+        the pair cancels your scanner's own stretch and skew. Repeat for every plate you printed.
+      </p>
+      <p v-if="scanDpiHint" class="tip mb-3">{{ scanDpiHint }}</p>
+
+      <div class="scan-flow">
+        <div class="glyph-step">
+          <CouponGlyph :rotate="0" :size="76" />
+          <span class="glyph-cap">1 · scan flat</span>
+        </div>
+        <div class="connector">
+          <v-icon class="arrow" color="primary" size="26">mdi-rotate-right</v-icon>
+          <span class="deg">turn 90°</span>
+        </div>
+        <div class="glyph-step">
+          <div class="roll">
+            <div class="glyph-wrap"><CouponGlyph :size="76" /></div>
+          </div>
+          <span class="glyph-cap">2 · scan again</span>
+        </div>
+      </div>
+
+      <p class="text-caption text-medium-emphasis text-center mt-3">
+        The two solid corner rings let the app align the pair; the dots by the corner tell it which plane the
+        plate is.
       </p>
     </section>
 
-    <!-- 3. Add the two scans -->
+    <!-- 4. Upload your scans -->
     <section class="step mb-3">
       <div class="step-head mb-1">
-        <span class="num">3</span><span class="step-title">Add the two scans</span>
+        <span class="num">4</span><span class="step-title">Upload your scans</span>
       </div>
-      <p v-if="scanDpiHint" class="tip mb-3">{{ scanDpiHint }}</p>
+      <p class="tip mb-3">
+        Drop in every scan at once: two per plate, up to three plates (6 scans). The app sorts them by plate
+        for you.
+      </p>
 
-      <div class="slots">
-        <DropSlot
-          class="slot-fill"
-          label="First scan"
-          sublabel="as placed"
-          testid="scan1-input"
-          :preview="slot1.preview"
-          :failed="slot1.failed"
-          :note="slot1.note"
-          :loading="slot1.loading"
-          :overlay="slot1.overlay"
-          @pick="handleFile(slot1, $event)"
+      <label class="dropzone" :class="{ busy }">
+        <input
+          type="file"
+          accept="image/*"
+          multiple
+          class="file-input"
+          data-testid="scans-input"
+          @change="onPick"
         />
-        <div class="connector">
-          <v-icon class="arrow" color="primary" size="26">mdi-arrow-right</v-icon>
-          <span class="deg">90°</span>
+        <v-icon size="28" color="primary">mdi-image-plus</v-icon>
+        <span class="dz-label">Choose scan images</span>
+        <span class="dz-sub">or drop them here · you can add more later</span>
+      </label>
+
+      <div v-if="scans.length" class="thumbs mt-3" data-testid="thumbs">
+        <div v-for="s in scans" :key="s.id" class="thumb">
+          <img v-if="s.preview" :src="s.preview" :alt="s.name" />
+          <div v-else class="thumb-fallback"><v-icon>mdi-file-image-outline</v-icon></div>
+          <button class="thumb-x" type="button" title="Remove" @click="removeScan(s.id)">
+            <v-icon size="16">mdi-close</v-icon>
+          </button>
         </div>
-        <DropSlot
-          class="slot-fill"
-          label="Second scan"
-          sublabel="quarter-turned"
-          testid="scan2-input"
-          :rotate="90"
-          :preview="slot2.preview"
-          :failed="slot2.failed"
-          :note="slot2.note"
-          :loading="slot2.loading"
-          :overlay="slot2.overlay"
-          @pick="handleFile(slot2, $event)"
-        />
       </div>
 
       <div class="fields mt-4">
@@ -235,7 +294,7 @@ function getCoupon(): void {
         :disabled="!canAnalyze"
         @click="analyze"
       >
-        Analyze both scans
+        {{ analyzeLabel }}
       </v-btn>
 
       <v-alert
@@ -246,10 +305,11 @@ function getCoupon(): void {
         :text="statusText"
         data-testid="status"
       />
-
-      <p class="text-caption text-medium-emphasis text-center mt-3">
-        The two solid rings mark the coupon's corner. The app uses them to align both scans.
-      </p>
+      <v-alert v-if="notes.length" type="warning" variant="tonal" density="compact" class="mt-2">
+        <ul class="notes">
+          <li v-for="(n, i) in notes" :key="i">{{ n }}</li>
+        </ul>
+      </v-alert>
     </section>
   </v-container>
 </template>
@@ -295,39 +355,145 @@ function getCoupon(): void {
   color: rgba(var(--v-theme-on-surface), 0.6);
   margin-top: 8px;
 }
-.slots {
+.plate-btns {
   display: flex;
-  align-items: stretch;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
 }
-.slot-fill {
-  flex: 1 1 0;
-  min-width: 0;
+.scan-flow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 6px 0 2px;
 }
-.connector {
-  flex: 0 0 auto;
+.glyph-step {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 2px;
+  gap: 6px;
 }
-.connector .arrow {
-  transition: transform 0.2s ease;
+.glyph-cap {
+  font-size: 12px;
+  color: rgba(var(--v-theme-on-surface), 0.7);
+}
+/* The second coupon pivots about its top-right corner (transform-origin 0 0 plus translateX by one
+   glyph width pins that corner on screen) so it ROLLS in from the right onto the quarter-turned
+   resting frame, rather than spinning in place. This mirrors the desktop app's slot-2 animation. */
+.roll {
+  position: relative;
+  width: 152px;
+  height: 76px;
+}
+.glyph-wrap {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  animation: roll-turn 2.6s ease infinite;
+}
+@keyframes roll-turn {
+  0%,
+  25% {
+    transform: translateX(76px) rotate(0deg);
+  }
+  65%,
+  100% {
+    transform: translateX(76px) rotate(90deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .glyph-wrap {
+    animation: none;
+    transform: translateX(76px) rotate(90deg);
+  }
+}
+.connector {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
 }
 .deg {
   font-size: 11px;
   color: rgba(var(--v-theme-on-surface), 0.6);
 }
-
-/* When the slots stack (narrow screen), the connector sits between them and the arrow points down. */
-@media (max-width: 560px) {
-  .slots {
-    flex-direction: column;
-  }
-  .connector .arrow {
-    transform: rotate(90deg);
-  }
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 22px;
+  border: 1.5px dashed rgba(var(--v-theme-primary), 0.5);
+  border-radius: 12px;
+  background: rgb(var(--v-theme-surface-bright));
+  cursor: pointer;
+  position: relative;
+  transition: border-color 0.15s ease;
+}
+.dropzone:hover {
+  border-color: rgb(var(--v-theme-primary));
+}
+.file-input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.dz-label {
+  font-weight: 500;
+  font-size: 14px;
+}
+.dz-sub {
+  font-size: 12px;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+}
+.thumbs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 8px;
+}
+.thumb {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgb(var(--v-theme-surface-bright));
+}
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.thumb-fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(var(--v-theme-on-surface), 0.4);
+}
+.thumb-x {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: rgba(0, 0, 0, 0.55);
+  border: none;
+  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  cursor: pointer;
+}
+.notes {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12.5px;
 }
 .fields {
   display: flex;

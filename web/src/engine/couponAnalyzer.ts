@@ -5,6 +5,7 @@ import { detectRings } from './ringDetector'
 import { mapGrid } from './gridMapper'
 import { solveAffine } from './affineSolver'
 import type { AffineSolverOptions } from './affineSolver'
+import { readPlaneId } from './planeIdReader'
 
 // Orchestrates the pipeline: detect ring centres -> locate the orientation fiducial and map rings to
 // the nominal grid -> fit the affine -> convert scale/skew into a calibration result. Orientation
@@ -36,6 +37,10 @@ export function analyzeCoupon(
   const xScalePercent = (affine.scaleXPxPerMm / reference - 1.0) * 100.0
   const yScalePercent = (affine.scaleYPxPerMm / reference - 1.0) * 100.0
 
+  // Read the plane-ID dots in the origin marker. Non-fatal: a plate without them (the original
+  // XY-only coupon) simply leaves the plane undefined; the two-scan flow does not need it.
+  const plane = readPlaneId(cv, image, mapping.originX, mapping.originY, mapping.pitchPx) ?? undefined
+
   return {
     xScalePercent,
     yScalePercent,
@@ -52,5 +57,6 @@ export function analyzeCoupon(
       xAxisX: mapping.xAxisX,
       xAxisY: mapping.xAxisY,
     },
+    plane,
   }
 }
