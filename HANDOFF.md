@@ -30,8 +30,11 @@ Key lessons this session:
   locale is set to `navigator.language` (`plugins/vuetify.ts`) for comma-decimal users.
 - A real scan analyzed uncalibrated at the default 1200 dpi reads ~ -50% absolute scale (correct: the scan is
   ~600 dpi); the DPI-independent figures (isotropy, skew, rings, turn) are the meaningful check.
-- The ~100 MB of real scans committed under `web/e2e/fixtures/` bloat git history; Git LFS is the cleaner
-  option if that matters (offered, not yet done).
+- The ~100 MB of real scans under `web/e2e/fixtures/` are stored in **Git LFS** (`.gitattributes` in the
+  scaffold commit; `git lfs migrate import` was run with `--exclude-ref=refs/remotes/origin/master` so it
+  rewrote only the branch commits and the blobs are no longer in git history). CI's e2e job checks out with
+  `lfs: true`. Note: `git lfs migrate` without the exclude-ref rewrites the WHOLE history and diverges the
+  branch from master, so always scope it.
 
 ## Next up: remove the C# app (cutover)
 
@@ -52,8 +55,8 @@ Suggested steps:
 - Once `src/` is gone the C# NUnit tests go with it; the Vue Vitest + Playwright suites become the only tests
   (the port was code-review-confirmed faithful, so coverage is preserved).
 
-Also still open (independent of the cutover): owner review + push + PR (rule 8); and the Git LFS decision for
-the ~100 MB of e2e fixtures.
+Also still open (independent of the cutover): owner review + push + PR (rule 8). When pushing the first time,
+run `git lfs push` happens automatically via the pre-push hook, but confirm the LFS objects upload.
 
 ---
 
