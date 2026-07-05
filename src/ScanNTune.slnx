@@ -1,7 +1,0 @@
-<Solution>
-  <Project Path="ScanNTune.App/ScanNTune.App.csproj" />
-  <Project Path="ScanNTune.Browser/ScanNTune.Browser.csproj" />
-  <Project Path="ScanNTune.Core/ScanNTune.Core.csproj" />
-  <Project Path="ScanNTune.Tests/ScanNTune.Tests.csproj" />
-  <Project Path="ScanNTune.UI/ScanNTune.UI.csproj" />
-</Solution>

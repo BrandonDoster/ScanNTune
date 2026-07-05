@@ -1,0 +1,1 @@
+web/e2e/fixtures/*.png filter=lfs diff=lfs merge=lfs -text
