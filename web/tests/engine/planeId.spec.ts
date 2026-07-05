@@ -1,14 +1,16 @@
 // @vitest-environment node
 import { describe, it, expect, beforeAll } from 'vitest'
-import { getCv, decodeFixtureBgr } from '../helpers/cv'
+import { getCv, decodeFixtureBgr, blankBgr } from '../helpers/cv'
 import { analyzeCoupon } from '../../src/engine/couponAnalyzer'
+import { readPlaneId } from '../../src/engine/planeIdReader'
 import { asAligned, defaultCouponSpec } from '../../src/engine/types'
 import type { OpenCv, Mat } from '../../src/engine/opencv'
 import type { AlignedResult } from '../../src/engine/types'
 
 // End-to-end over the three plate models, rendered flat from calibration_coupon.scad (scan_view).
-// The ring/hole/dot centres are exactly the model's, so this pins ring detection on the new thicker
-// on-edge geometry AND the plane-ID read (1/2/3 dots in the origin marker => XY/XZ/YZ).
+// The ring/hole/diagonal centres are exactly the model's, so this pins ring detection on the
+// on-edge geometry AND the plane-ID read (1/2/3 diagonal ribs across the bottom-row cells,
+// starting at the origin marker => XY/XZ/YZ).
 
 let cv: OpenCv
 const cases: Array<{ file: string; plane: 'XY' | 'XZ' | 'YZ' }> = [
@@ -32,7 +34,7 @@ beforeAll(async () => {
 }, 60000)
 
 describe('plane-ID and detection on rendered plates', () => {
-  it.each(cases)('reads the plane-ID dots on the $plane plate', ({ plane }) => {
+  it.each(cases)('reads the plane-ID diagonals on the $plane plate', ({ plane }) => {
     expect(results[plane].plane).toBe(plane)
   })
 
@@ -49,5 +51,18 @@ describe('plane-ID and detection on rendered plates', () => {
   it.each(cases)('a perfect $plane render is isotropic', ({ plane }) => {
     const r = results[plane]
     expect(Math.abs(r.xScalePercent - r.yScalePercent)).toBeLessThanOrEqual(0.2)
+  })
+
+  it('refuses a grid too small to carry the largest code (gridN < 4)', () => {
+    const img = blankBgr(cv)
+    try {
+      const affine = { a: 5, b: 0, c: 0, d: 5, tx: 50, ty: 50 }
+      const spec = { ...defaultCouponSpec(), gridN: 3 }
+      expect(
+        readPlaneId(cv, img, spec, { ...affine, scaleXPxPerMm: 5, scaleYPxPerMm: 5, skewDegrees: 0, rmsResidualPx: 0, pointCount: 7 }, true),
+      ).toBeNull()
+    } finally {
+      img.delete()
+    }
   })
 })

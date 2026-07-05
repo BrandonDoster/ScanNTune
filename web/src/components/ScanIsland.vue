@@ -71,14 +71,14 @@ const pill = computed<{ text: string; sev: Sev } | null>(() => {
 const stripe = computed<Sev | ''>(() => pill.value?.sev ?? '')
 
 // The explanatory line under the pill: the engine's failure reason when the scan did not align, the
-// fixed cause when it aligned but the plane-ID dots were not readable, or the clipping diagnosis
+// fixed cause when it aligned but the plane-ID diagonals were not readable, or the clipping diagnosis
 // when the fitted grid says a missing hole ran off an image edge.
 const note = computed<string | null>(() => {
   if (props.scan.failureReason) return props.scan.failureReason
   if (props.scan.state === ScanState.Unlabeled)
     return (
-      'The 1/2/3 plane-ID dots in the origin corner could not be read, so this scan cannot be ' +
-      'assigned to a plane. Print the current plates (they carry the corner dots) or rescan.'
+      'The 1/2/3 plane-ID diagonals next to the origin corner could not be read, so this scan ' +
+      'cannot be assigned to a plane. Print the current plates (they carry the diagonal marks) or rescan.'
     )
   const clipped = props.scan.clippedSides
   if (clipped.length > 0)

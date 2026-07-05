@@ -12,6 +12,9 @@ const scan90 = fileURLToPath(new URL('./fixtures/scan1-90.png', import.meta.url)
 // polarity is now resolved by validating both threshold polarities against the coupon grid.
 const realxy0 = fileURLToPath(new URL('./fixtures/realxy-0.png', import.meta.url))
 const realxy90 = fileURLToPath(new URL('./fixtures/realxy-90.png', import.meta.url))
+// Real scans of a printed plate carrying the diagonal plane-ID marks (35 MP, 600 dpi).
+const realdiag0 = fileURLToPath(new URL('./fixtures/realdiag-0.png', import.meta.url))
+const realdiag90 = fileURLToPath(new URL('./fixtures/realdiag-90.png', import.meta.url))
 
 const plate = (p: string, rot: number) =>
   fileURLToPath(new URL(`./fixtures/plate_${p}_${rot}.png`, import.meta.url))
@@ -71,21 +74,41 @@ test('the original dot-less coupon never enables Analyze (no axis, never guessed
   await expect(page.getByTestId('scale-X')).toHaveCount(0)
 })
 
-test('real scans with a bright lid margin align and measure end to end', async ({ page }) => {
+test('real scans with a bright lid margin align but stay unlabeled (dot-era print)', async ({ page }) => {
   await page.goto('/')
   await page.getByTestId('scans-input').setInputFiles([realxy0, realxy90])
 
   // Each scan is analysed on upload into its own island; both must register every hole and align.
+  // These are scans of a plate printed with the retired dot code, so the plane-ID diagonals are
+  // absent: alignment and ring detection still work, but the plane stays unassigned and Analyze
+  // stays disabled (never silently guessed as XY). A scan of a diagonal-marked print is needed to
+  // cover the full real-scan measurement flow again.
+  await expect(page.locator('[data-testid="scan-island"]')).toHaveCount(2)
+  const counts = page.getByTestId('ring-count')
+  await expect(counts.first()).toContainText('23 of 23', { timeout: 120000 })
+  await expect(counts.nth(1)).toContainText('23 of 23', { timeout: 120000 })
+
+  // The Scan/Threshold toggle is offered, so the mask the detector searched was rendered.
+  await expect(page.getByTestId('threshold-toggle').first()).toBeVisible()
+
+  // No plane label, no analysis.
+  await expect(page.getByTestId('analyze-btn')).toBeDisabled()
+  await expect(page.getByTestId('scale-X')).toHaveCount(0)
+})
+
+test('real scans of a diagonal-marked print measure end to end', async ({ page }) => {
+  await page.goto('/')
+  await page.getByTestId('scans-input').setInputFiles([realdiag0, realdiag90])
+
+  // Each scan is analysed on upload into its own island; both must register every hole, align,
+  // and read the XY plane from the diagonal marks on the real print.
   await expect(page.locator('[data-testid="scan-island"]')).toHaveCount(2)
   const counts = page.getByTestId('ring-count')
   await expect(counts.first()).toContainText('23 of 23', { timeout: 120000 })
   await expect(counts.nth(1)).toContainText('23 of 23', { timeout: 120000 })
   await expect(page.locator('[data-testid="scan-island"]').first()).toContainText('XY plane')
 
-  // The Scan/Threshold toggle is offered, so the mask the detector searched was rendered.
-  await expect(page.getByTestId('threshold-toggle').first()).toBeVisible()
-
-  // The pair is analysable and produces the X/Y measurement.
+  // The pair is analysable and produces the X/Y measurement without freezing on 35 MP scans.
   await expect(page.getByTestId('analyze-btn')).toBeEnabled()
   await page.getByTestId('analyze-btn').click()
   for (const axis of ['X', 'Y']) {

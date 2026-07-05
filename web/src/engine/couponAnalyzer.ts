@@ -100,17 +100,9 @@ export function analyzeCoupon(
 
   const affine = solveAffine(mapping.points, solverOptions)
 
-  // Read the plane-ID dots in the origin marker. Non-fatal: a plate without them (the original
-  // XY-only coupon) simply leaves the plane null.
-  const plane =
-    readPlaneId(
-      cv,
-      image,
-      mapping.originX,
-      mapping.originY,
-      mapping.pitchPx,
-      chosen.polarity === 'bright',
-    ) ?? null
+  // Read the plane-ID diagonals in the bottom-row cells. Non-fatal: a plate without them (the
+  // original XY-only coupon) simply leaves the plane null.
+  const plane = readPlaneId(cv, image, options.coupon, affine, chosen.polarity === 'bright')
 
   const base: UnpricedResult = {
     rings: chosen.rings,

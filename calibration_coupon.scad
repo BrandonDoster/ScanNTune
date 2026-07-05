@@ -19,10 +19,12 @@
 //  printed SOLID (no hole). origin -> neighbour is the plate's +X, which
 //  pins rotation and tells a mirror-flip from a rotation at any placement.
 //
-//  Plane-ID: 1/2/3 sub-ring-size dots drilled INTO the origin marker disk
-//  encode the plane (XY=1, XZ=2, YZ=3). The dots are smaller than a ring, so
-//  ring detection ignores them; a positive count means "no dots" reads as an
-//  unknown plate rather than a silent XY.
+//  Plane-ID: 1/2/3 DIAGONAL ribs across the bottom-row lattice cells next to
+//  the origin marker encode the plane (XY=1, XZ=2, YZ=3). A diagonal is a
+//  full-width solid bar between two ring centres, so stringing, shadow and
+//  over-extrusion (which only ADD dark to a scan) cannot erase it, unlike the
+//  earlier drilled dots which closed up on rough on-edge prints. A positive
+//  count means "no diagonals" reads as an unknown plate rather than a silent XY.
 //
 //  On-edge holes (XZ/YZ only): a symmetric bicone funnel opens the hole
 //  toward BOTH faces (so the plate scans equally well either side down) and
@@ -72,13 +74,12 @@ chamfer_h = 0.4;    // height of the chamfer band (mm); = chamfer -> 45 deg
 // ---- Orientation marker ---------------------------------------------
 fiducial_solid = true;   // make the two orientation rings solid disks
 
-// ---- Plane-ID dots --------------------------------------------------
-// Drilled INTO the origin marker disk (which is already solid), so the code
-// sits inside the part with no external tab and adds no extra solid ring that
-// could confuse orientation detection. Kept well under the ring hole size so
-// ring detection ignores them; a dedicated pass counts them (XY=1, XZ=2, YZ=3).
-dot_d     = 2.0;    // dot diameter (mm) - still under the ring hole so ring detection ignores it
-dot_pitch = 3.0;    // spacing between dots (mm) - wide enough that neighbours don't merge
+// ---- Plane-ID diagonals ----------------------------------------------
+// Solid diagonal ribs across the bottom-row cells starting at the origin
+// marker: cell k runs from ring (k,0) up to ring (k+1,1). Additive dark
+// geometry, so a rough print can only make the code MORE visible, never
+// erase it. Count encodes the plane (XY=1, XZ=2, YZ=3). Width matches the
+// interior ribs so the code prints like the rest of the lattice.
 
 // ---- Optional printed reference strip (FLAT XY only) ----------------
 include_reference = false;
@@ -96,7 +97,7 @@ $fn = 96;
 // ---- Test render ----------------------------------------------------
 // When true, emit a flat 2D projection of the scanned face (dark on light)
 // instead of the pre-oriented STL. Used to generate synthetic "scan" images
-// for the engine tests: the ring/hole/dot centres are exactly the model's, so
+// for the engine tests: the ring/hole/diagonal centres are exactly the model's, so
 // the pipeline and plane-ID can be verified against known geometry.
 scan_view = false;
 scan_rotate = 0;    // in-plane rotation (deg) of the scan_view image, for a quarter-turn pair
@@ -108,7 +109,7 @@ on_edge   = (plane != "XY");
 thickness = on_edge ? plate_thickness : ring_h;
 cf        = on_edge ? 0 : chamfer;      // no elephant-foot relief when standing
 cfh       = on_edge ? 0 : chamfer_h;
-dot_count = (plane == "XY") ? 1 : (plane == "XZ") ? 2 : 3;
+diag_count = (plane == "XY") ? 1 : (plane == "XZ") ? 2 : 3;
 
 pitch   = baseline / (grid_n - 1);
 inner_d = ring_outer_d - 2 * ring_wall;
@@ -128,11 +129,13 @@ zlift     = half + ring_outer / 2 + base_h; // lift a standing plate onto z=0
 
 echo(str("plane = ", plane, ",  pitch = ", pitch, " mm,  inner_d = ", inner_d,
          " mm,  rings = ", grid_n * grid_n, ",  thickness = ", thickness,
-         " mm,  dots = ", dot_count));
+         " mm,  diagonals = ", diag_count));
 assert(inner_d > rib_w + 1,
        "inner_d too small for the rib width - increase ring_outer_d or reduce ring_wall/rib_w");
 assert(chamfer < ring_wall / 2,
        "chamfer too large - it would eat through the bottom of the ring wall");
+assert(diag_count <= grid_n - 1,
+       "not enough bottom-row cells for the plane-ID diagonals - increase grid_n");
 assert(2 * funnel_depth < plate_thickness,
        "2*funnel_depth must leave a central throat - reduce funnel_depth below plate_thickness/2");
 assert(funnel_mouth_d > inner_d && funnel_mouth_d <= ring_outer,
@@ -213,11 +216,12 @@ module base_block() {                   // standing-plate foundation: solid fill
         cube([edge_hi - edge_lo, yt - yb, thickness + foot_depth]);
 }
 
-module dot_holes() {                    // plane-ID code drilled into the origin marker disk
-    depth = thickness + foot_depth + 1;
-    for (k = [0 : dot_count - 1])
-        translate([pos(0) + (k - (dot_count - 1) / 2) * dot_pitch, pos(0), -0.5])
-            cylinder(d = dot_d, h = depth);
+module plane_diagonals() {              // plane-ID code: solid diagonals across bottom-row cells
+    for (k = [0 : diag_count - 1])
+        hull() {
+            translate([pos(k),     pos(0), 0]) ch_cyl(rib_w_eff, thickness);
+            translate([pos(k + 1), pos(1), 0]) ch_cyl(rib_w_eff, thickness);
+        }
 }
 
 module ring_holes() {                   // punch every ring except the two solid markers
@@ -246,11 +250,11 @@ module plate() {
                 for (j = [0 : grid_n - 1])
                     translate([pos(i), pos(j), 0]) ch_cyl(ring_outer, thickness);
             ribs();
+            plane_diagonals();
             if (on_edge) base_block();
             if (include_reference && !on_edge) reference_strip();
         }
         ring_holes();
-        dot_holes();
     }
 }
 

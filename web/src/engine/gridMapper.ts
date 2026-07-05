@@ -123,7 +123,6 @@ export function mapGrid(rings: readonly DetectedRing[], spec: CouponSpec): GridM
     xAxisX: xHat.x,
     xAxisY: xHat.y,
     flipped,
-    pitchPx: geo.pitchPx,
   }
 }
 

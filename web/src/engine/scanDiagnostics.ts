@@ -1,5 +1,5 @@
 import type { AffineModel, ClipSide, CouponSpec, GridCorrespondence, RingSeverity } from './types'
-import { couponInnerDiameterMm } from './types'
+import { couponInnerDiameterMm, projectMmToPx } from './types'
 
 // Pure per-scan diagnostics derived from detection and the fitted grid model. The ring tally is a
 // count against the grid the coupon defines; the clipping diagnosis projects each grid position that
@@ -35,10 +35,7 @@ export function clippedSides(
     for (let r = 0; r < spec.gridN; r++) {
       if ((c === 0 || c === 1) && r === 0) continue // the two solid markers never hold a hole
       if (present.has(`${c},${r}`)) continue
-      const mmX = c * pitchMm
-      const mmY = r * pitchMm
-      const px = affine.a * mmX + affine.b * mmY + affine.tx
-      const py = affine.c * mmX + affine.d * mmY + affine.ty
+      const { x: px, y: py } = projectMmToPx(affine, c * pitchMm, r * pitchMm)
       if (px - holeRadiusPx < 0) sides.add('left')
       if (px + holeRadiusPx > imageCols) sides.add('right')
       if (py - holeRadiusPx < 0) sides.add('top')

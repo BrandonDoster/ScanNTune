@@ -10,10 +10,12 @@ export interface CouponSpec {
   gridN: number
   ringOuterDiameterMm: number
   ringWallMm: number
+  /** Width of the lattice ribs, including the plane-ID diagonals (mm, flat-plate nominal). */
+  ribWidthMm: number
 }
 
 export function defaultCouponSpec(): CouponSpec {
-  return { baselineMm: 100, gridN: 5, ringOuterDiameterMm: 9, ringWallMm: 2 }
+  return { baselineMm: 100, gridN: 5, ringOuterDiameterMm: 9, ringWallMm: 2, ribWidthMm: 2.5 }
 }
 
 /** Centre-to-centre distance between neighbouring rings. */
@@ -75,6 +77,11 @@ export interface AffineModel {
   ty: number
 }
 
+/** Projects a nominal coupon position (mm) into the image (px) through the fitted transform. */
+export function projectMmToPx(m: AffineModel, mmX: number, mmY: number): { x: number; y: number } {
+  return { x: m.a * mmX + m.b * mmY + m.tx, y: m.c * mmX + m.d * mmY + m.ty }
+}
+
 /** One ring matched to its nominal grid place. Col runs along +X, row along +Y. */
 export interface GridCorrespondence {
   col: number
@@ -92,8 +99,6 @@ export interface GridMapping {
   xAxisX: number
   xAxisY: number
   flipped: boolean
-  /** Estimated centre-to-centre ring spacing in pixels; sizes the plane-ID read window. */
-  pitchPx: number
 }
 
 /**
@@ -114,7 +119,7 @@ export interface CalibrationResult {
   failureReason: string | null
   // Measurement: null unless the coupon aligned.
   orientation: Orientation | null
-  /** The plate's plane from the corner dots; null when not aligned or the dots weren't read. */
+  /** The plate's plane from the diagonal-rib code; null when not aligned or the code wasn't read. */
   plane: Plane | null
   measuredPxPerMmX: number | null
   measuredPxPerMmY: number | null

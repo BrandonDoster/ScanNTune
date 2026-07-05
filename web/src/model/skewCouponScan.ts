@@ -9,7 +9,7 @@ export enum ScanState {
   Unreadable,
   /** Analysed, but the coupon grid could not be aligned. */
   Misaligned,
-  /** Aligned, but the plane-ID dots were not read, so it can't be assigned to a plane. */
+  /** Aligned, but the plane-ID diagonals were not read, so it can't be assigned to a plane. */
   Unlabeled,
   /** Aligned and labelled with a plane: ready to feed the Analyze math. */
   Measured,
