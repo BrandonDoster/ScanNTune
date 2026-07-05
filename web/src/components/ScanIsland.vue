@@ -4,7 +4,7 @@ import { SkewCouponScan, ScanState } from '../model/skewCouponScan'
 import { ringSeverity } from '../engine/scanDiagnostics'
 import OverlayCanvas from './OverlayCanvas.vue'
 
-const props = defineProps<{ scan: SkewCouponScan }>()
+const props = defineProps<{ scan: SkewCouponScan; removable?: boolean }>()
 const emit = defineEmits<{ (e: 'remove'): void }>()
 
 // Scan <-> Threshold: the threshold mask is the binary image the detector searched for holes, cropped
@@ -109,7 +109,13 @@ const note = computed<string | null>(() => {
     <div class="body">
       <div class="row1">
         <span class="fname">{{ scan.fileName }}</span>
-        <button class="rm" type="button" title="Remove" @click="emit('remove')">
+        <button
+          v-if="removable !== false"
+          class="rm"
+          type="button"
+          title="Remove"
+          @click="emit('remove')"
+        >
           <v-icon size="16">mdi-close</v-icon>
         </button>
       </div>
@@ -188,14 +194,14 @@ const note = computed<string | null>(() => {
   top: 8px;
   right: 8px;
   display: flex;
-  background: rgba(0, 0, 0, 0.55);
+  background: rgba(0, 0, 0, 0.82);
   border-radius: 8px;
   overflow: hidden;
 }
 .toggle button {
   border: none;
   background: transparent;
-  color: rgba(255, 255, 255, 0.7);
+  color: rgba(255, 255, 255, 0.85);
   font-size: 11px;
   padding: 4px 9px;
   cursor: pointer;
@@ -204,6 +210,19 @@ const note = computed<string | null>(() => {
   background: rgb(var(--v-theme-primary));
   color: #fff;
   font-weight: 600;
+}
+/* Hover-capable pointers (mouse/trackpad) get the toggle out of the way until they need it; touch
+   devices have no hover to reveal it with, so it stays visible there instead. */
+@media (hover: hover) and (pointer: fine) {
+  .toggle {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s ease;
+  }
+  .preview:hover .toggle {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 .body {
   flex: 1 1 320px;

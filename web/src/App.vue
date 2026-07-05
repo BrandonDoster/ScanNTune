@@ -2,7 +2,6 @@
 import { useApp } from './stores/useApp'
 import ScanPage from './components/ScanPage.vue'
 import CalibrationPage from './components/CalibrationPage.vue'
-import ResultsPage from './components/ResultsPage.vue'
 import AppLogo from './components/AppLogo.vue'
 
 const app = useApp()
@@ -20,8 +19,7 @@ const version = __APP_VERSION__
     </v-app-bar>
     <v-main>
       <ScanPage v-if="app.screen === 'scan'" />
-      <CalibrationPage v-else-if="app.screen === 'calibration'" />
-      <ResultsPage v-else />
+      <CalibrationPage v-else />
     </v-main>
   </v-app>
 </template>

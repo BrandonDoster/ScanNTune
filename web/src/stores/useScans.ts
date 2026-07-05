@@ -3,10 +3,8 @@ import { ref } from 'vue'
 import { SkewCouponScan } from '../model/skewCouponScan'
 import type { ScanProcessing } from '../workerClient'
 
-// Owns the uploaded scans for the session. The list lives here (not in ScanPage) so it survives
-// navigation to the Results page, which reuses each scan's rendered overlay, and so disposal of the
-// bitmaps has a single home. All mutations go through the store so they happen on the reactive
-// instances, never on a detached copy.
+// Owns the uploaded scans for the session, so disposal of their bitmaps has a single home. All
+// mutations go through the store so they happen on the reactive instances, never on a detached copy.
 export const useScans = defineStore('scans', () => {
   const scans = ref<SkewCouponScan[]>([])
   let nextId = 0

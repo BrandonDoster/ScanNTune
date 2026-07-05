@@ -24,7 +24,7 @@ test.beforeEach(async ({ page }) => {
 
 test('the app loads', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByRole('heading', { name: 'Scan calibration' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Skew/shrinkage calibration' })).toBeVisible()
 })
 
 test('calibration flow recovers ~23.6 px/mm from the real card scan', async ({ page }) => {
@@ -127,6 +127,6 @@ test('all three rendered plates auto-sort into X/Y/Z scale and skew', async ({ p
 
   // New calibration resets the session: it disposes the scans and returns to an empty upload step.
   await page.getByTestId('startover-btn').click()
-  await expect(page.getByRole('heading', { name: 'Scan calibration' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Skew/shrinkage calibration' })).toBeVisible()
   await expect(page.locator('[data-testid="scan-island"]')).toHaveCount(0)
 })

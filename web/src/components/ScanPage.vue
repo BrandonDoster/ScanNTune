@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, toRaw } from 'vue'
+import { computed, nextTick, reactive, ref, toRaw, watch } from 'vue'
 import { useApp } from '../stores/useApp'
 import { useCalibration } from '../stores/useCalibration'
 import { useScans } from '../stores/useScans'
@@ -9,11 +9,20 @@ import { reconcileScans } from '../engine/multiPlaneCombiner'
 import { asAligned, defaultCouponSpec } from '../engine/types'
 import type { CouponSpec, Plane } from '../engine/types'
 import { ScanState } from '../model/skewCouponScan'
-import { skewFlavours, resetSkewCommand } from '../engine/correctionFormatter'
+import {
+  skewFlavours,
+  sizeFlavours,
+  resetSkewCommand,
+  skewCorrectionMulti,
+  axisSizeCorrection,
+  currentValueLabel,
+} from '../engine/correctionFormatter'
+import { signedPercent, signedDegrees } from '../util/format'
 import NumericField from './NumericField.vue'
 import CouponGlyph from './CouponGlyph.vue'
 import ScanIsland from './ScanIsland.vue'
 import CodeBlock from './CodeBlock.vue'
+import MetricTile from './MetricTile.vue'
 
 const app = useApp()
 const calibration = useCalibration()
@@ -29,8 +38,8 @@ const statusText = ref('')
 const isCalibrated = computed(() => calibration.calibration !== null)
 const calibrationLine = computed(() =>
   isCalibrated.value
-    ? `Calibrated · ${Math.round(calibration.calibration!.dpi)} dpi. Absolute scale is anchored to your scanner.`
-    : 'Optional. Calibrate to report absolute size; skip it for anisotropy and skew only.',
+    ? `${Math.round(calibration.calibration!.dpi)} dpi`
+    : 'Optional · skips absolute size',
 )
 const scanDpiHint = computed(() =>
   isCalibrated.value ? `Scan every plate at ${Math.round(calibration.calibration!.dpi)} dpi.` : '',
@@ -68,17 +77,75 @@ const analyzeLabel = computed(() => {
   return `Analyze ${n} scans`
 })
 
-const resetFlavour = ref<string>(skewFlavours[0])
-const resetCommand = computed(() => resetSkewCommand(resetFlavour.value))
+// One firmware choice drives every firmware-specific command on the page (reset, and the skew fix),
+// so the reset command and the fix always agree on which firmware they're talking to.
+const firmware = ref<string>(skewFlavours[0])
+const resetCommand = computed(() => resetSkewCommand(firmware.value))
+
+// Set once Analyze succeeds: locks step 5 (no more uploads or removals) and reveals step 6.
+const hasResults = computed(() => app.payload !== null)
+const result = computed(() => app.payload?.result ?? null)
+const scales = computed(() => result.value?.scales ?? [])
+const skews = computed(() => result.value?.skews ?? [])
+const planes = computed(() => result.value?.planes ?? [])
+// A plane whose two-scan pairing didn't check out (bad quarter-turn, or a mirror-flip mismatch)
+// still produces numbers, but they shouldn't be trusted, so surface it rather than showing a clean
+// result indistinguishable from a good one.
+const invalidPlanes = computed(() =>
+  planes.value
+    .filter((p) => !p.twoScan.rotationLooksValid)
+    .map((p) => ({
+      plane: p.plane,
+      reason: p.twoScan.flipMismatch
+        ? 'one scan is mirror-flipped relative to the other'
+        : "the scans aren't a quarter-turn apart",
+    })),
+)
+
+const sizeFlavour = ref<string>(sizeFlavours[0])
+const currents = reactive<Record<'X' | 'Y' | 'Z', number | null>>({ X: null, Y: null, Z: null })
+const activeFixTab = ref<'skew' | 'size'>('skew')
+const resultsSection = ref<HTMLElement | null>(null)
+
+const currentLabel = computed(() => currentValueLabel(sizeFlavour.value))
+const showCurrent = computed(() => currentLabel.value !== null)
+const currentAxes = computed(() => scales.value.map((s) => s.axis))
+
+// A steps/mm value is meaningless as a rotation distance, so clear entered currents on format change.
+watch(sizeFlavour, () => {
+  currents.X = currents.Y = currents.Z = null
+})
+
+const skewFix = computed(() =>
+  result.value && app.payload
+    ? skewCorrectionMulti(firmware.value, skews.value, app.payload.coupon)
+    : null,
+)
+const sizeFix = computed(() =>
+  result.value ? axisSizeCorrection(sizeFlavour.value, scales.value, currents) : null,
+)
+
+function startOver(): void {
+  app.clearResults()
+  store.clear()
+  isError.value = false
+  statusText.value = ''
+}
 
 const plates: ReadonlyArray<{ key: string; label: string; file: string }> = [
-  { key: 'xy', label: 'XY plate (flat)', file: 'calibration_coupon_xy.stl' },
-  { key: 'xz', label: 'XZ plate (standing)', file: 'calibration_coupon_xz.stl' },
-  { key: 'yz', label: 'YZ plate (standing)', file: 'calibration_coupon_yz.stl' },
+  { key: 'xy', label: 'XY plane', file: 'calibration_coupon_xy.stl' },
+  { key: 'xz', label: 'XZ plane', file: 'calibration_coupon_xz.stl' },
+  { key: 'yz', label: 'YZ plane', file: 'calibration_coupon_yz.stl' },
 ]
 
 function buildCoupon(): CouponSpec {
   return { ...defaultCouponSpec(), baselineMm: baselineMm.value ?? 100, gridN: gridN.value ?? 5 }
+}
+
+function downloadAllCoupons(): void {
+  // Browsers gate multiple downloads fired in the same tick without a fresh user gesture per file
+  // (Chrome/Firefox silently block the 2nd+ after the first), so space them out.
+  plates.forEach((p, i) => setTimeout(() => getCoupon(p.file), i * 400))
 }
 
 async function onPick(e: Event): Promise<void> {
@@ -113,7 +180,7 @@ async function analyzeItem(id: number, bytes: Uint8Array, coupon: CouponSpec): P
   }
 }
 
-function analyze(): void {
+async function analyze(): Promise<void> {
   const measured = store.scans.filter((s) => s.isMeasured)
   const pxPerMm = calibration.calibration
     ? calibration.calibration.pxPerMm
@@ -125,9 +192,11 @@ function analyze(): void {
       measured.map((s) => asAligned(toRaw(s.result!))),
       pxPerMm,
     )
-    // The Results page reuses each scan's overlay straight from the scans store, so nothing is copied
-    // here; only the reconciled numbers travel in the payload.
-    app.showResults({ result, coupon: buildCoupon() })
+    // Each scan's overlay stays owned by the scans store, so nothing is copied here; only the
+    // reconciled numbers travel in the payload.
+    app.setResults({ result, coupon: buildCoupon() })
+    await nextTick()
+    resultsSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   } catch (e) {
     isError.value = true
     statusText.value = e instanceof Error ? e.message : String(e)
@@ -146,7 +215,17 @@ function getCoupon(file: string): void {
 <template>
   <v-container class="page">
     <header class="mb-4">
-      <h1 class="text-h5 font-weight-bold">Scan calibration</h1>
+      <div class="header-row">
+        <h1 class="text-h5 font-weight-bold">Skew/shrinkage calibration</h1>
+        <v-select
+          v-model="firmware"
+          :items="skewFlavours"
+          label="Firmware"
+          density="comfortable"
+          hide-details
+          class="firmware-select"
+        />
+      </div>
       <p class="text-body-2 text-medium-emphasis mt-1">
         Print a plate for each plane you want to calibrate, scan each one twice (flat, then a quarter-turn),
         and drop all the scans in. The app sorts them by plate and works out X/Y/Z scale and skew.
@@ -158,6 +237,12 @@ function getCoupon(file: string): void {
       <div class="step-row">
         <div class="step-head">
           <span class="num">1</span><span class="step-title">Calibrate scanner</span>
+          <span class="status-inline">
+            <v-icon :color="isCalibrated ? 'success' : 'warning'" size="15">
+              {{ isCalibrated ? 'mdi-check-circle' : 'mdi-alert-circle-outline' }}
+            </v-icon>
+            <span class="text-medium-emphasis">{{ calibrationLine }}</span>
+          </span>
         </div>
         <v-btn
           data-testid="calibrate-btn"
@@ -168,12 +253,6 @@ function getCoupon(file: string): void {
         >
           {{ isCalibrated ? 'Recalibrate' : 'Calibrate scanner' }}
         </v-btn>
-      </div>
-      <div class="status-line">
-        <v-icon :color="isCalibrated ? 'success' : 'warning'" size="16" class="mr-2">
-          {{ isCalibrated ? 'mdi-check-circle' : 'mdi-alert-circle-outline' }}
-        </v-icon>
-        <span class="text-medium-emphasis">{{ calibrationLine }}</span>
       </div>
     </section>
 
@@ -190,41 +269,36 @@ function getCoupon(file: string): void {
           calculates from it will be wrong.
         </span>
       </div>
-      <div class="reset-row">
-        <v-select
-          v-model="resetFlavour"
-          :items="skewFlavours"
-          label="Firmware"
-          density="comfortable"
-          hide-details
-          class="reset-select"
-        />
-        <CodeBlock :code="resetCommand.code" class="reset-code" />
-      </div>
+      <CodeBlock :code="resetCommand.code" />
       <p v-if="resetCommand.hint" class="tip mt-0">{{ resetCommand.hint }}</p>
     </section>
 
     <!-- 3. Print the plates -->
     <section class="step mb-3">
-      <div class="step-head mb-1">
-        <span class="num">3</span><span class="step-title">Print the plate(s)</span>
+      <div class="step-row mb-2">
+        <div class="step-head">
+          <span class="num">3</span><span class="step-title">Print the plate(s)</span>
+        </div>
+        <v-menu>
+          <template #activator="{ props }">
+            <v-btn variant="tonal" size="small" prepend-icon="mdi-download" v-bind="props">
+              Download plate
+            </v-btn>
+          </template>
+          <v-list density="compact">
+            <v-list-item v-for="p in plates" :key="p.key" @click="getCoupon(p.file)">
+              <v-list-item-title>{{ p.label }}</v-list-item-title>
+            </v-list-item>
+            <v-divider />
+            <v-list-item @click="downloadAllCoupons">
+              <v-list-item-title class="text-primary">Download all</v-list-item-title>
+            </v-list-item>
+          </v-list>
+        </v-menu>
       </div>
-      <p class="tip mb-2">
-        Print only the planes you want. XY is flat; XZ and YZ print standing (add a brim if adhesion is
-        tricky). Each has to contrast with the scan background, so back a light plate with a coloured sheet.
+      <p class="tip">
+        Download the plane(s) you want to calibrate. XZ and YZ print standing, no supports needed.
       </p>
-      <div class="plate-btns">
-        <v-btn
-          v-for="p in plates"
-          :key="p.key"
-          variant="tonal"
-          size="small"
-          prepend-icon="mdi-download"
-          @click="getCoupon(p.file)"
-        >
-          {{ p.label }}
-        </v-btn>
-      </div>
     </section>
 
     <!-- 4. Scan your prints -->
@@ -233,10 +307,10 @@ function getCoupon(file: string): void {
         <span class="num">4</span><span class="step-title">Scan your prints</span>
       </div>
       <p class="tip mb-3">
-        Scan each plate twice: lay it flat and scan, then give it a quarter-turn and scan again. Averaging
-        the pair cancels your scanner's own stretch and skew. Repeat for every plate you printed.
+        Scan each plate flat, then quarter-turn it and scan again. Repeat for every plate. Back light
+        plates with a dark sheet for contrast.
+        <template v-if="scanDpiHint">{{ scanDpiHint }}</template>
       </p>
-      <p v-if="scanDpiHint" class="tip mb-3">{{ scanDpiHint }}</p>
 
       <div class="scan-flow">
         <div class="glyph-step">
@@ -254,11 +328,6 @@ function getCoupon(file: string): void {
           <span class="glyph-cap">2 · scan again</span>
         </div>
       </div>
-
-      <p class="text-caption text-medium-emphasis text-center mt-3">
-        The two solid corner rings let the app align the pair; the dots by the corner tell it which plane the
-        plate is.
-      </p>
     </section>
 
     <!-- 5. Upload your scans -->
@@ -266,12 +335,9 @@ function getCoupon(file: string): void {
       <div class="step-head mb-1">
         <span class="num">5</span><span class="step-title">Upload your scans</span>
       </div>
-      <p class="tip mb-3">
-        Drop in every scan at once: two per plate, up to three plates (6 scans). Each scan is checked the
-        moment you add it, so you see what registered before you analyze.
-      </p>
+      <p class="tip mb-3">Drop in every scan at once: two per plate, up to three plates (6 scans).</p>
 
-      <label class="dropzone">
+      <label v-if="!hasResults" class="dropzone">
         <input
           type="file"
           accept="image/*"
@@ -290,6 +356,7 @@ function getCoupon(file: string): void {
           v-for="s in store.scans"
           :key="s.id"
           :scan="s"
+          :removable="!hasResults"
           @remove="store.remove(s.id)"
         />
       </div>
@@ -322,26 +389,135 @@ function getCoupon(file: string): void {
         Baseline and rings per side lock while scans are loaded. Remove every scan to change them.
       </p>
 
-      <v-btn
-        data-testid="analyze-btn"
-        color="primary"
-        size="large"
-        block
-        class="mt-4"
-        :disabled="!canAnalyze"
-        @click="analyze"
-      >
-        {{ analyzeLabel }}
-      </v-btn>
+      <template v-if="!hasResults">
+        <v-btn
+          data-testid="analyze-btn"
+          color="primary"
+          size="large"
+          block
+          class="mt-4"
+          :disabled="!canAnalyze"
+          @click="analyze"
+        >
+          {{ analyzeLabel }}
+        </v-btn>
 
-      <v-alert
-        v-if="statusText"
-        :type="isError ? 'error' : 'info'"
-        variant="tonal"
-        class="mt-3"
-        :text="statusText"
-        data-testid="status"
-      />
+        <v-alert
+          v-if="statusText"
+          :type="isError ? 'error' : 'info'"
+          variant="tonal"
+          class="mt-3"
+          :text="statusText"
+          data-testid="status"
+        />
+      </template>
+    </section>
+
+    <!-- 6. Results -->
+    <section v-if="hasResults" ref="resultsSection" class="step">
+      <div class="step-row mb-3">
+        <div class="step-head">
+          <span class="num">6</span><span class="step-title">Results</span>
+        </div>
+        <v-btn
+          data-testid="startover-btn"
+          variant="text"
+          size="small"
+          prepend-icon="mdi-refresh"
+          @click="startOver"
+        >
+          Start over
+        </v-btn>
+      </div>
+
+      <div v-if="invalidPlanes.length" class="warn-box mb-3">
+        <v-icon color="warning" size="16" class="warn-icon">mdi-alert-outline</v-icon>
+        <span>
+          <template v-for="(bad, i) in invalidPlanes" :key="bad.plane">
+            <strong class="warn-lead">{{ bad.plane }}</strong> didn't align: {{ bad.reason }}, so
+            those figures can't be trusted.<template v-if="i < invalidPlanes.length - 1"> </template>
+          </template>
+        </span>
+      </div>
+
+      <div class="group-label">Scale</div>
+      <div class="tiles mb-3">
+        <MetricTile
+          v-for="s in scales"
+          :key="s.axis"
+          :label="`${s.axis} scale`"
+          :value="signedPercent(s.scalePercent)"
+          :testid="`scale-${s.axis}`"
+        />
+      </div>
+      <div class="group-label">Skew</div>
+      <div class="tiles mb-4">
+        <MetricTile
+          v-for="k in skews"
+          :key="k.plane"
+          :label="`${k.plane} skew`"
+          :value="signedDegrees(k.skewDegrees)"
+          :testid="`skew-${k.plane}`"
+        />
+      </div>
+
+      <div class="fix-tabs">
+        <button
+          type="button"
+          class="fix-tab"
+          :class="{ active: activeFixTab === 'skew' }"
+          @click="activeFixTab = 'skew'"
+        >
+          Fix skew
+        </button>
+        <button
+          type="button"
+          class="fix-tab"
+          :class="{ active: activeFixTab === 'size' }"
+          @click="activeFixTab = 'size'"
+        >
+          Fix size
+        </button>
+      </div>
+
+      <div v-if="activeFixTab === 'skew'" class="fix-panel">
+        <CodeBlock
+          v-if="skewFix"
+          :code="skewFix.code"
+          :caption="skewFix.primaryCaption"
+          data-testid="skew-code"
+        />
+        <CodeBlock
+          v-if="skewFix?.secondaryCode"
+          :code="skewFix.secondaryCode"
+          :caption="skewFix.secondaryCaption"
+        />
+        <p v-if="skewFix?.hint" class="tip mt-0">{{ skewFix.hint }}</p>
+      </div>
+
+      <div v-else class="fix-panel">
+        <v-select
+          v-model="sizeFlavour"
+          :items="sizeFlavours"
+          label="Format"
+          density="comfortable"
+          hide-details
+          class="fix-select mb-3"
+        />
+        <div v-if="showCurrent" class="fields mb-3">
+          <NumericField
+            v-for="axis in currentAxes"
+            :key="axis"
+            v-model="currents[axis]"
+            :label="`${axis} ${currentLabel}`"
+            :step="0.1"
+            :min="0"
+            :precision="3"
+          />
+        </div>
+        <CodeBlock v-if="sizeFix" :code="sizeFix.code" data-testid="size-code" />
+        <p v-if="sizeFix?.hint" class="tip mt-0">{{ sizeFix.hint }}</p>
+      </div>
     </section>
   </v-container>
 </template>
@@ -349,6 +525,17 @@ function getCoupon(file: string): void {
 <style scoped>
 .page {
   max-width: 760px;
+}
+.header-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.firmware-select {
+  flex: 0 0 180px;
+  min-width: 150px;
 }
 .step {
   background: rgb(var(--v-theme-surface-light));
@@ -376,11 +563,11 @@ function getCoupon(file: string): void {
   font-weight: 500;
   font-size: 14px;
 }
-.status-line {
+.status-inline {
   display: flex;
   align-items: center;
-  margin-top: 8px;
-  font-size: 13px;
+  gap: 5px;
+  font-size: 12.5px;
 }
 .tip {
   font-size: 12.5px;
@@ -405,26 +592,6 @@ function getCoupon(file: string): void {
 .warn-lead {
   color: rgb(var(--v-theme-warning));
   font-weight: 500;
-}
-.reset-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 12px;
-}
-.reset-select {
-  flex: 0 1 180px;
-  min-width: 140px;
-}
-.reset-code {
-  flex: 1 1 220px;
-  min-width: 220px;
-  margin-bottom: 0;
-}
-.plate-btns {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
 }
 .scan-flow {
   display: flex;
@@ -532,5 +699,40 @@ function getCoupon(file: string): void {
   font-size: 11.5px;
   color: rgba(var(--v-theme-on-surface), 0.42);
   margin-top: 8px;
+}
+.group-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  margin-bottom: 8px;
+}
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: 8px;
+}
+.fix-tabs {
+  display: flex;
+  gap: 14px;
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.09);
+  margin-bottom: 14px;
+}
+.fix-tab {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  font-size: 13.5px;
+  font-weight: 500;
+  padding: 8px 2px;
+  cursor: pointer;
+}
+.fix-tab.active {
+  color: rgb(var(--v-theme-on-surface));
+  border-bottom-color: rgb(var(--v-theme-primary));
+}
+.fix-select {
+  max-width: 220px;
 }
 </style>
