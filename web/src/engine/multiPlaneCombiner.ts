@@ -1,5 +1,33 @@
-import type { AxisScale, MultiPlaneResult, Plane, PlaneAnalysis, PlaneSkew } from './types'
+import type { AlignedResult, AxisScale, MultiPlaneResult, Plane, PlaneAnalysis, PlaneSkew } from './types'
 import { planeAxes } from './types'
+import { applyReference } from './couponAnalyzer'
+import { combineScans } from './scanCombiner'
+
+// The whole reconciliation, pure TypeScript (no OpenCV): group the aligned per-scan results by plane,
+// apply the pxPerMm reference, pair each plane's two quarter-turn scans, and combine across planes.
+// The caller (the Analyze button) only passes scans that already measured a plane in matched pairs;
+// anything else is a caller bug and throws rather than silently dropping scans from the result.
+export function reconcileScans(results: AlignedResult[], pxPerMm: number | null): MultiPlaneResult {
+  const groups = new Map<Plane, AlignedResult[]>()
+  for (const r of results) {
+    if (!r.plane)
+      throw new Error('A scan without a plane assignment cannot be combined; remove it or rescan.')
+    const priced = applyReference(r, pxPerMm)
+    const g = groups.get(r.plane)
+    if (g) g.push(priced)
+    else groups.set(r.plane, [priced])
+  }
+
+  const planeAnalyses: PlaneAnalysis[] = []
+  for (const [plane, group] of groups) {
+    if (group.length !== 2)
+      throw new Error(
+        `The ${plane} plane has ${group.length} scan(s); each plane needs exactly two scans a quarter-turn apart.`,
+      )
+    planeAnalyses.push({ plane, twoScan: combineScans(group[0], group[1]) })
+  }
+  return combinePlanes(planeAnalyses)
+}
 
 // Assembles the whole-printer result from however many plates were measured (any subset of XY/XZ/YZ).
 // Each plane's two-scan combine already reports scale along its two in-plane axes (first = marker +X,

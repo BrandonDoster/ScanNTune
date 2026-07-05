@@ -10,20 +10,11 @@ import {
   SHRINKAGE,
 } from '../../src/engine/correctionFormatter'
 import { defaultCouponSpec } from '../../src/engine/types'
-import type { CalibrationResult, PlaneAnalysis, Plane, TwoScanResult } from '../../src/engine/types'
+import { alignedResult } from '../helpers/results'
+import type { AlignedResult, PlaneAnalysis, Plane, TwoScanResult } from '../../src/engine/types'
 
-function cr(x: number, y: number, skew: number): CalibrationResult {
-  return {
-    xScalePercent: x,
-    yScalePercent: y,
-    skewDegrees: skew,
-    ringsDetected: 23,
-    measuredPxPerMmX: 1,
-    measuredPxPerMmY: 1,
-    rmsResidualPx: 0,
-    rings: [],
-    orientation: { flipped: false, originX: 0, originY: 0, xAxisX: 1, xAxisY: 0 },
-  }
+function cr(x: number, y: number, skew: number): AlignedResult {
+  return alignedResult({ xScalePercent: x, yScalePercent: y, skewDegrees: skew })
 }
 function two(x: number, y: number, skew: number): TwoScanResult {
   const c = cr(x, y, skew)

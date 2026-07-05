@@ -1,34 +1,28 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, toRaw } from 'vue'
 import { useApp } from '../stores/useApp'
 import { useCalibration } from '../stores/useCalibration'
-import { readBytes, makePreviewUrl } from '../util/preview'
-import { analyzeScans } from '../workerClient'
-import { defaultCouponSpec } from '../engine/types'
-import type { CouponSpec } from '../engine/types'
+import { useScans } from '../stores/useScans'
+import { readBytes } from '../util/preview'
+import { analyzeScan } from '../workerClient'
+import { reconcileScans } from '../engine/multiPlaneCombiner'
+import { asAligned, defaultCouponSpec } from '../engine/types'
+import type { CouponSpec, Plane } from '../engine/types'
+import { ScanState } from '../model/skewCouponScan'
 import NumericField from './NumericField.vue'
 import CouponGlyph from './CouponGlyph.vue'
+import ScanIsland from './ScanIsland.vue'
 
 const app = useApp()
 const calibration = useCalibration()
+const store = useScans()
 
 const dpi = ref<number | null>(1200)
 const baselineMm = ref<number | null>(100)
 const gridN = ref<number | null>(5)
 
-interface ScanItem {
-  id: number
-  name: string
-  bytes: Uint8Array
-  preview: string | null
-}
-let nextId = 0
-const scans = ref<ScanItem[]>([])
-
-const busy = ref(false)
 const isError = ref(false)
 const statusText = ref('')
-const notes = ref<string[]>([])
 
 const isCalibrated = computed(() => calibration.calibration !== null)
 const calibrationLine = computed(() =>
@@ -39,21 +33,36 @@ const calibrationLine = computed(() =>
 const scanDpiHint = computed(() =>
   isCalibrated.value ? `Scan every plate at ${Math.round(calibration.calibration!.dpi)} dpi.` : '',
 )
-const loading = ref(false)
-// Analyze stays disabled while a batch of files is still being read, so a user (or a test) can't fire
-// analysis on a partially-loaded set and silently drop the scans that hadn't finished loading yet.
-// A valid batch is an EVEN number (each plate is a flat + quarter-turn pair) from 2 to 6 (at most the
-// three planes). Also stays disabled while a batch is still loading.
-const canAnalyze = computed(() => {
-  const n = scans.value.length
-  return !busy.value && !loading.value && n >= 2 && n <= 6 && n % 2 === 0
+
+// Coupon geometry locks once any scan is loaded: the per-scan analysis is cached against these
+// values, so letting them change mid-batch would silently mismatch the loaded scans.
+const fieldsLocked = computed(() => store.scans.length > 0)
+const anyPending = computed(() => store.scans.some((s) => s.state === ScanState.Pending))
+const notReady = computed(() => store.scans.filter((s) => !s.isMeasured))
+
+// Data-driven: analysable only when every scan measured a plane and those planes pair up into
+// complete plates. So the button never lets a bad scan through, and combine can't surface a
+// picture-stage error.
+const planesPair = computed(() => {
+  const measured = store.scans.filter((s) => s.isMeasured)
+  if (measured.length === 0) return false
+  const byPlane = new Map<Plane, number>()
+  for (const s of measured) byPlane.set(s.plane!, (byPlane.get(s.plane!) ?? 0) + 1)
+  for (const count of byPlane.values()) if (count !== 2) return false
+  return true
 })
-// The button always states what's expected: add the minimum, complete the odd pair, or trim the excess.
+const canAnalyze = computed(() => {
+  const n = store.scans.length
+  return !anyPending.value && n >= 2 && n <= 6 && notReady.value.length === 0 && planesPair.value
+})
 const analyzeLabel = computed(() => {
-  const n = scans.value.length
+  if (anyPending.value) return 'Checking scans...'
+  const n = store.scans.length
   if (n === 0) return 'Add 2 scans to analyze'
   if (n > 6) return `Remove ${n - 6} scan${n - 6 === 1 ? '' : 's'} (6 max)`
-  if (n % 2 === 1) return 'Add 1 more scan'
+  const bad = notReady.value.length
+  if (bad > 0) return `Fix ${bad} scan${bad === 1 ? '' : 's'} to analyze`
+  if (!planesPair.value) return 'Each plate needs two scans a quarter-turn apart'
   return `Analyze ${n} scans`
 })
 
@@ -72,69 +81,52 @@ async function onPick(e: Event): Promise<void> {
   const files = Array.from(input.files ?? [])
   // Clear the input so picking the same file again still fires change.
   input.value = ''
-  loading.value = true
-  try {
-    for (const file of files) {
-      try {
-        const bytes = await readBytes(file)
-        let preview: string | null = null
-        try {
-          preview = await makePreviewUrl(file)
-        } catch (err) {
-          console.warn('Could not render a preview for a picked scan', err)
-        }
-        scans.value = [...scans.value, { id: nextId++, name: file.name, bytes, preview }]
-      } catch (err) {
-        console.error('Could not read a picked scan', err)
-        isError.value = true
-        statusText.value = `Could not read ${file.name}.`
-      }
+  const coupon = buildCoupon()
+  for (const file of files) {
+    let bytes: Uint8Array
+    try {
+      bytes = await readBytes(file)
+    } catch (err) {
+      console.error('Could not read a picked scan', err)
+      isError.value = true
+      statusText.value = `Could not read ${file.name}.`
+      continue
     }
-  } finally {
-    loading.value = false
+    const id = store.add(file.name, bytes)
+    // Fire the analysis without blocking the next file. The worker serialises the calls, so scans are
+    // still decoded one at a time (bounded memory), and each island fills in as its scan finishes.
+    void analyzeItem(id, bytes, coupon)
   }
 }
 
-function removeScan(id: number): void {
-  scans.value = scans.value.filter((s) => s.id !== id)
+async function analyzeItem(id: number, bytes: Uint8Array, coupon: CouponSpec): Promise<void> {
+  try {
+    store.applyProcessing(id, await analyzeScan(bytes, coupon))
+  } catch (e) {
+    console.error('Per-scan analysis failed', e)
+    store.fail(id, e instanceof Error ? e.message : String(e))
+  }
 }
 
-async function analyze(): Promise<void> {
-  if (scans.value.length < 2) return
-  busy.value = true
-  isError.value = false
-  notes.value = []
-  statusText.value = `Analyzing ${scans.value.length} scans...`
+function analyze(): void {
+  const measured = store.scans.filter((s) => s.isMeasured)
+  const pxPerMm = calibration.calibration
+    ? calibration.calibration.pxPerMm
+    : dpi.value != null && dpi.value >= 50
+      ? dpi.value / 25.4
+      : null
   try {
-    const coupon = buildCoupon()
-    let pxPerMm: number | null
-    if (calibration.calibration) pxPerMm = calibration.calibration.pxPerMm
-    else if (dpi.value != null && dpi.value >= 50) pxPerMm = dpi.value / 25.4
-    else pxPerMm = null
-
-    const response = await analyzeScans(
-      scans.value.map((s) => s.bytes),
-      { coupon, pxPerMm },
+    const result = reconcileScans(
+      measured.map((s) => asAligned(toRaw(s.result!))),
+      pxPerMm,
     )
-    if (response.ok) {
-      statusText.value = ''
-      app.showResults({
-        result: response.result,
-        overlays: response.overlays.map((o) => ({ plane: o.plane, a: o.a, b: o.b })),
-        notes: response.notes,
-        coupon,
-      })
-    } else {
-      isError.value = true
-      notes.value = response.notes
-      statusText.value = 'No plane could be analyzed. Check that each plate has two scans a quarter-turn apart.'
-    }
+    // The Results page reuses each scan's overlay straight from the scans store, so nothing is copied
+    // here; only the reconciled numbers travel in the payload.
+    app.showResults({ result, coupon: buildCoupon() })
   } catch (e) {
     isError.value = true
-    statusText.value = `${e instanceof Error ? e.message : String(e)} Check the scans and that each carries the two-solid marker.`
-    console.error('Multi-scan analysis failed', e)
-  } finally {
-    busy.value = false
+    statusText.value = e instanceof Error ? e.message : String(e)
+    console.error('Reconcile failed', e)
   }
 }
 
@@ -243,11 +235,11 @@ function getCoupon(file: string): void {
         <span class="num">4</span><span class="step-title">Upload your scans</span>
       </div>
       <p class="tip mb-3">
-        Drop in every scan at once: two per plate, up to three plates (6 scans). The app sorts them by plate
-        for you.
+        Drop in every scan at once: two per plate, up to three plates (6 scans). Each scan is checked the
+        moment you add it, so you see what registered before you analyze.
       </p>
 
-      <label class="dropzone" :class="{ busy }">
+      <label class="dropzone">
         <input
           type="file"
           accept="image/*"
@@ -261,14 +253,13 @@ function getCoupon(file: string): void {
         <span class="dz-sub">or drop them here · you can add more later</span>
       </label>
 
-      <div v-if="scans.length" class="thumbs mt-3" data-testid="thumbs">
-        <div v-for="s in scans" :key="s.id" class="thumb">
-          <img v-if="s.preview" :src="s.preview" :alt="s.name" />
-          <div v-else class="thumb-fallback"><v-icon>mdi-file-image-outline</v-icon></div>
-          <button class="thumb-x" type="button" title="Remove" @click="removeScan(s.id)">
-            <v-icon size="16">mdi-close</v-icon>
-          </button>
-        </div>
+      <div v-if="store.scans.length" class="islands mt-3" data-testid="islands">
+        <ScanIsland
+          v-for="s in store.scans"
+          :key="s.id"
+          :scan="s"
+          @remove="store.remove(s.id)"
+        />
       </div>
 
       <div class="fields mt-4">
@@ -280,9 +271,24 @@ function getCoupon(file: string): void {
           :min="50"
           hint="DPI / 25.4 = px per mm. Clear for anisotropy and skew only."
         />
-        <NumericField v-model="baselineMm" label="Coupon baseline (mm)" :step="10" :min="10" />
-        <NumericField v-model="gridN" label="Rings per side" :step="1" :min="2" />
+        <NumericField
+          v-model="baselineMm"
+          label="Coupon baseline (mm)"
+          :step="10"
+          :min="10"
+          :readonly="fieldsLocked"
+        />
+        <NumericField
+          v-model="gridN"
+          label="Rings per side"
+          :step="1"
+          :min="2"
+          :readonly="fieldsLocked"
+        />
       </div>
+      <p v-if="fieldsLocked" class="lock-hint">
+        Baseline and rings per side lock while scans are loaded. Remove every scan to change them.
+      </p>
 
       <v-btn
         data-testid="analyze-btn"
@@ -290,7 +296,6 @@ function getCoupon(file: string): void {
         size="large"
         block
         class="mt-4"
-        :loading="busy"
         :disabled="!canAnalyze"
         @click="analyze"
       >
@@ -305,11 +310,6 @@ function getCoupon(file: string): void {
         :text="statusText"
         data-testid="status"
       />
-      <v-alert v-if="notes.length" type="warning" variant="tonal" density="compact" class="mt-2">
-        <ul class="notes">
-          <li v-for="(n, i) in notes" :key="i">{{ n }}</li>
-        </ul>
-      </v-alert>
     </section>
   </v-container>
 </template>
@@ -449,51 +449,10 @@ function getCoupon(file: string): void {
   font-size: 12px;
   color: rgba(var(--v-theme-on-surface), 0.6);
 }
-.thumbs {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
-  gap: 8px;
-}
-.thumb {
-  position: relative;
-  aspect-ratio: 1;
-  border-radius: 8px;
-  overflow: hidden;
-  background: rgb(var(--v-theme-surface-bright));
-}
-.thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.thumb-fallback {
-  width: 100%;
-  height: 100%;
+.islands {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  color: rgba(var(--v-theme-on-surface), 0.4);
-}
-.thumb-x {
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  background: rgba(0, 0, 0, 0.55);
-  border: none;
-  border-radius: 50%;
-  width: 22px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  cursor: pointer;
-}
-.notes {
-  margin: 0;
-  padding-left: 18px;
-  font-size: 12.5px;
+  flex-direction: column;
+  gap: 12px;
 }
 .fields {
   display: flex;
@@ -502,5 +461,10 @@ function getCoupon(file: string): void {
 }
 .fields > * {
   flex: 1 1 160px;
+}
+.lock-hint {
+  font-size: 11.5px;
+  color: rgba(var(--v-theme-on-surface), 0.42);
+  margin-top: 8px;
 }
 </style>

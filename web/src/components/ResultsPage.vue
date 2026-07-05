@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { useApp } from '../stores/useApp'
+import { useScans } from '../stores/useScans'
 import {
   skewFlavours,
   sizeFlavours,
@@ -16,6 +17,20 @@ import OverlayCanvas from './OverlayCanvas.vue'
 import NumericField from './NumericField.vue'
 
 const app = useApp()
+const scans = useScans()
+
+// Reuse each scan's rendered overlay straight from the scans store (its owner), grouped by plane.
+function overlaysFor(p: Plane): { a: ImageBitmap | null; b: ImageBitmap | null } {
+  const forPlane = scans.scans.filter((s) => s.isMeasured && s.plane === p)
+  return { a: forPlane[0]?.overlay ?? null, b: forPlane[1]?.overlay ?? null }
+}
+
+// Start a fresh calibration: drop the scans (disposing their bitmaps) and the result, then go back.
+function startOver(): void {
+  app.goScan()
+  app.clearResults()
+  scans.clear()
+}
 
 const payload = computed(() => app.payload)
 const result = computed(() => payload.value?.result ?? null)
@@ -50,8 +65,6 @@ function planeAxisLabel(p: Plane): string {
   return `${a}${b}`
 }
 
-const overlayFor = (p: Plane) => payload.value?.overlays.find((o) => o.plane === p) ?? null
-
 function planeSummary(p: Plane): string {
   const a = planes.value.find((x) => x.plane === p)
   if (!a) return ''
@@ -67,7 +80,7 @@ function planeValid(p: Plane): boolean {
   <v-container v-if="result && planes.length" class="page">
     <div class="header">
       <h1 class="text-h4 font-weight-bold">Results</h1>
-      <v-btn variant="text" prepend-icon="mdi-refresh" data-testid="startover-btn" @click="app.goScan()">
+      <v-btn variant="text" prepend-icon="mdi-refresh" data-testid="startover-btn" @click="startOver">
         New calibration
       </v-btn>
     </div>
@@ -89,18 +102,6 @@ function planeValid(p: Plane): boolean {
         </div>
       </div>
     </section>
-
-    <v-alert
-      v-if="payload && payload.notes.length"
-      type="warning"
-      variant="tonal"
-      density="compact"
-      class="mb-4"
-    >
-      <ul class="notes">
-        <li v-for="(n, i) in payload.notes" :key="i">{{ n }}</li>
-      </ul>
-    </v-alert>
 
     <div class="result-body">
       <div class="fix-col">
@@ -166,11 +167,11 @@ function planeValid(p: Plane): boolean {
           <div class="scan-pair">
             <div class="scan-card">
               <div class="scan-title">Scan 1 (as placed)</div>
-              <OverlayCanvas :bitmap="overlayFor(a.plane)?.a ?? null" />
+              <OverlayCanvas :bitmap="overlaysFor(a.plane).a" />
             </div>
             <div class="scan-card">
               <div class="scan-title">Scan 2 (quarter-turned)</div>
-              <OverlayCanvas :bitmap="overlayFor(a.plane)?.b ?? null" />
+              <OverlayCanvas :bitmap="overlaysFor(a.plane).b" />
             </div>
           </div>
         </div>
@@ -231,12 +232,6 @@ function planeValid(p: Plane): boolean {
   font-family: 'Roboto Mono', ui-monospace, monospace;
   margin-top: 2px;
 }
-.notes {
-  margin: 0;
-  padding-left: 18px;
-  font-size: 12.5px;
-}
-
 .result-body {
   display: grid;
   gap: 14px;

@@ -1,26 +1,18 @@
 import { defineStore } from 'pinia'
 import { ref, shallowRef } from 'vue'
-import type { CouponSpec, MultiPlaneResult, Plane } from '../engine/types'
+import type { CouponSpec, MultiPlaneResult } from '../engine/types'
 
 export type Screen = 'scan' | 'calibration' | 'results'
 
-/** The two annotated scan overlays for one plane, in upload order. */
-export interface PlaneOverlayBitmaps {
-  plane: Plane
-  a: ImageBitmap | null
-  b: ImageBitmap | null
-}
-
 export interface ResultPayload {
   result: MultiPlaneResult
-  overlays: PlaneOverlayBitmaps[]
-  notes: string[]
   coupon: CouponSpec
 }
 
 export const useApp = defineStore('app', () => {
   const screen = ref<Screen>('scan')
-  // shallowRef: the payload holds ImageBitmaps and a large result object we never deep-mutate.
+  // shallowRef: the payload holds a large result object we never deep-mutate. The annotated scan
+  // overlays are NOT copied here; the Results page reuses them from the scans store, which owns them.
   const payload = shallowRef<ResultPayload | null>(null)
 
   function goScan(): void {
@@ -33,6 +25,9 @@ export const useApp = defineStore('app', () => {
     payload.value = p
     screen.value = 'results'
   }
+  function clearResults(): void {
+    payload.value = null
+  }
 
-  return { screen, payload, goScan, goCalibration, showResults }
+  return { screen, payload, goScan, goCalibration, showResults, clearResults }
 })

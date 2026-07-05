@@ -65,6 +65,14 @@ export interface AffineModel {
   skewDegrees: number
   rmsResidualPx: number
   pointCount: number
+  // The fitted transform itself (px = a*mmX + b*mmY + tx, py = c*mmX + d*mmY + ty), so callers can
+  // project nominal coupon positions into the image (e.g. where a missing hole should have been).
+  a: number
+  b: number
+  c: number
+  d: number
+  tx: number
+  ty: number
 }
 
 /** One ring matched to its nominal grid place. Col runs along +X, row along +Y. */
@@ -88,22 +96,54 @@ export interface GridMapping {
   pitchPx: number
 }
 
+/**
+ * The complete outcome of analysing one scan. Always produced (analyzeCoupon never throws for a scan
+ * it merely can't align): the detection fields are always set, and the measurement fields are null
+ * until the coupon aligns. `aligned` is the discriminator; `asAligned` narrows to a result whose
+ * measurement is guaranteed present, which is all the combine math ever receives (the Analyze button
+ * only lets aligned scans through).
+ */
 export interface CalibrationResult {
-  xScalePercent: number
-  yScalePercent: number
-  skewDegrees: number
+  // Detection: always present, even on a scan that could not be aligned.
+  rings: DetectedRing[]
   ringsDetected: number
+  ringsExpected: number
+  clippedSides: ClipSide[]
+  aligned: boolean
+  /** Why the scan could not be aligned, worded for the user; null when aligned. */
+  failureReason: string | null
+  // Measurement: null unless the coupon aligned.
+  orientation: Orientation | null
+  /** The plate's plane from the corner dots; null when not aligned or the dots weren't read. */
+  plane: Plane | null
+  measuredPxPerMmX: number | null
+  measuredPxPerMmY: number | null
+  skewDegrees: number | null
+  rmsResidualPx: number | null
+  xScalePercent: number | null
+  yScalePercent: number | null
+}
+
+/** A CalibrationResult whose measurement is present. The combine math operates on these only. */
+export interface AlignedResult extends CalibrationResult {
+  aligned: true
+  failureReason: null
+  orientation: Orientation
   measuredPxPerMmX: number
   measuredPxPerMmY: number
+  skewDegrees: number
   rmsResidualPx: number
-  rings: DetectedRing[]
-  orientation: Orientation
-  /**
-   * The plate's plane, read from the plane-ID dots in the origin marker. Undefined when the plate
-   * carries no plane-ID (the original XY-only coupon), in which case callers treat it as XY.
-   */
-  plane?: Plane
+  xScalePercent: number
+  yScalePercent: number
 }
+
+export function asAligned(result: CalibrationResult): AlignedResult {
+  if (!result.aligned) throw new Error('Expected an aligned calibration result.')
+  return result as AlignedResult
+}
+
+export type RingSeverity = 'ok' | 'warning' | 'error'
+export type ClipSide = 'left' | 'right' | 'top' | 'bottom'
 
 export interface ScannerDiagnostic {
   anisotropyPercent: number
@@ -111,10 +151,10 @@ export interface ScannerDiagnostic {
 }
 
 export interface TwoScanResult {
-  combined: CalibrationResult
+  combined: AlignedResult
   scanner: ScannerDiagnostic
-  scanA: CalibrationResult
-  scanB: CalibrationResult
+  scanA: AlignedResult
+  scanB: AlignedResult
   relativeRotationDegrees: number
   rotationLooksValid: boolean
   flipMismatch: boolean
@@ -191,17 +231,4 @@ export interface Correction {
   primaryCaption?: string | null
   secondaryCaption?: string | null
   secondaryCode?: string | null
-}
-
-/**
- * Thrown when a scan is detected but cannot be resolved into a calibration (marker not found, too
- * few rings). Carries whatever rings the detector found so the UI can still show them.
- */
-export class ScanAnalysisError extends Error {
-  readonly detectedRings: DetectedRing[]
-  constructor(message: string, detectedRings: DetectedRing[]) {
-    super(message)
-    this.name = 'ScanAnalysisError'
-    this.detectedRings = detectedRings
-  }
 }

@@ -7,6 +7,11 @@ import { fileURLToPath } from 'node:url'
 const card = fileURLToPath(new URL('./fixtures/card.png', import.meta.url))
 const scan0 = fileURLToPath(new URL('./fixtures/scan1-0.png', import.meta.url))
 const scan90 = fileURLToPath(new URL('./fixtures/scan1-90.png', import.meta.url))
+// The user's real new-plate scans on a backing sheet that stops short of the scan bed: the bright
+// scanner-lid margin flipped the old border-based polarity guess, so only dust registered. The
+// polarity is now resolved by validating both threshold polarities against the coupon grid.
+const realxy0 = fileURLToPath(new URL('./fixtures/realxy-0.png', import.meta.url))
+const realxy90 = fileURLToPath(new URL('./fixtures/realxy-90.png', import.meta.url))
 
 const plate = (p: string, rot: number) =>
   fileURLToPath(new URL(`./fixtures/plate_${p}_${rot}.png`, import.meta.url))
@@ -51,18 +56,41 @@ test('calibration recovers after uploading before entering the measurement', asy
   await expect(page.getByTestId('saved')).toBeVisible()
 })
 
-test('the original dot-less coupon is rejected, never silently treated as XY', async ({ page }) => {
+test('the original dot-less coupon never enables Analyze (no axis, never guessed as XY)', async ({ page }) => {
   await page.goto('/')
   // The original coupon has no plane-ID dots. On real 35 MP scans the pipeline must complete without
-  // freezing (the regression that motivated the rewrite) AND surface an error rather than guessing XY.
+  // freezing (the regression that motivated the rewrite); each scan gets an island, but with no axis
+  // it can't be assigned to a plane, so the data-driven Analyze button stays disabled.
   await page.getByTestId('scans-input').setInputFiles([scan0, scan90])
-  await expect(page.locator('.thumb')).toHaveCount(2)
-  await expect(page.getByTestId('analyze-btn')).toBeEnabled({ timeout: 60000 })
-  await page.getByTestId('analyze-btn').click()
+  await expect(page.locator('[data-testid="scan-island"]')).toHaveCount(2)
+  // Wait for both to finish analysing (their ring tally appears).
+  await expect(page.getByTestId('ring-count')).toHaveCount(2, { timeout: 120000 })
 
-  await expect(page.getByTestId('status')).toContainText('No plane could be analyzed', { timeout: 120000 })
-  // Crucially: no silent XY result was produced.
+  // Not analysable, and crucially no silent XY result was produced.
+  await expect(page.getByTestId('analyze-btn')).toBeDisabled()
   await expect(page.getByTestId('scale-X')).toHaveCount(0)
+})
+
+test('real scans with a bright lid margin align and measure end to end', async ({ page }) => {
+  await page.goto('/')
+  await page.getByTestId('scans-input').setInputFiles([realxy0, realxy90])
+
+  // Each scan is analysed on upload into its own island; both must register every hole and align.
+  await expect(page.locator('[data-testid="scan-island"]')).toHaveCount(2)
+  const counts = page.getByTestId('ring-count')
+  await expect(counts.first()).toContainText('23 of 23', { timeout: 120000 })
+  await expect(counts.nth(1)).toContainText('23 of 23', { timeout: 120000 })
+  await expect(page.locator('[data-testid="scan-island"]').first()).toContainText('XY plane')
+
+  // The Scan/Threshold toggle is offered, so the mask the detector searched was rendered.
+  await expect(page.getByTestId('threshold-toggle').first()).toBeVisible()
+
+  // The pair is analysable and produces the X/Y measurement.
+  await expect(page.getByTestId('analyze-btn')).toBeEnabled()
+  await page.getByTestId('analyze-btn').click()
+  for (const axis of ['X', 'Y']) {
+    await expect(page.getByTestId(`scale-${axis}`)).toBeVisible({ timeout: 120000 })
+  }
 })
 
 test('all three rendered plates auto-sort into X/Y/Z scale and skew', async ({ page }) => {
@@ -78,8 +106,9 @@ test('all three rendered plates auto-sort into X/Y/Z scale and skew', async ({ p
       plate('yz', 0),
       plate('yz', 90),
     ])
-  // Wait for all six to finish loading before analyzing, so none are dropped.
-  await expect(page.locator('.thumb')).toHaveCount(6)
+  // Wait for all six to finish analyzing before hitting Analyze, so none are dropped.
+  await expect(page.locator('[data-testid="scan-island"]')).toHaveCount(6)
+  await expect(page.getByTestId('analyze-btn')).toBeEnabled({ timeout: 120000 })
   // Clear the DPI so scales are reported relative (anisotropy + skew), independent of the render size.
   await page.getByLabel('Scanner DPI').fill('')
   await expect(page.getByTestId('analyze-btn')).toBeEnabled()
@@ -95,4 +124,9 @@ test('all three rendered plates auto-sort into X/Y/Z scale and skew', async ({ p
     console.log(`${p} skew =`, skew)
     expect(Math.abs(skew)).toBeLessThan(0.5)
   }
+
+  // New calibration resets the session: it disposes the scans and returns to an empty upload step.
+  await page.getByTestId('startover-btn').click()
+  await expect(page.getByRole('heading', { name: 'Scan calibration' })).toBeVisible()
+  await expect(page.locator('[data-testid="scan-island"]')).toHaveCount(0)
 })

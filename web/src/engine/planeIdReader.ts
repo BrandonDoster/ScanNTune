@@ -1,5 +1,6 @@
 import type { Mat, OpenCv } from './opencv'
 import type { Plane } from './types'
+import { valueChannel } from './cvUtils'
 
 // Reads the plane-ID code that is drilled into the origin marker disk: 1/2/3 small dots => XY/XZ/YZ.
 // Called once the grid marker has resolved the origin (its pixel centre) and the ring pitch. The dots
@@ -7,6 +8,10 @@ import type { Plane } from './types'
 // a small window around the origin, find the enclosed dot-holes, and count them. Returns null when
 // the count is not 1..3 (e.g. the original dot-less coupon), so the caller can leave the plate
 // unidentified rather than mislabel it.
+//
+// `partBright` is the polarity ring detection already validated against the whole coupon grid: the
+// marker disk is the same plastic as the rings, so no local polarity vote is needed (a local guess
+// could disagree with the validated global read and mislabel the plane).
 
 export function readPlaneId(
   cv: OpenCv,
@@ -14,8 +19,9 @@ export function readPlaneId(
   originX: number,
   originY: number,
   pitchPx: number,
+  partBright: boolean,
 ): Plane | null {
-  const n = countPlaneDots(cv, image, originX, originY, pitchPx)
+  const n = countPlaneDots(cv, image, originX, originY, pitchPx, partBright)
   return n === 1 ? 'XY' : n === 2 ? 'XZ' : n === 3 ? 'YZ' : null
 }
 
@@ -26,6 +32,7 @@ export function countPlaneDots(
   originX: number,
   originY: number,
   pitchPx: number,
+  partBright: boolean,
 ): number {
   const half = Math.max(10, Math.round(0.35 * pitchPx))
   const x0 = Math.max(0, Math.round(originX) - half)
@@ -40,19 +47,18 @@ export function countPlaneDots(
   const roi = roiView.clone()
   roiView.delete()
 
-  const gray = new cv.Mat()
+  let gray: Mat | null = null
   const binary = new cv.Mat()
   const contours = new cv.MatVector()
   const hierarchy = new cv.Mat()
   try {
-    toValueChannel(cv, roi, gray)
+    gray = valueChannel(cv, roi)
     cv.threshold(gray, binary, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
-    // Make the marker disk (the plastic the origin sits inside) the white foreground, whichever way
-    // the contrast falls, so the dots read as enclosed holes.
-    if (!centreIsForeground(cv, binary)) cv.bitwise_not(binary, binary)
+    // Make the marker disk (the plastic the origin sits inside) the white foreground, using the
+    // polarity the ring detection already validated, so the dots read as enclosed holes.
+    if (!partBright) cv.bitwise_not(binary, binary)
 
-    cv.findContours(binary, contours, hierarchy, cv.RETR_CCOMP, cv.CHAIN_APPROX_NONE)
-    const parents = hierarchy.data32S // [next, prev, firstChild, parent] per contour
+    cv.findContours(binary, contours, hierarchy, cv.RETR_CCOMP, cv.CHAIN_APPROX_SIMPLE)
 
     const cxRoi = w / 2
     const cyRoi = h / 2
@@ -64,7 +70,9 @@ export function countPlaneDots(
     let count = 0
     const total = contours.size()
     for (let i = 0; i < total; i++) {
-      if (parents[i * 4 + 3] < 0) continue // interior (hole) contours only
+      // hierarchy rows are [next, prev, firstChild, parent]; read data32S per iteration, since a
+      // wasm heap growth mid-loop detaches any TypedArray view captured before it.
+      if (hierarchy.data32S[i * 4 + 3] < 0) continue // interior (hole) contours only
       const c = contours.get(i)
       try {
         const area = cv.contourArea(c, false)
@@ -82,42 +90,10 @@ export function countPlaneDots(
     return count
   } finally {
     roi.delete()
-    gray.delete()
+    gray?.delete()
     binary.delete()
     contours.delete()
     hierarchy.delete()
   }
 }
 
-// The origin sits in the solid marker disk, so the majority class in a small central box is the
-// plastic; return whether that class is currently white (255).
-function centreIsForeground(cv: OpenCv, binary: Mat): boolean {
-  const s = Math.max(2, Math.round(Math.min(binary.rows, binary.cols) * 0.12))
-  const cx = Math.round(binary.cols / 2)
-  const cy = Math.round(binary.rows / 2)
-  const x = Math.max(0, cx - s)
-  const y = Math.max(0, cy - s)
-  const wBox = Math.min(2 * s, binary.cols - x)
-  const hBox = Math.min(2 * s, binary.rows - y)
-  const box = binary.roi(new cv.Rect(x, y, wBox, hBox))
-  const white = cv.countNonZero(box)
-  const total = box.rows * box.cols
-  box.delete()
-  return white * 2 >= total
-}
-
-function toValueChannel(cv: OpenCv, src: Mat, dst: Mat): void {
-  if (src.channels() === 1) {
-    src.copyTo(dst)
-    return
-  }
-  const hsv = new cv.Mat()
-  cv.cvtColor(src, hsv, cv.COLOR_BGR2HSV)
-  const channels = new cv.MatVector()
-  cv.split(hsv, channels)
-  const v = channels.get(2)
-  v.copyTo(dst)
-  v.delete()
-  channels.delete()
-  hsv.delete()
-}

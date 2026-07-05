@@ -2,9 +2,9 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import { getCv, decodeFixtureBgr } from '../helpers/cv'
 import { analyzeCoupon } from '../../src/engine/couponAnalyzer'
-import { defaultCouponSpec } from '../../src/engine/types'
+import { asAligned, defaultCouponSpec } from '../../src/engine/types'
 import type { OpenCv, Mat } from '../../src/engine/opencv'
-import type { CalibrationResult } from '../../src/engine/types'
+import type { AlignedResult } from '../../src/engine/types'
 
 // End-to-end over the three plate models, rendered flat from calibration_coupon.scad (scan_view).
 // The ring/hole/dot centres are exactly the model's, so this pins ring detection on the new thicker
@@ -17,14 +17,14 @@ const cases: Array<{ file: string; plane: 'XY' | 'XZ' | 'YZ' }> = [
   { file: 'render_yz.png', plane: 'YZ' },
 ]
 
-const results: Record<string, CalibrationResult> = {}
+const results: Record<string, AlignedResult> = {}
 
 beforeAll(async () => {
   cv = await getCv()
   for (const c of cases) {
     const img: Mat = decodeFixtureBgr(cv, c.file)
     try {
-      results[c.plane] = analyzeCoupon(cv, img, { coupon: defaultCouponSpec(), pxPerMm: null })
+      results[c.plane] = asAligned(analyzeCoupon(cv, img, { coupon: defaultCouponSpec(), pxPerMm: null }))
     } finally {
       img.delete()
     }
