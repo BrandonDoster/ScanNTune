@@ -178,17 +178,15 @@ const scanBLine = computed(() => {
         </section>
       </div>
 
-      <!-- The annotated scans: below on mobile, left column (filling) on desktop -->
-      <div class="scans-col">
-        <section class="scan-card">
-          <div class="scan-title">Scan 1 (as placed)</div>
-          <OverlayCanvas :bitmap="payload!.overlayA" />
-        </section>
-        <section class="scan-card">
-          <div class="scan-title">Scan 2 (quarter-turned)</div>
-          <OverlayCanvas :bitmap="payload!.overlayB" />
-        </section>
-      </div>
+      <!-- The annotated scans: below the corrections on mobile, side by side on desktop -->
+      <section class="scan-card scan-a">
+        <div class="scan-title">Scan 1 (as placed)</div>
+        <OverlayCanvas :bitmap="payload!.overlayA" />
+      </section>
+      <section class="scan-card scan-b">
+        <div class="scan-title">Scan 2 (quarter-turned)</div>
+        <OverlayCanvas :bitmap="payload!.overlayB" />
+      </section>
     </div>
   </v-container>
 
@@ -200,7 +198,7 @@ const scanBLine = computed(() => {
 
 <style scoped>
 .page {
-  max-width: 1000px;
+  max-width: 1440px;
 }
 .header {
   display: flex;
@@ -284,6 +282,21 @@ const scanBLine = computed(() => {
 .result-body {
   display: grid;
   gap: 14px;
+  /* Mobile: single column, corrections first (they are the answer), then the two scans stacked. */
+  grid-template-columns: 1fr;
+  grid-template-areas:
+    'fix'
+    'scanA'
+    'scanB';
+}
+.fix-col {
+  grid-area: fix;
+}
+.scan-a {
+  grid-area: scanA;
+}
+.scan-b {
+  grid-area: scanB;
 }
 .card {
   background: rgb(var(--v-theme-surface-light));
@@ -305,11 +318,6 @@ const scanBLine = computed(() => {
   grid-template-columns: 1fr 1fr;
   gap: 12px;
 }
-.scans-col {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
 .scan-card {
   background: rgb(var(--v-theme-surface-light));
   border-radius: 14px;
@@ -321,18 +329,13 @@ const scanBLine = computed(() => {
   margin: 2px 4px 6px;
 }
 
+/* Desktop: the two scans sit side by side (equal columns, so equal size) with the corrections beside
+   them, so the whole result is visible without scrolling. */
 @media (min-width: 900px) {
   .result-body {
-    grid-template-columns: minmax(0, 1fr) 400px;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 340px;
+    grid-template-areas: 'scanA scanB fix';
     align-items: start;
-  }
-  .scans-col {
-    grid-column: 1;
-    grid-row: 1;
-  }
-  .fix-col {
-    grid-column: 2;
-    grid-row: 1;
   }
 }
 </style>

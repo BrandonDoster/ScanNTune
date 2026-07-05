@@ -34,6 +34,24 @@ test('calibration flow recovers ~23.6 px/mm from the real card scan', async ({ p
   await expect(page.getByTestId('saved')).toBeVisible()
 })
 
+test('calibration recovers after uploading before entering the measurement', async ({ page }) => {
+  await page.goto('/')
+  await page.getByTestId('calibrate-btn').click()
+
+  // Upload with the measured size still empty: the guard rejects and explains.
+  await page.getByTestId('card-input').setInputFiles(card)
+  await expect(page.getByText('Enter your measured size')).toBeVisible()
+
+  // Entering a valid measurement clears the stale prompt...
+  await page.getByLabel('Measured long side (mm)').fill('85.5')
+  await expect(page.getByText('Enter your measured size')).toBeHidden()
+
+  // ...and re-uploading the same file now detects the card.
+  await page.getByTestId('card-input').setInputFiles(card)
+  await expect(page.getByTestId('calibration-result')).toBeVisible({ timeout: 120000 })
+  await expect(page.getByTestId('saved')).toBeVisible()
+})
+
 test('two-scan analysis completes on real scans without freezing', async ({ page }) => {
   await page.goto('/')
   await page.getByTestId('scan1-input').setInputFiles(scan0)

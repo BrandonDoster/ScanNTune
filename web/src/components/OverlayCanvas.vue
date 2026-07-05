@@ -26,7 +26,7 @@ watch(() => props.bitmap, draw)
 
 <style scoped>
 .overlay {
-  max-width: 100%;
+  width: 100%;
   height: auto;
   display: block;
   border-radius: 6px;

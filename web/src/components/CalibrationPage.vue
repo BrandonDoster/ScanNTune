@@ -90,7 +90,11 @@ async function processFile(file: File | null): Promise<void> {
 }
 
 function onPick(e: Event): void {
-  void processFile((e.target as HTMLInputElement).files?.[0] ?? null)
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0] ?? null
+  // Clear the input so picking the same file again (e.g. after a rejected attempt) still fires change.
+  input.value = ''
+  void processFile(file)
 }
 function onDrop(e: DragEvent): void {
   void processFile(e.dataTransfer?.files?.[0] ?? null)
@@ -116,6 +120,11 @@ function maybeSave(): void {
 }
 
 watch([measuredMm, dpi], () => {
+  // Once the numbers are valid, drop a stale "enter your measurement first" prompt.
+  if (isError.value && canUpload.value) {
+    isError.value = false
+    statusText.value = ''
+  }
   if (hasResult.value) maybeSave()
 })
 </script>
