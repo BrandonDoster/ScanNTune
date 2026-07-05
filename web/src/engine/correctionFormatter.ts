@@ -69,6 +69,23 @@ export function skewCorrection(flavour: string, skewDegrees: number, coupon: Cou
   }
 }
 
+/**
+ * The command that clears any skew correction already active on the printer. A coupon printed with a
+ * correction still on has that correction baked into its geometry, so the measured skew would reflect
+ * the old correction instead of the printer's real skew: this must run (and the plate be printed fresh)
+ * before the coupon in the calibration flow.
+ */
+export function resetSkewCommand(flavour: string): Correction {
+  switch (flavour) {
+    case MARLIN:
+      return { code: `M852 I0 J0 K0\nM500`, hint: 'Send via console; M500 saves it.' }
+    case REPRAP:
+      return { code: `M556 S100 X0 Y0 Z0`, hint: 'Send via console, or add to config.g.' }
+    default:
+      return { code: 'SET_SKEW CLEAR=1', hint: '' }
+  }
+}
+
 // Per-plane skew, converted to the firmware shear factor (x' = x + tan*y closes the corner, so the
 // coefficient is the negation of the corner-angle error).
 function planeTan(skewDegrees: number): number {

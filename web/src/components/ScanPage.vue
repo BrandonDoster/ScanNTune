@@ -9,9 +9,11 @@ import { reconcileScans } from '../engine/multiPlaneCombiner'
 import { asAligned, defaultCouponSpec } from '../engine/types'
 import type { CouponSpec, Plane } from '../engine/types'
 import { ScanState } from '../model/skewCouponScan'
+import { skewFlavours, resetSkewCommand } from '../engine/correctionFormatter'
 import NumericField from './NumericField.vue'
 import CouponGlyph from './CouponGlyph.vue'
 import ScanIsland from './ScanIsland.vue'
+import CodeBlock from './CodeBlock.vue'
 
 const app = useApp()
 const calibration = useCalibration()
@@ -65,6 +67,9 @@ const analyzeLabel = computed(() => {
   if (!planesPair.value) return 'Each plate needs two scans a quarter-turn apart'
   return `Analyze ${n} scans`
 })
+
+const resetFlavour = ref<string>(skewFlavours[0])
+const resetCommand = computed(() => resetSkewCommand(resetFlavour.value))
 
 const plates: ReadonlyArray<{ key: string; label: string; file: string }> = [
   { key: 'xy', label: 'XY plate (flat)', file: 'calibration_coupon_xy.stl' },
@@ -172,10 +177,37 @@ function getCoupon(file: string): void {
       </div>
     </section>
 
-    <!-- 2. Print the plates -->
+    <!-- 2. Reset printer skew -->
+    <section class="step mb-3">
+      <div class="step-head mb-2">
+        <span class="num">2</span><span class="step-title">Reset printer skew</span>
+      </div>
+      <div class="warn-box mb-3">
+        <v-icon color="warning" size="16" class="warn-icon">mdi-alert-outline</v-icon>
+        <span>
+          <strong class="warn-lead">Coupons must be printed with skew correction disabled.</strong>
+          A correction still active bends the coupon before it prints, so the skew fix ScanNTune
+          calculates from it will be wrong.
+        </span>
+      </div>
+      <div class="reset-row">
+        <v-select
+          v-model="resetFlavour"
+          :items="skewFlavours"
+          label="Firmware"
+          density="comfortable"
+          hide-details
+          class="reset-select"
+        />
+        <CodeBlock :code="resetCommand.code" class="reset-code" />
+      </div>
+      <p v-if="resetCommand.hint" class="tip mt-0">{{ resetCommand.hint }}</p>
+    </section>
+
+    <!-- 3. Print the plates -->
     <section class="step mb-3">
       <div class="step-head mb-1">
-        <span class="num">2</span><span class="step-title">Print the plate(s)</span>
+        <span class="num">3</span><span class="step-title">Print the plate(s)</span>
       </div>
       <p class="tip mb-2">
         Print only the planes you want. XY is flat; XZ and YZ print standing (add a brim if adhesion is
@@ -195,10 +227,10 @@ function getCoupon(file: string): void {
       </div>
     </section>
 
-    <!-- 3. Scan your prints -->
+    <!-- 4. Scan your prints -->
     <section class="step mb-3">
       <div class="step-head mb-1">
-        <span class="num">3</span><span class="step-title">Scan your prints</span>
+        <span class="num">4</span><span class="step-title">Scan your prints</span>
       </div>
       <p class="tip mb-3">
         Scan each plate twice: lay it flat and scan, then give it a quarter-turn and scan again. Averaging
@@ -229,10 +261,10 @@ function getCoupon(file: string): void {
       </p>
     </section>
 
-    <!-- 4. Upload your scans -->
+    <!-- 5. Upload your scans -->
     <section class="step mb-3">
       <div class="step-head mb-1">
-        <span class="num">4</span><span class="step-title">Upload your scans</span>
+        <span class="num">5</span><span class="step-title">Upload your scans</span>
       </div>
       <p class="tip mb-3">
         Drop in every scan at once: two per plate, up to three plates (6 scans). Each scan is checked the
@@ -354,6 +386,40 @@ function getCoupon(file: string): void {
   font-size: 12.5px;
   color: rgba(var(--v-theme-on-surface), 0.6);
   margin-top: 8px;
+}
+.warn-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: rgba(var(--v-theme-warning), 0.12);
+  border: 1px solid rgba(var(--v-theme-warning), 0.35);
+  border-radius: 8px;
+  padding: 9px 11px;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.warn-icon {
+  margin-top: 1px;
+  flex-shrink: 0;
+}
+.warn-lead {
+  color: rgb(var(--v-theme-warning));
+  font-weight: 500;
+}
+.reset-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+.reset-select {
+  flex: 0 1 180px;
+  min-width: 140px;
+}
+.reset-code {
+  flex: 1 1 220px;
+  min-width: 220px;
+  margin-bottom: 0;
 }
 .plate-btns {
   display: flex;
