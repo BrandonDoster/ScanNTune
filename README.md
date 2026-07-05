@@ -11,7 +11,7 @@ printed coupon.
 
 <div align="center">
 
-## ▶ [Open ScanNTune in your browser](https://jaak0b.github.io/ScanNTune/)
+## ▶ [Open ScanNTune in your browser](https://scanntune.jaak0b.at/)
 
 **Runs entirely in your browser. Nothing to install, nothing uploaded to a server, on desktop or phone.**
 
@@ -76,7 +76,7 @@ The app is a plain [Vue 3](https://vuejs.org/) + TypeScript + [Vite](https://vit
 ```bash
 cd web
 npm install
-npm run dev       # dev server at http://localhost:5173/ScanNTune/
+npm run dev       # dev server at http://localhost:5173/
 npm run build     # production build to web/dist
 npm test          # Vitest unit + fixture-backed engine tests
 npm run e2e       # Playwright end-to-end over real scans

@@ -30,7 +30,7 @@ Commands (run inside `web/`):
 
 ```bash
 npm install
-npm run dev       # Vite dev server at http://localhost:5173/ScanNTune/
+npm run dev       # Vite dev server at http://localhost:5173/
 npm run build     # vue-tsc typecheck + production build to web/dist
 npm test          # Vitest: engine unit tests + fixture-backed CV tests
 npm run e2e       # Playwright end-to-end over the real scans in web/e2e/fixtures
@@ -65,13 +65,17 @@ Two durable gotchas:
   bundler default import returns `module.exports` (the real Promise) directly. In Vitest the engine CV tests
   load it with a native `require` instead (see `web/tests/helpers/cv.ts`), because even the default import is
   re-wrapped by Vitest's module runner.
-- **Vite `base` is `/ScanNTune/`** (the GitHub Pages project path); asset URLs and the STL download depend on
+- **Vite `base` is `/`**: the site is served at the root of the custom domain (`https://scanntune.jaak0b.at/`),
+  so assets live at the root, not under a project sub-path. (GitHub Pages 301-redirects
+  `https://jaak0b.github.io/ScanNTune/` to the custom domain root.) Asset URLs and the STL download go through
   `import.meta.env.BASE_URL`. The app version shown in the brand bar is injected from `package.json` at build
   time via the Vite `define` `__APP_VERSION__`.
 
 CI: `.github/workflows/web-ci.yml` builds, unit-tests, and e2e-tests the app on pull requests and on pushes
 to `master`; `.github/workflows/deploy-web.yml` builds `web/dist` and publishes it to GitHub Pages on every
-push to `master` (served at `https://jaak0b.github.io/ScanNTune/`).
+push to `master` (served at `https://scanntune.jaak0b.at/`). Note: push-triggered Pages deploys on this repo
+sometimes fail with "Deployment failed, try again later" (a GitHub-side flake, seen on both the old C# and the
+Vue deploy at the same commit); re-running the deploy via `workflow_dispatch` at the same commit succeeds.
 
 The measurement engine was ported 1:1 from a retired C# implementation and validated against the same
 `TestData_2solid.png` fixture at the same tolerances (23 rings, ~0 skew, isotropy), plus Playwright over the

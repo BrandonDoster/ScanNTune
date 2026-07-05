@@ -15,12 +15,12 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('the app loads', async ({ page }) => {
-  await page.goto('/ScanNTune/')
+  await page.goto('/')
   await expect(page.getByRole('heading', { name: 'Two-scan calibration' })).toBeVisible()
 })
 
 test('calibration flow recovers ~23.6 px/mm from the real card scan', async ({ page }) => {
-  await page.goto('/ScanNTune/')
+  await page.goto('/')
   await page.getByTestId('calibrate-btn').click()
   await page.getByLabel('Measured long side (mm)').fill('85.5')
   await page.getByTestId('card-input').setInputFiles(card)
@@ -35,7 +35,7 @@ test('calibration flow recovers ~23.6 px/mm from the real card scan', async ({ p
 })
 
 test('two-scan analysis completes on real scans without freezing', async ({ page }) => {
-  await page.goto('/ScanNTune/')
+  await page.goto('/')
   await page.getByTestId('scan1-input').setInputFiles(scan0)
   await page.getByTestId('scan2-input').setInputFiles(scan90)
 
