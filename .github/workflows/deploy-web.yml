@@ -1,8 +1,7 @@
 name: Deploy web app
 
-# Publishes the WebAssembly build to GitHub Pages on every push to master (and on demand). The wasm
-# native relink (OpenCV) makes this a slow-ish job, but it keeps the hosted web app in step with master.
-
+# Builds the Vue app in web/ and publishes web/dist to GitHub Pages on every push to master (and on
+# demand). Everything is static, so Pages serves it with no server and no special headers.
 on:
   push:
     branches: [master]
@@ -17,40 +16,28 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
+defaults:
+  run:
+    working-directory: web
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          fetch-depth: 0  # Nerdbank.GitVersioning needs full history to stamp the version
-
-      # Enables Pages for the repo (if needed) with the "GitHub Actions" source, so no manual settings step.
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
-        with:
-          enablement: true
-
-      - name: Set up .NET 10
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-
-      - name: Install wasm-tools workload
-        run: dotnet workload install wasm-tools
-
-      - name: Publish the browser head
-        run: dotnet publish src/ScanNTune.Browser -c Release -o publish
-
-      # GitHub Pages otherwise strips folders that start with an underscore (like _framework).
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run build
       - name: Disable Jekyll
-        run: touch publish/wwwroot/.nojekyll
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+        run: touch dist/.nojekyll
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
         with:
-          path: publish/wwwroot
+          path: web/dist
 
   deploy:
     needs: build

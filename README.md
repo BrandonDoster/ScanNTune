@@ -1,9 +1,6 @@
 # ScanNTune
 
-[![Build](https://github.com/jaak0b/ScanNTune/actions/workflows/build.yml/badge.svg)](https://github.com/jaak0b/ScanNTune/actions/workflows/build.yml)
-[![Latest release](https://img.shields.io/github/v/release/jaak0b/ScanNTune?display_name=tag)](https://github.com/jaak0b/ScanNTune/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/jaak0b/ScanNTune/total)](https://github.com/jaak0b/ScanNTune/releases)
-![Platform: Windows](https://img.shields.io/badge/platform-Windows-blue)
+[![Web CI](https://github.com/jaak0b/ScanNTune/actions/workflows/web-ci.yml/badge.svg)](https://github.com/jaak0b/ScanNTune/actions/workflows/web-ci.yml)
 [![License: MIT](https://img.shields.io/github/license/jaak0b/ScanNTune)](LICENSE)
 
 **Calibrate your 3D printer's XY scale and skew by scanning a printed coupon on an ordinary office scanner.
@@ -11,6 +8,14 @@ No calipers, no measuring, no typing numbers into a calculator.**
 
 The result is a ready-to-paste correction for your firmware or slicer, worked out from a flat scan of a
 printed coupon.
+
+<div align="center">
+
+## ▶ [Open ScanNTune in your browser](https://jaak0b.github.io/ScanNTune/)
+
+**Runs entirely in your browser. Nothing to install, nothing uploaded to a server, on desktop or phone.**
+
+</div>
 
 ![ScanNTune results](img/ScanNTune_Results.png)
 
@@ -28,12 +33,6 @@ printed coupon.
 4. **Load and paste:** open both scans in ScanNTune, then copy the snippet for your firmware or slicer.
 
 That's it. The whole thing takes a couple of minutes once the coupon is printed.
-
-## Installation
-
-ScanNTune runs on Windows. Grab the latest version from the
-[**Releases page**](https://github.com/jaak0b/ScanNTune/releases). It keeps itself up to date after that,
-applying new versions quietly the next time you open it.
 
 ---
 
@@ -66,13 +65,21 @@ from a single scan instead of by hand with a caliper.
   standard plastic card instead (all cards are ISO/IEC 7810 ID-1, 85.60 by 53.98 mm) and reads the true
   pixels-per-millimetre from its edges.
 
+The computer vision runs client-side in a Web Worker with [OpenCV.js](https://docs.opencv.org/), so a full
+scan is analysed on your own machine without the page ever freezing.
+
 ## Building from source
 
-If you'd rather build it yourself, you'll need the .NET 10 SDK on Windows.
+The app is a plain [Vue 3](https://vuejs.org/) + TypeScript + [Vite](https://vite.dev/) project under
+[`web/`](web). You'll need [Node.js](https://nodejs.org/) 22 or newer.
 
-```powershell
-dotnet build src\ScanNTune.slnx
-dotnet run --project src\ScanNTune.App
+```bash
+cd web
+npm install
+npm run dev       # dev server at http://localhost:5173/ScanNTune/
+npm run build     # production build to web/dist
+npm test          # Vitest unit + fixture-backed engine tests
+npm run e2e       # Playwright end-to-end over real scans
 ```
 
 Want a different coupon size or grid? Edit [`calibration_coupon.scad`](calibration_coupon.scad) in OpenSCAD

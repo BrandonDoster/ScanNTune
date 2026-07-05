@@ -1,12 +1,10 @@
 name: Web CI
 
-# Builds, unit-tests, and end-to-end-tests the Vue web app. Scoped to web/ so it stays independent of
-# the C# workflows.
+# Builds, unit-tests, and end-to-end-tests the Vue web app on every pull request and on pushes to master.
 on:
   pull_request:
-    paths:
-      - 'web/**'
-      - '.github/workflows/web-ci.yml'
+  push:
+    branches: [master]
   workflow_dispatch:
 
 defaults:
