@@ -58,15 +58,19 @@ export function renderPaScan(options: Partial<PaRenderOptions> & { truePa: numbe
   const o: PaRenderOptions = { ...DEFAULTS, ...options }
   const g = couponGeometry(o.spec)
   const borderMm = 6
-  const wMm = g.baseWidthMm + 2 * borderMm
-  const hMm = g.baseHeightMm + 2 * borderMm
+  // Unrotated coupon-plus-border extents; the canvas is sized to the rotated bounding box so the
+  // whole coupon stays in view at any rotation (a real scan always contains the coupon).
+  const w0Mm = g.baseWidthMm + 2 * borderMm
+  const h0Mm = g.baseHeightMm + 2 * borderMm
+  const rad = (o.rotationDegrees * Math.PI) / 180
+  const cos = Math.cos(rad)
+  const sin = Math.sin(rad)
+  const wMm = Math.abs(cos) * w0Mm + Math.abs(sin) * h0Mm
+  const hMm = Math.abs(sin) * w0Mm + Math.abs(cos) * h0Mm
   const width = Math.round(wMm * o.pxPerMm)
   const height = Math.round(hMm * o.pxPerMm)
   const cx = wMm / 2
   const cy = hMm / 2
-  const rad = (o.rotationDegrees * Math.PI) / 180
-  const cos = Math.cos(rad)
-  const sin = Math.sin(rad)
   const rand = rng(1234567)
   const data = new Uint8ClampedArray(width * height * 4)
 
@@ -79,9 +83,9 @@ export function renderPaScan(options: Partial<PaRenderOptions> & { truePa: numbe
           // Pixel center in image mm, rotated back into coupon frame.
           const imx = (px + (sx + 0.5) / S) / o.pxPerMm
           const imy = (py + (sy + 0.5) / S) / o.pxPerMm
-          let mx = cos * (imx - cx) + sin * (imy - cy) + cx
-          const my = -sin * (imx - cx) + cos * (imy - cy) + cy
-          if (o.flipped) mx = wMm - mx
+          let mx = cos * (imx - cx) + sin * (imy - cy) + w0Mm / 2
+          const my = -sin * (imx - cx) + cos * (imy - cy) + h0Mm / 2
+          if (o.flipped) mx = w0Mm - mx
           const bx = mx - borderMm // coupon-frame mm
           const by = my - borderMm
           acc += sampleGray(o, g, bx, by)
