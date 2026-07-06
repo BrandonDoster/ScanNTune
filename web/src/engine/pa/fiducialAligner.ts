@@ -243,6 +243,22 @@ function solveFromHoles(holes: Point[], g: ReturnType<typeof couponGeometry>): P
   const lenP = Math.hypot(p.x - corner.x, p.y - corner.y)
   const lenQ = Math.hypot(q.x - corner.x, q.y - corner.y)
 
+  // Ambiguity gate: the two candidate correspondences are only distinguishable at all because
+  // the nominal arm lengths differ (the assignment is chosen by comparing per-arm px/mm scales
+  // against lenNA and lenNB). If the coupon spec makes the nominal arms nearly equal, both
+  // candidates fit any scan almost equally well, so the choice is a coin flip baked into the
+  // coupon's geometry, not something a better scan could resolve: refuse rather than silently
+  // guess. The threshold is derived purely from the nominal geometry (never a magic constant
+  // fitted to a scan): a quarter of the observed measurement-noise floor implied by the fiducial
+  // detection tolerance used elsewhere (the anisotropy gate's 10%) is used as the minimum
+  // separation the nominal arm-length ratio must clear.
+  const nominalArmRatioDiff = Math.abs(lenNA - lenNB) / Math.max(lenNA, lenNB)
+  if (nominalArmRatioDiff < 0.25 * 0.1) {
+    return fail(
+      "The coupon's two fiducial arms are too similar in length to orient the scan reliably. Use a coupon spec with distinct fiducial arm lengths.",
+    )
+  }
+
   // Correspondence: assign the detected neighbours so the per-arm px/mm scales agree best.
   const mismatch = (l1: number, l2: number) => Math.abs(l1 / lenNA - l2 / lenNB)
   const [dA, dB] = mismatch(lenP, lenQ) <= mismatch(lenQ, lenP) ? [p, q] : [q, p]

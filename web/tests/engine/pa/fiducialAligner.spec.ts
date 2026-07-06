@@ -5,6 +5,7 @@ import { renderPaScan } from '../../helpers/paRender'
 import { rgbaToBgrMat } from '../../../src/engine/imageData'
 import { alignPaCoupon, mmToPx } from '../../../src/engine/pa/fiducialAligner'
 import { defaultPaTestSpec, couponGeometry } from '../../../src/engine/pa/types'
+import type { PaTestSpec } from '../../../src/engine/pa/types'
 
 describe('alignPaCoupon', () => {
   const spec = defaultPaTestSpec()
@@ -62,5 +63,38 @@ describe('alignPaCoupon', () => {
       }
     },
     60000,
+  )
+
+  it(
+    'fails with a reason when the coupon base is square (ambiguous fiducial arms)',
+    async () => {
+      // baseWidthMm = 2*slowSegmentMm + fastSegmentMm + 2*marginMm
+      // baseHeightMm = (lineCount - 1) * linePitchMm + 2*marginMm
+      // Choose a spec where these are equal, making the two fiducial arms equal in length.
+      const squareSpec: PaTestSpec = {
+        ...defaultPaTestSpec(),
+        lineCount: 16,
+        linePitchMm: 4,
+        marginMm: 8,
+        slowSegmentMm: 20,
+        fastSegmentMm: 20,
+      }
+      const squareG = couponGeometry(squareSpec)
+      expect(squareG.baseWidthMm).toBeCloseTo(squareG.baseHeightMm, 6)
+
+      const cv = await getCv()
+      const img = rgbaToBgrMat(
+        cv,
+        renderPaScan({ truePa: 0.03, spec: squareSpec }),
+      )
+      try {
+        const al = alignPaCoupon(cv, img, squareSpec)
+        expect(al.success).toBe(false)
+        expect(al.failureReason).toBeTruthy()
+      } finally {
+        img.delete()
+      }
+    },
+    120000,
   )
 })
