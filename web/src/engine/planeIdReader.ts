@@ -57,10 +57,11 @@ export function countPlaneDiagonals(
   if (coupon.gridN - 1 < maxCode) return null
 
   // Profile geometry, all in the coupon's mm frame (projected per sample through the affine).
-  // The profile spans the middle of the cell diagonal: one nominal ring outer diameter is
-  // excluded at each end, which clears the ring disk (even with the on-edge wall boost) and the
-  // funnel mouth, both bounded by that diameter. Three parallel lines offset by a quarter rib
-  // width sit inside the rib's half-width by construction.
+  // The profile spans the middle of the cell diagonal: one nominal ring outer diameter (9 mm)
+  // is excluded at each end as a DISTANCE from the ring centre. The on-edge plates print larger
+  // rings than the nominal spec (13 mm disk, 11 mm funnel mouth after the bore boost), but their
+  // radii (6.5 mm / 5.5 mm) still sit 2.5 mm inside the exclusion. Three parallel lines offset
+  // by a quarter rib width sit inside the rib's half-width by construction.
   const diagonalMm = pitchMm * Math.SQRT2
   const tMin = coupon.ringOuterDiameterMm / diagonalMm
   const tMax = 1 - tMin

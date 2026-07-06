@@ -352,6 +352,14 @@ function getCoupon(file: string): void {
       <p class="tip">
         Download the plane(s) you want to calibrate. XZ and YZ print standing, no supports needed.
       </p>
+      <ul class="tip print-tips">
+        <li>
+          <strong>XZ / YZ: add a brim</strong> (about 8&nbsp;mm, outer side only). The standing plates
+          have a narrow bed contact and warp without one.
+        </li>
+        <li>Let the bed cool before removing the plate; peeling it off warm bends it.</li>
+        <li>Peel the brim off and deburr its edge, so the plate lies flat on the scanner glass.</li>
+      </ul>
     </section>
 
     <!-- 4. Scan your prints -->
@@ -634,6 +642,12 @@ function getCoupon(file: string): void {
   font-size: 12.5px;
   color: rgba(var(--v-theme-on-surface), 0.6);
   margin-top: 8px;
+}
+.print-tips {
+  padding-left: 18px;
+}
+.print-tips li {
+  margin-top: 4px;
 }
 .warn-box {
   display: flex;

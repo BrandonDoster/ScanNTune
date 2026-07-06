@@ -49,12 +49,16 @@ ring_h       = 2.0; // FLAT (XY) plate thickness above the bed (mm)
 
 // ---- On-edge plates (XZ / YZ) ---------------------------------------
 plate_thickness = 6.0;   // slab thickness of a standing plate (mm)
-wall_boost      = 1.0;   // extra ring-wall + rib material on standing plates (mm)
-                         // (the 5 mm measured hole is unchanged; only more material
-                         //  around it, so the thin vertical features print cleaner)
+wall_boost      = 1.0;   // extra ring-wall + rib material on standing plates (mm),
+                         // so the thin vertical features print cleaner
+bore_boost      = 2.0;   // extra hole bore on standing plates (mm). Scanner defocus on a rough
+                         // on-edge face smears ~1 mm of dark into the hole from each side; the
+                         // bigger bore keeps a bright core the detector can find. The ring CENTRE
+                         // (the measured quantity) is unmoved, and symmetric blur does not move
+                         // a centroid, so the measurement is unaffected.
 funnel_depth    = 2.25;  // countersink depth from EACH face (bicone: both faces open, so the plate
                          // scans equally well either side down)
-funnel_mouth_d  = ring_outer_d - 2 * ring_wall + 3;  // countersink mouth (mm) = inner_d + 3
+funnel_margin   = 4.0;   // countersink mouth = bore + funnel_margin (mm);
                          // central throat = plate_thickness - 2*funnel_depth (straight bore)
 base_h     = 6.0;   // solid COPLANAR skirt below the bottom ring row (mm); no lip,
                     // so a standing plate still lies flat to scan and the lid closes
@@ -115,8 +119,10 @@ pitch   = baseline / (grid_n - 1);
 inner_d = ring_outer_d - 2 * ring_wall;
 half    = baseline / 2;
 
-// standing plates get thicker rings/ribs; the flat XY plate is unchanged
-ring_outer  = on_edge ? ring_outer_d + 2 * wall_boost : ring_outer_d;
+// standing plates get a wider bore plus thicker rings/ribs; the flat XY plate is unchanged
+bore           = on_edge ? inner_d + bore_boost : inner_d;
+ring_outer     = on_edge ? bore + 2 * (ring_wall + wall_boost) : ring_outer_d;
+funnel_mouth_d = bore + funnel_margin;
 rib_w_eff   = on_edge ? rib_w + wall_boost : rib_w;
 frame_w_eff = on_edge ? frame_w + wall_boost : frame_w;
 
@@ -127,7 +133,7 @@ edge_lo   = pos(0) - ring_outer / 2;
 edge_hi   = pos(grid_n - 1) + ring_outer / 2;
 zlift     = half + ring_outer / 2 + base_h; // lift a standing plate onto z=0
 
-echo(str("plane = ", plane, ",  pitch = ", pitch, " mm,  inner_d = ", inner_d,
+echo(str("plane = ", plane, ",  pitch = ", pitch, " mm,  bore = ", bore,
          " mm,  rings = ", grid_n * grid_n, ",  thickness = ", thickness,
          " mm,  diagonals = ", diag_count));
 assert(inner_d > rib_w + 1,
@@ -138,8 +144,8 @@ assert(diag_count <= grid_n - 1,
        "not enough bottom-row cells for the plane-ID diagonals - increase grid_n");
 assert(2 * funnel_depth < plate_thickness,
        "2*funnel_depth must leave a central throat - reduce funnel_depth below plate_thickness/2");
-assert(funnel_mouth_d > inner_d && funnel_mouth_d <= ring_outer,
-       "funnel_mouth_d must be between inner_d and the (boosted) ring outer diameter");
+assert(!on_edge || (funnel_mouth_d > bore && funnel_mouth_d <= ring_outer - 1),
+       "the countersink mouth must sit between the bore and 1 mm inside the ring outer diameter, so a face rim survives");
 
 // =====================================================================
 //  Chamfered primitives  (45 deg relief on the underside; off when on-edge)
@@ -211,7 +217,7 @@ module ribs() {
 module base_block() {                   // standing-plate foundation: solid fill from the
                                         // bottom edge up to just below the bottom-row holes
     yb = -half - ring_outer / 2 - base_h;
-    yt = -half - inner_d / 2 - 1;       // stop 1 mm short of the bottom holes
+    yt = -half - bore / 2 - 1;          // stop 1 mm short of the bottom holes
     translate([edge_lo, yb, 0])
         cube([edge_hi - edge_lo, yt - yb, thickness + foot_depth]);
 }
@@ -229,7 +235,7 @@ module ring_holes() {                   // punch every ring except the two solid
         for (j = [0 : grid_n - 1])
             if (!(fiducial_solid && j == 0 && (i == 0 || i == 1)))
                 translate([pos(i), pos(j), 0])
-                    if (on_edge) ch_hole_funnel(funnel_mouth_d, inner_d, funnel_depth, thickness);
+                    if (on_edge) ch_hole_funnel(funnel_mouth_d, bore, funnel_depth, thickness);
                     else         ch_hole(inner_d, thickness);
 }
 
