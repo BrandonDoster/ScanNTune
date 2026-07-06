@@ -4,9 +4,9 @@ import { paCorrection } from '../../../src/engine/pa/paCorrectionFormatter'
 describe('paCorrection', () => {
   it('formats Klipper', () => {
     const c = paCorrection('Klipper', 0.0314)
-    expect(c.code).toContain('SET_PRESSURE_ADVANCE ADVANCE=0.0314')
-    expect(c.code).toContain('pressure_advance: 0.0314')
-    expect(c.hint.length).toBeGreaterThan(10)
+    expect(c.code).toBe('SET_PRESSURE_ADVANCE ADVANCE=0.0314')
+    expect(c.secondaryCode).toBe('pressure_advance: 0.0314')
+    expect(c.secondaryCaption).toBe('printer.cfg')
   })
   it('formats Marlin with M500 hint', () => {
     const c = paCorrection('Marlin', 0.0314)

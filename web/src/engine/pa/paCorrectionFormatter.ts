@@ -16,7 +16,7 @@ export function paCorrection(firmware: Firmware, paValue: number): Correction {
     }
   }
   return {
-    code: `SET_PRESSURE_ADVANCE ADVANCE=${v}\npressure_advance: ${v}`,
+    code: `SET_PRESSURE_ADVANCE ADVANCE=${v}`,
     hint: 'For a permanent setting, add the line below to the [extruder] section of printer.cfg.',
     secondaryCaption: 'printer.cfg',
     secondaryCode: `pressure_advance: ${v}`,
