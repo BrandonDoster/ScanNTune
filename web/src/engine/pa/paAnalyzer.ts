@@ -2,6 +2,7 @@ import type { Mat, OpenCv } from '../opencv'
 import type { PaLineScore, PaResult, PaTestSpec } from './types'
 import { couponGeometry, paValueForLine } from './types'
 import { alignPaCoupon } from './fiducialAligner'
+import type { PaAlignment } from './fiducialAligner'
 import { measureLineWidthProfile } from './lineMeasurer'
 import type { WidthSample } from './lineMeasurer'
 import { valueChannel } from '../cvUtils'
@@ -54,10 +55,21 @@ export function parabolicMinimum(
   return Math.min(Math.max(v, Math.min(x0, x2)), Math.max(x0, x2))
 }
 
-export function analyzePaCoupon(cv: OpenCv, image: Mat, spec: PaTestSpec): PaResult {
+/**
+ * Analyzes a PA coupon scan. `alignmentHolder`, when given, receives the solved fiducial alignment
+ * (successful or not) so callers such as the overlay renderer can place coupon-frame geometry in
+ * scan pixels without re-running the aligner.
+ */
+export function analyzePaCoupon(
+  cv: OpenCv,
+  image: Mat,
+  spec: PaTestSpec,
+  alignmentHolder?: { alignment?: PaAlignment },
+): PaResult {
   if (!image || image.empty()) throw new Error('Image is null or empty.')
 
   const alignment = alignPaCoupon(cv, image, spec)
+  if (alignmentHolder) alignmentHolder.alignment = alignment
   if (!alignment.success) {
     return failure(alignment.failureReason ?? 'The coupon could not be aligned.')
   }

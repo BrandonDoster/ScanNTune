@@ -13,6 +13,10 @@ import type {
   Orientation,
   ScaleReferenceResult,
 } from '../engine/types'
+import { analyzePaCoupon } from '../engine/pa/paAnalyzer'
+import { renderPaOverlayMat } from '../engine/pa/paOverlayRenderer'
+import type { PaAlignment } from '../engine/pa/fiducialAligner'
+import type { PaResult, PaTestSpec } from '../engine/pa/types'
 import { decodeToBgr, matToImageBitmap, grayMatToImageBitmap } from './decode'
 
 // The CV pipeline runs here, off the main thread, so the UI never freezes during analysis. The worker
@@ -94,6 +98,46 @@ async function renderMaskBitmap(
   }
 }
 
+/**
+ * The outcome of analysing one pressure-advance coupon scan: the PaResult plus an overlay showing
+ * each measured line tinted by its score and the best line highlighted. When the coupon could not
+ * be aligned the overlay is the plain decoded scan, so the UI always has an image to show.
+ */
+export interface PaProcessing {
+  result: PaResult
+  overlay: ImageBitmap
+}
+
+async function analyzePaScan(bytes: ArrayBuffer, spec: PaTestSpec): Promise<PaProcessing> {
+  const cv = await loadOpenCv()
+  const img = await decodeToBgr(cv, bytes)
+  try {
+    const holder: { alignment?: PaAlignment } = {}
+    const result = analyzePaCoupon(cv, img, spec, holder)
+    const overlay = holder.alignment?.success
+      ? await renderPaOverlayBitmap(cv, img, holder.alignment, spec, result)
+      : await matToImageBitmap(cv, img)
+    return Comlink.transfer({ result, overlay }, [overlay])
+  } finally {
+    img.delete()
+  }
+}
+
+async function renderPaOverlayBitmap(
+  cv: OpenCv,
+  image: Mat,
+  alignment: PaAlignment,
+  spec: PaTestSpec,
+  result: PaResult,
+): Promise<ImageBitmap> {
+  const mat = renderPaOverlayMat(cv, image, alignment, spec, result)
+  try {
+    return await matToImageBitmap(cv, mat)
+  } finally {
+    mat.delete()
+  }
+}
+
 async function measureCardScan(
   bytes: ArrayBuffer,
   knownLongSideMm: number,
@@ -108,7 +152,7 @@ async function measureCardScan(
   }
 }
 
-const api = { analyzeScan, measureCardScan }
+const api = { analyzeScan, analyzePaScan, measureCardScan }
 export type AnalysisApi = typeof api
 
 Comlink.expose(api)
