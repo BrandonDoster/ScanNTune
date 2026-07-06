@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
 import { renderPaScan } from '../../helpers/paRender'
-import { defaultPaTestSpec, couponGeometry } from '../../../src/engine/pa/types'
+import { defaultPaTestSpec, couponGeometry, paValueForLine } from '../../../src/engine/pa/types'
 
 function grayAt(img: { data: Uint8Array | Uint8ClampedArray; width: number }, x: number, y: number): number {
   const i = (y * img.width + x) * 4
@@ -44,8 +44,9 @@ describe('renderPaScan', () => {
       const truePa = 0 + (0.06 * 8) / 15
       const img = renderPaScan({ truePa, pxPerMm, noiseSigma: 0 })
       const border = Math.round((img.width - g.baseWidthMm * pxPerMm) / 2)
-      // Measure dark-pixel column height at the first transition x for line 0
-      // (max PA error) and line 8 (zero error).
+      // Measure dark-pixel column height at the deceleration transition x
+      // (transitionXsMm[1]) for line 0 (max PA error, too low, bulges there)
+      // and line 8 (zero error).
       function darkColumnHeight(lineIndex: number, xMm: number): number {
         const cx = border + Math.round((g.lineStartXMm + xMm) * pxPerMm)
         const cy = border + Math.round(g.lineStartYMm(lineIndex) * pxPerMm)
@@ -55,9 +56,44 @@ describe('renderPaScan', () => {
         }
         return count
       }
-      const uniform = darkColumnHeight(8, g.transitionXsMm[0])
-      const bulged = darkColumnHeight(0, g.transitionXsMm[0] + 0.5)
+      const uniform = darkColumnHeight(8, g.transitionXsMm[1])
+      const bulged = darkColumnHeight(0, g.transitionXsMm[1] + 0.5)
       expect(bulged).toBeGreaterThan(uniform + 2)
+    },
+    60000,
+  )
+
+  it(
+    'follows the too-low-bulges-at-deceleration convention',
+    () => {
+      const spec = defaultPaTestSpec()
+      const g = couponGeometry(spec)
+      const pxPerMm = 12
+      const truePa = paValueForLine(spec, 8)
+      const img = renderPaScan({ truePa, pxPerMm, noiseSigma: 0 })
+      const border = Math.round((img.width - g.baseWidthMm * pxPerMm) / 2)
+      function darkColumnHeight(lineIndex: number, xMm: number): number {
+        const cx = border + Math.round((g.lineStartXMm + xMm) * pxPerMm)
+        const cy = border + Math.round(g.lineStartYMm(lineIndex) * pxPerMm)
+        let count = 0
+        for (let dy = -15; dy <= 15; dy++) {
+          if (grayAt(img, cx, cy + dy) < 128) count++
+        }
+        return count
+      }
+      const nominalAtT1 = darkColumnHeight(8, g.transitionXsMm[0])
+      const nominalAtT2 = darkColumnHeight(8, g.transitionXsMm[1])
+      // Line 0: PA too low (paErr < 0). Bulges (wider) at the deceleration
+      // transition (transitionXsMm[1]), and is not wider than nominal at the
+      // acceleration transition (transitionXsMm[0]).
+      const line0AtT1 = darkColumnHeight(0, g.transitionXsMm[0] + 0.5)
+      const line0AtT2 = darkColumnHeight(0, g.transitionXsMm[1] + 0.5)
+      expect(line0AtT2).toBeGreaterThan(nominalAtT2)
+      expect(line0AtT1).toBeLessThanOrEqual(nominalAtT1)
+      // Line 15: PA too high (paErr > 0). Starves (narrower) at the
+      // deceleration transition (transitionXsMm[1]).
+      const line15AtT2 = darkColumnHeight(15, g.transitionXsMm[1] + 0.5)
+      expect(line15AtT2).toBeLessThan(nominalAtT2)
     },
     60000,
   )

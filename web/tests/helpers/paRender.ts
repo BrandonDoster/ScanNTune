@@ -41,17 +41,17 @@ function rng(seed: number): () => number {
 }
 
 /**
- * Signed transient profile s(x) along a line. At the slow-to-fast transition
- * the head decelerates into the corner then accelerates away: too-low PA
- * bulges there (positive lobe). At the fast-to-slow transition the head
- * decelerates into the corner: too-high PA starves there (negative lobe).
- * Model: gaussian lobes at each transition, sign +1 at the first transition,
- * -1 at the second, scaled by (pa - truePa) at the call site.
+ * Signed transient profile s(x) along a line. At the deceleration transition
+ * (fast-to-slow, the second transition) too-low PA bulges: positive lobe.
+ * At the acceleration transition (slow-to-fast, the first transition)
+ * too-high PA starves: negative lobe there. Model: gaussian lobes at each
+ * transition, sign -1 at the first transition, +1 at the second, scaled by
+ * (truePa - pa) at the call site.
  */
 function transient(xMm: number, transitions: [number, number], sigma: number): number {
   const [t1, t2] = transitions
   const lobe = (c: number, sign: number) => sign * Math.exp(-((xMm - c) ** 2) / (2 * sigma * sigma))
-  return lobe(t1, 1) + lobe(t2, -1)
+  return lobe(t1, -1) + lobe(t2, 1)
 }
 
 export function renderPaScan(options: Partial<PaRenderOptions> & { truePa: number }): RgbaImage {
@@ -132,9 +132,9 @@ function sampleGray(
     if (lx < 0 || lx > lineLen) break
     const paErr = paValueForLine(o.spec, i) - o.truePa
     const s = transient(lx, g.transitionXsMm, o.transitionSigmaMm)
-    // Width bulges when PA is too low (paErr negative) at a positive lobe,
-    // and starves when PA is too high (paErr positive) at a negative lobe:
-    // both captured by -paErr * s.
+    // Too-low PA (paErr negative) bulges at the deceleration transition
+    // (second lobe, sign +1); too-high PA (paErr positive) starves there.
+    // Captured by -paErr * s.
     const halfNominal = o.spec.lineWidthMm / 2
     let half = halfNominal * (1 + o.bulgeGainMmPerPa * -paErr * s)
     half = Math.max(half, halfNominal * 0.2)
