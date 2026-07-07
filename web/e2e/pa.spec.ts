@@ -21,10 +21,13 @@ test('pressure advance flow: profile, G-code download, scan analysis', async ({ 
   await page.getByTestId('nav-pa').click()
   await expect(page.getByRole('heading', { name: 'Pressure advance calibration' })).toBeVisible()
 
-  // Create a printer profile through the dialog (defaults are valid; only the name is needed).
+  // Create a printer profile through the profile page (defaults are valid; only the name is
+  // needed). Saving returns to the PA page with the new profile selected.
   await page.getByTestId('profile-new').click()
+  await expect(page.getByTestId('profile-page')).toBeVisible()
   await page.getByLabel('Profile name').fill('E2E Printer')
   await page.getByTestId('profile-save').click()
+  await expect(page.getByRole('heading', { name: 'Pressure advance calibration' })).toBeVisible()
   await expect(page.getByTestId('generate-btn')).toBeEnabled()
 
   // The saved profile exposes its default filament in the filament select.

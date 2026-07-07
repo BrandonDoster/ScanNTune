@@ -21,4 +21,25 @@ describe('useApp', () => {
     app.goScan()
     expect(app.screen).toBe('scan')
   })
+
+  it('opens the profile editor with the profile id to edit', () => {
+    const app = useApp()
+    app.goProfile({ profileId: 'abc' })
+    expect(app.screen).toBe('profile')
+    expect(app.profilePayload).toEqual({ profileId: 'abc' })
+  })
+
+  it('opens the profile editor for a new profile with a null id', () => {
+    const app = useApp()
+    app.goProfile({ profileId: null })
+    expect(app.screen).toBe('profile')
+    expect(app.profilePayload).toEqual({ profileId: null })
+  })
+
+  it('returns from the profile editor to the PA page', () => {
+    const app = useApp()
+    app.goProfile({ profileId: 'abc' })
+    app.goPa()
+    expect(app.screen).toBe('pa')
+  })
 })

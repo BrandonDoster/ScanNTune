@@ -1,0 +1,330 @@
+import { computed, ref } from 'vue'
+import type { FilamentProfile, Firmware, PrinterProfile } from '../engine/pa/types'
+import { defaultFilamentProfile, defaultPrinterProfile } from '../engine/pa/types'
+import { FIELD_KINDS, importSlicerConfigs } from '../engine/pa/slicerImport'
+import type { ImportedFilamentFields, ImportedPrinterFields } from '../engine/pa/slicerImport'
+
+export type ImportKind = 'printer' | 'filament'
+
+/** A filament being edited: numbers nullable while the stepper field is cleared. */
+export interface EditableFilament {
+  id: string
+  name: string
+  filamentType: string
+  filamentDiameterMm: number | null
+  nozzleTempC: number | null
+  bedTempC: number | null
+  chamberTempC: number | null
+}
+
+export interface ImportSummary {
+  kind: ImportKind
+  importedCount: number
+  missing: string[]
+  warnings: string[]
+  wrongKind: string | null
+}
+
+const WRONG_KIND_MESSAGES: Record<ImportKind, string> = {
+  printer: 'This looks like a filament preset. Use the import button on the Filament tab.',
+  filament: 'This looks like a printer preset. Use the import button on the Printer tab.',
+}
+
+/**
+ * All editable state of the printer profile editor: printer fields, the filament list, slicer
+ * config import, validation, and dirty tracking. The page component stays purely presentational.
+ */
+export function useProfileForm() {
+  // Numeric fields are nullable while editing (the stepper allows clearing); Save stays disabled
+  // until every one holds a number again.
+  const id = ref('')
+  const name = ref('')
+  const firmware = ref<Firmware>('Klipper')
+  const bedWidthMm = ref<number | null>(null)
+  const bedDepthMm = ref<number | null>(null)
+  const nozzleDiameterMm = ref<number | null>(null)
+  const travelSpeedMmS = ref<number | null>(null)
+  const printAccelMmS2 = ref<number | null>(null)
+  const squareCornerVelocityMmS = ref<number | null>(null)
+  const layerHeightMm = ref<number | null>(null)
+  const retractMm = ref<number | null>(null)
+  const retractSpeedMmS = ref<number | null>(null)
+  const startGcode = ref('')
+  const pauseGcode = ref('')
+  const endGcode = ref('')
+
+  const filaments = ref<EditableFilament[]>([])
+  const filamentIndex = ref(0)
+  const currentFilament = computed<EditableFilament | undefined>(
+    () => filaments.value[filamentIndex.value],
+  )
+
+  const importSummary = ref<ImportSummary | null>(null)
+
+  /** Snapshot of the loaded state, for dirty detection. */
+  const loadedSnapshot = ref('')
+
+  function snapshot(): string {
+    return JSON.stringify({
+      name: name.value,
+      firmware: firmware.value,
+      bedWidthMm: bedWidthMm.value,
+      bedDepthMm: bedDepthMm.value,
+      nozzleDiameterMm: nozzleDiameterMm.value,
+      travelSpeedMmS: travelSpeedMmS.value,
+      printAccelMmS2: printAccelMmS2.value,
+      squareCornerVelocityMmS: squareCornerVelocityMmS.value,
+      layerHeightMm: layerHeightMm.value,
+      retractMm: retractMm.value,
+      retractSpeedMmS: retractSpeedMmS.value,
+      startGcode: startGcode.value,
+      pauseGcode: pauseGcode.value,
+      endGcode: endGcode.value,
+      filaments: filaments.value,
+      filamentIndex: filamentIndex.value,
+    })
+  }
+
+  const isDirty = computed(() => snapshot() !== loadedSnapshot.value)
+
+  function load(p: PrinterProfile): void {
+    id.value = p.id
+    name.value = p.name
+    firmware.value = p.firmware
+    bedWidthMm.value = p.bedWidthMm
+    bedDepthMm.value = p.bedDepthMm
+    nozzleDiameterMm.value = p.nozzleDiameterMm
+    travelSpeedMmS.value = p.travelSpeedMmS
+    printAccelMmS2.value = p.printAccelMmS2
+    squareCornerVelocityMmS.value = p.squareCornerVelocityMmS
+    layerHeightMm.value = p.layerHeightMm
+    retractMm.value = p.retractMm
+    retractSpeedMmS.value = p.retractSpeedMmS
+    startGcode.value = p.startGcode
+    pauseGcode.value = p.pauseGcode
+    endGcode.value = p.endGcode
+    filaments.value = p.filaments.map((f) => ({ ...f }))
+    const selectedAt = p.filaments.findIndex((f) => f.id === p.selectedFilamentId)
+    filamentIndex.value = selectedAt === -1 ? 0 : selectedAt
+    importSummary.value = null
+    loadedSnapshot.value = snapshot()
+  }
+
+  // --- Filament list management --------------------------------------------
+
+  const filamentItems = computed(() =>
+    filaments.value.map((f, i) => ({ title: f.name.trim() || `Filament ${i + 1}`, value: i })),
+  )
+
+  function addFilament(): void {
+    // The id is generated here so the editor's own selection can reference the new filament
+    // before the store ever sees it.
+    filaments.value = [
+      ...filaments.value,
+      { ...defaultFilamentProfile(), id: crypto.randomUUID(), name: 'New filament' },
+    ]
+    filamentIndex.value = filaments.value.length - 1
+  }
+
+  function removeFilament(): void {
+    if (filaments.value.length <= 1) return
+    filaments.value = filaments.value.filter((_, i) => i !== filamentIndex.value)
+    filamentIndex.value = Math.min(filamentIndex.value, filaments.value.length - 1)
+  }
+
+  // --- Slicer config import -------------------------------------------------
+
+  function applyPrinterFields(fields: ImportedPrinterFields): void {
+    if (fields.firmware !== undefined) firmware.value = fields.firmware
+    if (fields.bedWidthMm !== undefined) bedWidthMm.value = fields.bedWidthMm
+    if (fields.bedDepthMm !== undefined) bedDepthMm.value = fields.bedDepthMm
+    if (fields.nozzleDiameterMm !== undefined) nozzleDiameterMm.value = fields.nozzleDiameterMm
+    if (fields.travelSpeedMmS !== undefined) travelSpeedMmS.value = fields.travelSpeedMmS
+    if (fields.printAccelMmS2 !== undefined) printAccelMmS2.value = fields.printAccelMmS2
+    if (fields.squareCornerVelocityMmS !== undefined)
+      squareCornerVelocityMmS.value = fields.squareCornerVelocityMmS
+    if (fields.layerHeightMm !== undefined) layerHeightMm.value = fields.layerHeightMm
+    if (fields.retractMm !== undefined) retractMm.value = fields.retractMm
+    if (fields.retractSpeedMmS !== undefined) retractSpeedMmS.value = fields.retractSpeedMmS
+    if (fields.startGcode !== undefined) startGcode.value = fields.startGcode
+    if (fields.pauseGcode !== undefined) pauseGcode.value = fields.pauseGcode
+    if (fields.endGcode !== undefined) endGcode.value = fields.endGcode
+  }
+
+  function applyFilamentFields(target: EditableFilament, fields: ImportedFilamentFields): void {
+    if (fields.filamentType !== undefined) target.filamentType = fields.filamentType
+    if (fields.filamentDiameterMm !== undefined)
+      target.filamentDiameterMm = fields.filamentDiameterMm
+    if (fields.nozzleTempC !== undefined) target.nozzleTempC = fields.nozzleTempC
+    if (fields.bedTempC !== undefined) target.bedTempC = fields.bedTempC
+    if (fields.chamberTempC !== undefined) target.chamberTempC = fields.chamberTempC
+  }
+
+  /** Appends one new filament per named bundle section and selects the first of them. */
+  function addBundleFilaments(
+    sections: { name: string; fields: ImportedFilamentFields }[],
+  ): number {
+    const firstNewIndex = filaments.value.length
+    const added = sections.map((section) => {
+      const filament: EditableFilament = {
+        ...defaultFilamentProfile(),
+        id: crypto.randomUUID(),
+        name: section.name,
+      }
+      applyFilamentFields(filament, section.fields)
+      return filament
+    })
+    filaments.value = [...filaments.value, ...added]
+    filamentIndex.value = firstNewIndex
+    return added.reduce((count, _f, i) => count + Object.keys(sections[i].fields).length, 0)
+  }
+
+  /** Kind of a missing-field name reported by the importer, for kind-scoped summaries. */
+  function kindOfMissing(field: string): ImportKind {
+    return FIELD_KINDS[field as keyof typeof FIELD_KINDS]
+  }
+
+  async function importFiles(files: File[], kind: ImportKind): Promise<void> {
+    if (files.length === 0) return
+    const warnings: string[] = []
+    const slicerFiles: { fileName: string; content: string }[] = []
+    for (const file of files) {
+      try {
+        slicerFiles.push({ fileName: file.name, content: await file.text() })
+      } catch (e) {
+        warnings.push(e instanceof Error ? e.message : String(e))
+      }
+    }
+    const result = importSlicerConfigs(slicerFiles)
+    warnings.push(...result.warnings)
+
+    const printerCount = Object.keys(result.fields.printer).length
+    const filamentCount = Object.keys(result.fields.filament).length
+    const otherKindCount = kind === 'printer' ? filamentCount : printerCount
+    const ownKindCount = kind === 'printer' ? printerCount : filamentCount
+    const wrongKind =
+      ownKindCount === 0 && result.filaments.length === 0 && otherKindCount > 0
+        ? WRONG_KIND_MESSAGES[kind]
+        : null
+
+    let importedCount = 0
+    if (wrongKind === null) {
+      if (kind === 'printer') {
+        applyPrinterFields(result.fields.printer)
+        importedCount = printerCount
+      } else if (result.filaments.length > 0) {
+        importedCount = addBundleFilaments(result.filaments)
+      } else if (currentFilament.value) {
+        applyFilamentFields(currentFilament.value, result.fields.filament)
+        importedCount = filamentCount
+      }
+    }
+    importSummary.value = {
+      kind,
+      importedCount,
+      missing: result.missing.filter((f) => kindOfMissing(f) === kind),
+      warnings,
+      wrongKind,
+    }
+  }
+
+  // --- Validation and output --------------------------------------------------
+
+  const printerNumbers = computed(() => [
+    bedWidthMm.value,
+    bedDepthMm.value,
+    nozzleDiameterMm.value,
+    travelSpeedMmS.value,
+    printAccelMmS2.value,
+    squareCornerVelocityMmS.value,
+    layerHeightMm.value,
+    retractMm.value,
+    retractSpeedMmS.value,
+  ])
+  const filamentsValid = computed(() =>
+    filaments.value.every(
+      (f) =>
+        f.name.trim() !== '' &&
+        [f.filamentDiameterMm, f.nozzleTempC, f.bedTempC, f.chamberTempC].every(
+          (n) => n !== null && Number.isFinite(n),
+        ),
+    ),
+  )
+  const canSave = computed(
+    () =>
+      name.value.trim() !== '' &&
+      printerNumbers.value.every((n) => n !== null && Number.isFinite(n)) &&
+      filaments.value.length > 0 &&
+      filamentsValid.value,
+  )
+
+  function toFilamentProfile(f: EditableFilament): FilamentProfile {
+    return {
+      id: f.id,
+      name: f.name.trim(),
+      filamentType: f.filamentType.trim() || defaultFilamentProfile().filamentType,
+      filamentDiameterMm: f.filamentDiameterMm!,
+      nozzleTempC: f.nozzleTempC!,
+      bedTempC: f.bedTempC!,
+      chamberTempC: f.chamberTempC!,
+    }
+  }
+
+  /** The finished profile. Only valid while `canSave` is true. */
+  function toProfile(): PrinterProfile {
+    const savedFilaments = filaments.value.map(toFilamentProfile)
+    return {
+      id: id.value,
+      name: name.value.trim(),
+      firmware: firmware.value,
+      bedWidthMm: bedWidthMm.value!,
+      bedDepthMm: bedDepthMm.value!,
+      nozzleDiameterMm: nozzleDiameterMm.value!,
+      filaments: savedFilaments,
+      selectedFilamentId: savedFilaments[filamentIndex.value]?.id || null,
+      travelSpeedMmS: travelSpeedMmS.value!,
+      printAccelMmS2: printAccelMmS2.value!,
+      squareCornerVelocityMmS: squareCornerVelocityMmS.value!,
+      layerHeightMm: layerHeightMm.value!,
+      retractMm: retractMm.value!,
+      retractSpeedMmS: retractSpeedMmS.value!,
+      startGcode: startGcode.value,
+      pauseGcode: pauseGcode.value,
+      endGcode: endGcode.value,
+    }
+  }
+
+  function loadNew(): void {
+    load(defaultPrinterProfile())
+  }
+
+  return {
+    name,
+    firmware,
+    bedWidthMm,
+    bedDepthMm,
+    nozzleDiameterMm,
+    travelSpeedMmS,
+    printAccelMmS2,
+    squareCornerVelocityMmS,
+    layerHeightMm,
+    retractMm,
+    retractSpeedMmS,
+    startGcode,
+    pauseGcode,
+    endGcode,
+    filaments,
+    filamentIndex,
+    currentFilament,
+    filamentItems,
+    addFilament,
+    removeFilament,
+    importSummary,
+    importFiles,
+    isDirty,
+    canSave,
+    load,
+    loadNew,
+    toProfile,
+  }
+}

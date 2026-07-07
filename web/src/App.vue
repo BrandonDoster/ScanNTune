@@ -3,6 +3,7 @@ import { useApp } from './stores/useApp'
 import ScanPage from './components/ScanPage.vue'
 import CalibrationPage from './components/CalibrationPage.vue'
 import PaPage from './components/PaPage.vue'
+import ProfilePage from './components/ProfilePage.vue'
 import AppLogo from './components/AppLogo.vue'
 
 const app = useApp()
@@ -21,7 +22,7 @@ const version = __APP_VERSION__
         <v-btn
           variant="text"
           size="small"
-          :active="app.screen !== 'pa'"
+          :active="app.screen === 'scan' || app.screen === 'calibration'"
           data-testid="nav-skew"
           @click="app.goScan()"
         >
@@ -30,7 +31,7 @@ const version = __APP_VERSION__
         <v-btn
           variant="text"
           size="small"
-          :active="app.screen === 'pa'"
+          :active="app.screen === 'pa' || app.screen === 'profile'"
           data-testid="nav-pa"
           @click="app.goPa()"
         >
@@ -52,6 +53,7 @@ const version = __APP_VERSION__
     <v-main>
       <ScanPage v-if="app.screen === 'scan'" />
       <PaPage v-else-if="app.screen === 'pa'" />
+      <ProfilePage v-else-if="app.screen === 'profile'" />
       <CalibrationPage v-else />
     </v-main>
   </v-app>

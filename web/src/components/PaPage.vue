@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, shallowRef } from 'vue'
+import { useApp } from '../stores/useApp'
 import { usePrinterProfiles } from '../stores/usePrinterProfiles'
 import { readBytes } from '../util/preview'
 import { analyzePaScan } from '../workerClient'
@@ -14,18 +15,16 @@ import {
   fitsA4,
   maxLineCountForHeight,
 } from '../engine/pa/types'
-import type { PaTestSpec, PrinterProfile } from '../engine/pa/types'
+import type { PaTestSpec } from '../engine/pa/types'
 import NumericField from './NumericField.vue'
-import PrinterProfileForm from './PrinterProfileForm.vue'
 import OverlayCanvas from './OverlayCanvas.vue'
 import CodeBlock from './CodeBlock.vue'
 import MetricTile from './MetricTile.vue'
 
+const app = useApp()
 const store = usePrinterProfiles()
 
 // Profile card state.
-const formOpen = ref(false)
-const editing = ref<PrinterProfile | null>(null)
 const deleteOpen = ref(false)
 
 const NEW_ID = '__new__'
@@ -41,16 +40,10 @@ function onSelect(id: string | null): void {
   if (id) store.select(id)
 }
 function openNew(): void {
-  editing.value = null
-  formOpen.value = true
+  app.goProfile({ profileId: null })
 }
 function openEdit(): void {
-  editing.value = store.selected
-  formOpen.value = true
-}
-function onSave(profile: PrinterProfile): void {
-  const id = store.upsert(profile)
-  store.select(id)
+  if (store.selected) app.goProfile({ profileId: store.selected.id })
 }
 function confirmDelete(): void {
   if (store.selected) store.remove(store.selected.id)
@@ -455,8 +448,6 @@ function applyShift(): void {
       />
     </section>
   </v-container>
-
-  <PrinterProfileForm v-model="formOpen" :profile="editing" @save="onSave" />
 
   <v-dialog v-model="deleteOpen" max-width="380">
     <v-card title="Delete printer profile?">
