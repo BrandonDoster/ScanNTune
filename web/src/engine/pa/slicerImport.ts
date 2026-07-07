@@ -1,5 +1,8 @@
 import type { Firmware, PrinterProfile } from './types'
 
+export { importSlicerConfigs } from './slicerImportChain'
+export type { SlicerFile } from './slicerImportChain'
+
 export interface SlicerImportResult {
   fields: Partial<PrinterProfile>
   imported: string[]
@@ -8,7 +11,7 @@ export interface SlicerImportResult {
 }
 
 /** Profile fields the importer knows how to fill; anything not found lands in missing[]. */
-const MAPPED_FIELDS: (keyof PrinterProfile)[] = [
+const MAPPED_FIELDS_LIST = [
   'firmware',
   'bedWidthMm',
   'bedDepthMm',
@@ -27,7 +30,9 @@ const MAPPED_FIELDS: (keyof PrinterProfile)[] = [
   'startGcode',
   'pauseGcode',
   'endGcode',
-]
+] as const satisfies readonly (keyof PrinterProfile)[]
+
+const MAPPED_FIELDS: (keyof PrinterProfile)[] = [...MAPPED_FIELDS_LIST]
 
 const FLAVOR_TO_FIRMWARE: Record<string, Firmware> = {
   klipper: 'Klipper',
@@ -50,6 +55,29 @@ export function importSlicerConfig(fileName: string, content: string): SlicerImp
   throw new Error(
     `"${fileName}" does not look like a PrusaSlicer config export or an OrcaSlicer preset file.`,
   )
+}
+
+/** Field-kind classification for every {@link MAPPED_FIELDS} entry (Task 18 will use this to
+ *  filter what a machine vs. filament import applies). */
+export const FIELD_KINDS: Record<(typeof MAPPED_FIELDS_LIST)[number], 'printer' | 'filament'> = {
+  firmware: 'printer',
+  bedWidthMm: 'printer',
+  bedDepthMm: 'printer',
+  nozzleDiameterMm: 'printer',
+  layerHeightMm: 'printer',
+  retractMm: 'printer',
+  retractSpeedMmS: 'printer',
+  travelSpeedMmS: 'printer',
+  printAccelMmS2: 'printer',
+  squareCornerVelocityMmS: 'printer',
+  startGcode: 'printer',
+  pauseGcode: 'printer',
+  endGcode: 'printer',
+  filamentType: 'filament',
+  filamentDiameterMm: 'filament',
+  nozzleTempC: 'filament',
+  bedTempC: 'filament',
+  chamberTempC: 'filament',
 }
 
 interface Ctx {
@@ -261,6 +289,18 @@ function importPrusa(keys: Map<string, string>): SlicerImportResult {
 // OrcaSlicer preset .json
 // ---------------------------------------------------------------------------
 
+/** Returns the parsed preset object, or null when the content is not an Orca preset. Exported
+ *  for chain resolution across multiple uploaded files (see slicerImportChain.ts). */
+export function tryParseOrcaPreset(content: string): Record<string, unknown> | null {
+  return tryParseOrca(content)
+}
+
+/** The preset's "name" field, used as the chain-resolution lookup key. */
+export function orcaPresetName(preset: Record<string, unknown>): string | undefined {
+  const name = preset.name
+  return typeof name === 'string' && name.trim() !== '' ? name : undefined
+}
+
 /** Returns the parsed preset object, or null when the content is not an Orca preset. */
 function tryParseOrca(content: string): Record<string, unknown> | null {
   let parsed: unknown
@@ -292,6 +332,14 @@ function orcaValue(preset: Record<string, unknown>, key: string): string | undef
   if (typeof value !== 'string') return undefined
   if (value === 'nil') return undefined
   return value
+}
+
+/** Imports an Orca preset that chain resolution has already merged parent-under-child; the
+ *  "inherits" key on the merged object (if the chain is fully resolved) is dropped by the caller
+ *  before this runs, so no unresolved-inherits warning fires here. Exported for
+ *  slicerImportChain.ts, which appends its own chain-specific warning (missing parent or cycle). */
+export function importOrcaMerged(preset: Record<string, unknown>): SlicerImportResult {
+  return importOrca({ ...preset, inherits: undefined })
 }
 
 function importOrca(preset: Record<string, unknown>): SlicerImportResult {

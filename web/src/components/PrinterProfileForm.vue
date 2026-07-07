@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import type { Firmware, PrinterProfile } from '../engine/pa/types'
 import { defaultPrinterProfile } from '../engine/pa/types'
-import { importSlicerConfig } from '../engine/pa/slicerImport'
+import { importSlicerConfigs } from '../engine/pa/slicerImport'
 import NumericField from './NumericField.vue'
 
 const props = defineProps<{
@@ -112,22 +112,34 @@ async function onImportFiles(event: Event): Promise<void> {
   const files = Array.from(input.files ?? [])
   input.value = ''
   if (files.length === 0) return
-  const importedFields = new Set<string>()
-  let missing: string[] = []
   const warnings: string[] = []
+  const slicerFiles: { fileName: string; content: string }[] = []
   for (const file of files) {
     try {
-      const result = importSlicerConfig(file.name, await file.text())
-      applyImported(result.fields)
-      for (const f of result.imported) importedFields.add(f)
-      // The missing list reflects the last file plus anything an earlier file already filled.
-      missing = result.missing.filter((f) => !importedFields.has(f))
-      warnings.push(...result.warnings.map((w) => `${file.name}: ${w}`))
+      slicerFiles.push({ fileName: file.name, content: await file.text() })
     } catch (e) {
       warnings.push(e instanceof Error ? e.message : String(e))
     }
   }
-  importSummary.value = { importedCount: importedFields.size, missing, warnings }
+  const result = importSlicerConfigs(slicerFiles)
+  applyImported(result.fields)
+  warnings.push(...result.warnings)
+  importSummary.value = {
+    importedCount: result.imported.length,
+    missing: result.missing,
+    warnings,
+  }
+}
+
+/**
+ * Path hint embedded in an unresolved-inherits warning, if any. Returns null when the vendor
+ * folder is unknown (the literal "<vendor>" placeholder): that text is guidance, not a real path,
+ * so it is shown as plain text rather than offered behind a misleading copy button.
+ */
+function parentPathHint(warning: string): string | null {
+  const match = warning.match(/(resources\\profiles\\[^\s]+)$/)
+  if (match === null || match[1].includes('<vendor>')) return null
+  return match[1]
 }
 
 type Os = 'Windows' | 'macOS' | 'Linux'
@@ -329,7 +341,18 @@ function save(): void {
               variant="tonal"
               class="mt-1 text-body-2"
             >
-              {{ warning }}
+              <div>{{ warning }}</div>
+              <div v-if="parentPathHint(warning)" class="d-flex align-center ga-1 mt-1">
+                <code class="copy-path">{{ parentPathHint(warning) }}</code>
+                <v-btn
+                  icon="mdi-content-copy"
+                  size="x-small"
+                  variant="text"
+                  :title="'Copy'"
+                  @click="copyPath(parentPathHint(warning)!)"
+                />
+                <span v-if="copiedPath === parentPathHint(warning)" class="text-success">copied</span>
+              </div>
             </v-alert>
           </div>
         </div>
