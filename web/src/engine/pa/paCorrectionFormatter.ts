@@ -1,6 +1,6 @@
 import type { Correction } from '../types'
 import type { Firmware } from './types'
-import { paCommand } from './gcodeGenerator'
+import { paCommand, smoothTimeCommand } from './gcodeGenerator'
 
 export function paCorrection(firmware: Firmware, paValue: number): Correction {
   const v = paValue.toFixed(4)
@@ -21,5 +21,22 @@ export function paCorrection(firmware: Firmware, paValue: number): Correction {
     hint: 'For a permanent setting, add the line below to the [extruder] section of printer.cfg.',
     secondaryCaption: 'printer.cfg',
     secondaryCode: `pressure_advance: ${v}`,
+  }
+}
+
+/** Klipper-only smooth time result: the live command plus the printer.cfg line. */
+export function smoothTimeCorrection(
+  firmware: Firmware,
+  paValue: number,
+  smoothTime: number,
+): Correction {
+  if (firmware !== 'Klipper') {
+    throw new Error('Smooth time calibration applies to Klipper only.')
+  }
+  return {
+    code: smoothTimeCommand(paValue, smoothTime),
+    hint: 'For a permanent setting, add the line below to the [extruder] section of printer.cfg.',
+    secondaryCaption: 'printer.cfg',
+    secondaryCode: `pressure_advance_smooth_time: ${smoothTime.toFixed(4)}`,
   }
 }

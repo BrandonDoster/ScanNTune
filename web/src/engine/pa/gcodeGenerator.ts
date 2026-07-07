@@ -1,5 +1,5 @@
 import type { FilamentProfile, PrinterProfile, PaTestSpec } from './types'
-import { couponGeometry, paValueForLine } from './types'
+import { couponGeometry, KLIPPER_DEFAULT_SMOOTH_TIME, paValueForLine } from './types'
 import { substituteSlicerVariables } from './slicerVariables'
 
 /** Standard slicer volumetric flow: bead cross-section approximated as w * h. */
@@ -18,6 +18,17 @@ export function paCommand(firmware: PrinterProfile['firmware'], value: number): 
   if (firmware === 'Marlin') return `M900 K${v}`
   if (firmware === 'RepRapFirmware') return `M572 D0 S${v}`
   return `SET_PRESSURE_ADVANCE ADVANCE=${v}`
+}
+
+/** Klipper-only: set the fixed advance K together with a swept smooth time. */
+export function smoothTimeCommand(fixedAdvance: number, smoothTime: number): string {
+  return `SET_PRESSURE_ADVANCE ADVANCE=${fixedAdvance.toFixed(4)} SMOOTH_TIME=${smoothTime.toFixed(4)}`
+}
+
+/** The per-line parameter command for the spec's sweep kind. */
+function sweepCommand(profile: PrinterProfile, spec: PaTestSpec, value: number): string {
+  if (spec.sweep === 'smoothTime') return smoothTimeCommand(spec.fixedAdvance as number, value)
+  return paCommand(profile.firmware, value)
 }
 
 interface Emitter {
@@ -267,6 +278,16 @@ export function generatePaGcodeWithReport(
   if (spec.fastSpeedMmS <= spec.slowSpeedMmS) {
     throw new Error('Fast speed must exceed slow speed')
   }
+  if (spec.sweep === 'smoothTime') {
+    if (profile.firmware !== 'Klipper') {
+      throw new Error(
+        'Smooth time calibration requires Klipper; Marlin and RepRapFirmware have no equivalent setting.',
+      )
+    }
+    if (!Number.isFinite(spec.fixedAdvance)) {
+      throw new Error('A smooth time sweep needs a fixed pressure advance value (fixedAdvance).')
+    }
+  }
   const start = substituteSlicerVariables(profile.startGcode, profile, filament)
   const pause = substituteSlicerVariables(profile.pauseGcode, profile, filament)
   const end = substituteSlicerVariables(profile.endGcode, profile, filament)
@@ -343,13 +364,17 @@ function emitPaGcode(profile: PrinterProfile, filament: FilamentProfile, spec: P
   // Prime line along the bottom base edge, outside the measured region.
   const z3 = profile.layerHeightMm * (BASE_LAYERS + 1)
   L.push(`G1 Z${z3.toFixed(3)} F600`)
-  L.push(paCommand(profile.firmware, 0))
+  L.push(
+    spec.sweep === 'smoothTime'
+      ? smoothTimeCommand(spec.fixedAdvance as number, KLIPPER_DEFAULT_SMOOTH_TIME)
+      : paCommand(profile.firmware, 0),
+  )
   travel(e, profile, ox + 2, oy + 1.5)
   extrude(e, profile, filament, spec, ox + g.baseWidthMm - 2, oy + 1.5, spec.slowSpeedMmS)
 
   // Test lines.
   for (let i = 0; i < spec.lineCount; i++) {
-    L.push(paCommand(profile.firmware, paValueForLine(spec, i)))
+    L.push(sweepCommand(profile, spec, paValueForLine(spec, i)))
     const y = oy + g.lineStartYMm(i)
     const x0 = ox + g.lineStartXMm
     retract(e, profile, 1)

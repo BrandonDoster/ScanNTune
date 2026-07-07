@@ -14,6 +14,10 @@ export interface PaRenderOptions {
   baseGray: number // base filament tone, default 210 (light)
   lineGray: number // test line tone, default 40 (dark)
   backgroundGray: number // scanner lid behind fiducial holes, default 120
+  /** Ground-truth smooth time (s) of the "printer" for spec.sweep === 'smoothTime' renders. */
+  trueSmoothTime: number
+  /** Fractional half-width change per unit residual for smooth-time renders. */
+  smoothTimeGain: number
 }
 
 const DEFAULTS: Omit<PaRenderOptions, 'truePa'> = {
@@ -27,6 +31,8 @@ const DEFAULTS: Omit<PaRenderOptions, 'truePa'> = {
   baseGray: 210,
   lineGray: 40,
   backgroundGray: 120,
+  trueSmoothTime: 0.04,
+  smoothTimeGain: 3,
 }
 
 /** Deterministic pseudo-random (mulberry32) so fixtures are reproducible. */
@@ -52,6 +58,36 @@ function transient(xMm: number, transitions: [number, number], sigma: number): n
   const [t1, t2] = transitions
   const lobe = (c: number, sign: number) => sign * Math.exp(-((xMm - c) ** 2) / (2 * sigma * sigma))
   return lobe(t1, -1) + lobe(t2, 1)
+}
+
+/**
+ * Unit step at t convolved with a box (moving-average) window of full spatial
+ * width w: Klipper's documented pressure advance smoothing, a weighted moving
+ * average over smooth_time mapped to distance at the line speed. A zero-width
+ * window degenerates to the exact step.
+ */
+function boxSmoothedStep(x: number, t: number, w: number): number {
+  if (w <= 0) return x >= t ? 1 : 0
+  return Math.min(1, Math.max(0, (x - t) / w + 0.5))
+}
+
+/**
+ * Residual width error profile for a smooth-time render: the extrusion-rate
+ * step at each transition blurred by the printer's true smoothing window minus
+ * the same step blurred by the applied smooth_time window. Zero everywhere when
+ * the applied smooth time matches the true one; grows monotonically with the
+ * window mismatch. The deceleration transition is the opposite step direction.
+ */
+function smoothTimeResidual(
+  xMm: number,
+  transitions: [number, number],
+  trueWidthMm: number,
+  appliedWidthMm: number,
+): number {
+  const d = (t: number) =>
+    boxSmoothedStep(xMm, t, trueWidthMm) - boxSmoothedStep(xMm, t, appliedWidthMm)
+  const [t1, t2] = transitions
+  return d(t1) - d(t2)
 }
 
 export function renderPaScan(options: Partial<PaRenderOptions> & { truePa: number }): RgbaImage {
@@ -134,13 +170,27 @@ function sampleGray(
     if (Math.abs(y - yc) > o.spec.linePitchMm / 2) continue
     const lx = x - g.lineStartXMm
     if (lx < 0 || lx > lineLen) break
-    const paErr = paValueForLine(o.spec, i) - o.truePa
-    const s = transient(lx, g.transitionXsMm, o.transitionSigmaMm)
-    // Too-low PA (paErr negative) bulges at the deceleration transition
-    // (second lobe, sign +1); too-high PA (paErr positive) starves there.
-    // Captured by -paErr * s.
     const halfNominal = o.spec.lineWidthMm / 2
-    let half = halfNominal * (1 + o.bulgeGainMmPerPa * -paErr * s)
+    let half: number
+    if (o.spec.sweep === 'smoothTime') {
+      // Smoothing acts in time; map the window to distance at the mean of the
+      // two segment speeds bounding each transition.
+      const vMean = (o.spec.slowSpeedMmS + o.spec.fastSpeedMmS) / 2
+      const r = smoothTimeResidual(
+        lx,
+        g.transitionXsMm,
+        o.trueSmoothTime * vMean,
+        paValueForLine(o.spec, i) * vMean,
+      )
+      half = halfNominal * (1 + o.smoothTimeGain * r)
+    } else {
+      const paErr = paValueForLine(o.spec, i) - o.truePa
+      const s = transient(lx, g.transitionXsMm, o.transitionSigmaMm)
+      // Too-low PA (paErr negative) bulges at the deceleration transition
+      // (second lobe, sign +1); too-high PA (paErr positive) starves there.
+      // Captured by -paErr * s.
+      half = halfNominal * (1 + o.bulgeGainMmPerPa * -paErr * s)
+    }
     half = Math.max(half, halfNominal * 0.2)
     if (Math.abs(y - yc) <= half) return o.lineGray
     break

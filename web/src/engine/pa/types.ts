@@ -31,10 +31,21 @@ export interface PrinterProfile {
   endGcode: string
 }
 
+/** Which Klipper parameter the test lines sweep. Absent means 'advance' (back-compat). */
+export type PaSweepKind = 'advance' | 'smoothTime'
+
 export interface PaTestSpec {
   lineCount: number
+  /**
+   * Swept parameter range: pressure advance K for an 'advance' sweep, seconds of
+   * pressure_advance_smooth_time for a 'smoothTime' sweep.
+   */
   paStart: number
   paEnd: number
+  /** Swept parameter; omitted means 'advance'. */
+  sweep?: PaSweepKind
+  /** Pressure advance K applied to every line when sweeping smooth time. */
+  fixedAdvance?: number
   slowSegmentMm: number
   fastSegmentMm: number
   slowSpeedMmS: number
@@ -144,6 +155,20 @@ export function defaultPaTestSpec(): PaTestSpec {
     linePitchMm: 4,
     marginMm: 8,
     lineWidthMm: 0.45,
+  }
+}
+
+/** Klipper's default pressure_advance_smooth_time, in seconds. */
+export const KLIPPER_DEFAULT_SMOOTH_TIME = 0.04
+
+/** Default smooth-time sweep: 0.01 to 0.06 s around Klipper's 0.04 s default. */
+export function defaultSmoothTimeTestSpec(fixedAdvance: number): PaTestSpec {
+  return {
+    ...defaultPaTestSpec(),
+    sweep: 'smoothTime',
+    fixedAdvance,
+    paStart: 0.01,
+    paEnd: 0.06,
   }
 }
 
