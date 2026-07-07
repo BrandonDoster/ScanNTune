@@ -26,8 +26,10 @@ describe('pa types', () => {
     expect(g.baseHeightMm).toBeCloseTo((spec.lineCount - 1) * spec.linePitchMm + 2 * spec.marginMm, 10)
     // three fiducial holes, none at the origin corner (min-x, min-y)
     expect(g.fiducials).toHaveLength(3)
+    const originX = g.fiducialInsetMm + g.fiducialSizeMm / 2
+    const originY = g.fiducialInsetMm + g.fiducialSizeMm / 2
     for (const f of g.fiducials) {
-      expect(f.xMm === g.fiducialInsetMm && f.yMm === g.fiducialInsetMm).toBe(false)
+      expect(f.xMm === originX && f.yMm === originY).toBe(false)
     }
     // transitions sit at slow/fast boundaries in line-local x
     expect(g.transitionXsMm).toEqual([spec.slowSegmentMm, spec.slowSegmentMm + spec.fastSegmentMm])

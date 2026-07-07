@@ -183,11 +183,15 @@ export function generatePaGcode(profile: PrinterProfile, spec: PaTestSpec): stri
   // Filament change to the contrasting color.
   retract(e, profile, 1)
   L.push(...profile.pauseGcode.split('\n'))
+  // Printers whose PAUSE/M600 macro already retracts may see a small blob at the prime
+  // line start; set retractMm to 0 in the profile if that happens.
+  L.push('; if your pause macro already retracts, set retractMm to 0 in the profile')
   retract(e, profile, -1)
 
   // Prime line along the bottom base edge, outside the measured region.
   const z3 = profile.layerHeightMm * 3
   L.push(`G1 Z${z3.toFixed(3)} F600`)
+  L.push(paCommand(profile.firmware, 0))
   travel(e, profile, ox + 2, oy + 1.5)
   extrude(e, profile, spec, ox + g.baseWidthMm - 2, oy + 1.5, spec.slowSpeedMmS)
 

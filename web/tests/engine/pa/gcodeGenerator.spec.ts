@@ -39,6 +39,25 @@ describe('generatePaGcode', () => {
     expect(rrf).toContain('M572 D0 S0.0000')
   })
 
+  it('resets PA to 0 after the filament swap, before the prime line and before the first stepped PA command', () => {
+    const g = generatePaGcode(profile, spec)
+    const zeroPaAt = g.indexOf('SET_PRESSURE_ADVANCE ADVANCE=0.0000')
+    expect(zeroPaAt).toBeGreaterThan(0)
+    const primeLineAt = g.indexOf(`E${extrusionMm(
+      couponGeometry(spec).baseWidthMm - 4,
+      spec.lineWidthMm,
+      profile.layerHeightMm,
+      profile.filamentDiameterMm,
+    ).toFixed(5)}`)
+    expect(primeLineAt).toBeGreaterThan(0)
+    expect(zeroPaAt).toBeLessThan(primeLineAt)
+    const firstSteppedPaAt = g.indexOf(
+      `SET_PRESSURE_ADVANCE ADVANCE=${paValueForLine(spec, 0).toFixed(4)}`,
+      zeroPaAt + 1,
+    )
+    expect(firstSteppedPaAt).toBeGreaterThan(zeroPaAt)
+  })
+
   it('emits the pause gcode exactly once, between base and lines', () => {
     const g = generatePaGcode(profile, spec)
     const pauseAt = g.indexOf('\nPAUSE\n')
