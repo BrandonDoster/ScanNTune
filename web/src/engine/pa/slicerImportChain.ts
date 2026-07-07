@@ -14,12 +14,16 @@ export interface SlicerFile {
 }
 
 /** One unresolved "inherits" parent, structured for the UI instead of parsed out of a prose
- *  warning string. pathHint is a concrete copyable path ONLY when the missing parent is a machine
- *  preset that resolves to a real Orca vendor folder; otherwise it is null and the UI shows an
- *  honest filename-to-search fallback (fileToFind) rather than a fabricated folder. */
+ *  warning string. pathHint is ALWAYS a real, existing path: the exact '<name>.json' file when the
+ *  missing parent is a machine preset that resolves to a real Orca vendor folder, otherwise the
+ *  '<installBase>\resources\profiles\' base folder that definitely exists. pathIsExactFile tells the
+ *  two apart so the UI does not string-sniff: true means the chip is the file itself; false means
+ *  the chip is the base folder and the file (fileToFind) is somewhere inside it. */
 export interface UnresolvedParent {
   presetName: string
-  pathHint: string | null
+  pathHint: string
+  /** True when pathHint is the exact parent file; false when it is the resources\profiles base. */
+  pathIsExactFile: boolean
   /** The exact on-disk filename ('<parentName>.json') to search the Orca install for. */
   fileToFind: string
   fileName: string
@@ -185,9 +189,11 @@ function importOrcaChain(
     const kind = orcaPresetKind(preset)
     result.warnings.push(unresolvedInheritsWarning(chain.unresolvedParent, kind))
     const vendorCandidates = [chain.unresolvedParent, ...chain.ancestryToRoot]
+    const hint = parentPathHint(chain.unresolvedParent, kind, installPath, vendorCandidates)
     result.unresolvedParents.push({
       presetName: chain.unresolvedParent,
-      pathHint: parentPathHint(chain.unresolvedParent, kind, installPath, vendorCandidates),
+      pathHint: hint.path,
+      pathIsExactFile: hint.isExactFile,
       fileToFind: `${chain.unresolvedParent}.json`,
       fileName: file.fileName,
     })
@@ -195,44 +201,43 @@ function importOrcaChain(
   return result
 }
 
-/** True when a preset name's first whitespace-separated word plausibly identifies an OrcaSlicer
- *  vendor folder: alphabetic characters only (no digits, underscores, or symbols) and at least two
- *  characters long. Common vendor-less bases like "fdm_klipper_common" fail this (underscore), as
- *  do nozzle-size-prefixed names like "0.4 Generic Nozzle" (leading digit). */
-export function isVendorWord(name: string): boolean {
-  const firstWord = name.trim().split(/\s+/)[0] ?? ''
-  return /^[A-Za-z]{2,}$/.test(firstWord)
+/** The path hint for an unresolved parent: either the exact parent file (when we are certain it
+ *  exists) or the resources\profiles base folder that always exists. isExactFile distinguishes them. */
+interface PathHint {
+  path: string
+  isExactFile: boolean
 }
 
 /**
- * A concrete copyable path is emitted ONLY when we are certain the file exists: the missing parent
- * must be a machine preset (Orca machine presets are regular, always
- * "<Vendor>/machine/<name>.json"), AND one of the candidate names must resolve to a real Orca
- * vendor folder via {@link matchOrcaVendor}. Filament preset locations are irregular (flat files
- * and subfolders under several vendor roots), so no path is ever derived for them. Candidates come
- * most-specific first: the missing parent's own name, then every preset between it and the uploaded
- * chain root, nearest child first (an intermediate system preset like "Voron 2.4 300 0.4 nozzle"
- * carries the vendor even when it sits deep in the chain), then the root. When nothing qualifies we
- * return null and the UI shows the honest filename-search fallback instead of guessing a folder.
+ * The exact parent file is emitted ONLY when we are certain it exists: the missing parent must be a
+ * machine preset (Orca machine presets are regular, always "<Vendor>/machine/<name>.json"), AND one
+ * of the candidate names must resolve to a real Orca vendor folder via {@link matchOrcaVendor}.
+ * Filament preset locations are irregular (flat files and subfolders under several vendor roots), so
+ * their exact file is never derived. Candidates come most-specific first: the missing parent's own
+ * name, then every preset between it and the uploaded chain root, nearest child first (an
+ * intermediate system preset like "Voron 2.4 300 0.4 nozzle" carries the vendor even when it sits
+ * deep in the chain), then the root. When nothing qualifies we return the resources\profiles base
+ * folder (which always exists) and the UI tells the user to find the file somewhere inside it.
  */
 function parentPathHint(
   presetName: string,
   kind: OrcaPresetKind,
   installPath: string | null,
   vendorCandidates: string[],
-): string | null {
-  if (kind !== 'machine') return null
+): PathHint {
+  const base =
+    installPath !== null && installPath.trim() !== ''
+      ? installPath.trim().replace(/[\\/]+$/, '')
+      : 'OrcaSlicer'
+  const profilesBase = `${base}\\resources\\profiles\\`
+  if (kind !== 'machine') return { path: profilesBase, isExactFile: false }
   let vendor: string | null = null
   for (const candidate of vendorCandidates) {
     vendor = matchOrcaVendor(candidate)
     if (vendor !== null) break
   }
-  if (vendor === null) return null
-  const base =
-    installPath !== null && installPath.trim() !== ''
-      ? installPath.trim().replace(/[\\/]+$/, '')
-      : 'OrcaSlicer'
-  return `${base}\\resources\\profiles\\${vendor}\\${kind}\\${presetName}.json`
+  if (vendor === null) return { path: profilesBase, isExactFile: false }
+  return { path: `${profilesBase}${vendor}\\${kind}\\${presetName}.json`, isExactFile: true }
 }
 
 interface ChainResolution {

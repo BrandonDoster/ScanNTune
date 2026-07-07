@@ -2,6 +2,7 @@ import type { FilamentProfile, Firmware, PrinterProfile } from './types'
 
 export { importSlicerConfigs } from './slicerImportChain'
 export type { SlicerFile } from './slicerImportChain'
+import type { UnresolvedParent } from './slicerImportChain'
 
 /** Printer-kind fields an import can fill (identity and filament list excluded). */
 export type ImportedPrinterFields = Partial<
@@ -24,12 +25,7 @@ export interface SlicerImportResult {
   /** Unresolved-inherits parents, structured for the UI; absent (undefined) for single-file
    *  imports that never go through chain resolution. Chain resolution always sets it (possibly
    *  to an empty array), so callers that go through importSlicerConfigs can rely on it. */
-  unresolvedParents?: {
-    presetName: string
-    pathHint: string | null
-    fileToFind: string
-    fileName: string
-  }[]
+  unresolvedParents?: UnresolvedParent[]
   /** Per-uploaded-file breakdown of which fields each file's import filled (cached or
    *  consumed-as-parent presets excluded); only set by multi-file chain resolution. */
   sources?: { fileName: string; imported: string[] }[]

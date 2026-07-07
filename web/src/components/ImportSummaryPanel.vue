@@ -148,32 +148,19 @@ function onParentPicked(event: Event): void {
           >
             Upload base preset
           </v-btn>
-          <template v-if="parent.pathHint !== null">
-            <code class="copy-path">{{ parent.pathHint }}</code>
-            <v-btn
-              icon="mdi-content-copy"
-              size="x-small"
-              variant="text"
-              title="Copy"
-              @click="copyPath(parent.pathHint)"
-            />
-            <span v-if="copiedPath === parent.pathHint" class="text-success">copied</span>
-          </template>
+          <code class="copy-path">{{ parent.pathHint }}</code>
+          <v-btn
+            icon="mdi-content-copy"
+            size="x-small"
+            variant="text"
+            title="Copy"
+            @click="copyPath(parent.pathHint)"
+          />
+          <span v-if="copiedPath === parent.pathHint" class="text-success">copied</span>
         </div>
-        <div v-if="parent.pathHint === null" class="mt-2">
+        <div v-if="!parent.pathIsExactFile" class="mt-2">
           <div class="text-caption text-medium-emphasis">
-            Search your OrcaSlicer install (resources\profiles) for this file:
-          </div>
-          <div class="d-flex align-center ga-2 mt-1 flex-wrap">
-            <code class="copy-path">{{ parent.fileToFind }}</code>
-            <v-btn
-              icon="mdi-content-copy"
-              size="x-small"
-              variant="text"
-              title="Copy"
-              @click="copyPath(parent.fileToFind)"
-            />
-            <span v-if="copiedPath === parent.fileToFind" class="text-success">copied</span>
+            Find {{ parent.fileToFind }} somewhere in this folder.
           </div>
           <div class="text-caption text-medium-emphasis mt-1">
             Or in OrcaSlicer, right-click the preset and Export to get one flat file with every

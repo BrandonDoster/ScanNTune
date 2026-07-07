@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { importSlicerConfigs } from '../../../src/engine/pa/slicerImport'
-import { isVendorWord } from '../../../src/engine/pa/slicerImportChain'
 
 const fixturesDir = join(__dirname, '../../fixtures/slicer')
 function readFixture(name: string): string {
@@ -70,6 +69,7 @@ describe('importSlicerConfigs: multi-file Orca inherits resolution', () => {
       {
         presetName: 'Voron 2.4 300 0.4 nozzle',
         pathHint: 'OrcaSlicer\\resources\\profiles\\Voron\\machine\\Voron 2.4 300 0.4 nozzle.json',
+        pathIsExactFile: true,
         fileToFind: 'Voron 2.4 300 0.4 nozzle.json',
         fileName: 'orca_machine_chubechanger.json',
       },
@@ -84,7 +84,7 @@ describe('importSlicerConfigs: multi-file Orca inherits resolution', () => {
     expect(result.unresolvedParents).toEqual([])
   })
 
-  it('emits a null pathHint (and a filename to search) when no candidate name is a known vendor', () => {
+  it('emits the resources\\profiles base folder when no candidate name is a known vendor', () => {
     const preset = JSON.stringify({
       type: 'machine',
       name: 'Weird Child',
@@ -96,14 +96,15 @@ describe('importSlicerConfigs: multi-file Orca inherits resolution', () => {
     expect(result.unresolvedParents).toEqual([
       {
         presetName: '0.4 Generic Nozzle',
-        pathHint: null,
+        pathHint: 'OrcaSlicer\\resources\\profiles\\',
+        pathIsExactFile: false,
         fileToFind: '0.4 Generic Nozzle.json',
         fileName: 'weird_name.json',
       },
     ])
   })
 
-  it('emits a null pathHint when neither the parent nor any candidate name is a known vendor', () => {
+  it('emits the base folder honoring the install path when no candidate name is a known vendor', () => {
     const preset = JSON.stringify({
       type: 'machine',
       name: '0.4 nozzle child',
@@ -111,11 +112,16 @@ describe('importSlicerConfigs: multi-file Orca inherits resolution', () => {
       printable_area: ['0x0', '100x0', '100x100', '0x100'],
       gcode_flavor: 'klipper',
     })
-    const result = importSlicerConfigs([{ fileName: 'weird_name.json', content: preset }])
+    const result = importSlicerConfigs(
+      [{ fileName: 'weird_name.json', content: preset }],
+      [],
+      'C:\\Program Files\\OrcaSlicer\\',
+    )
     expect(result.unresolvedParents).toEqual([
       {
         presetName: '0.4 Generic Nozzle',
-        pathHint: null,
+        pathHint: 'C:\\Program Files\\OrcaSlicer\\resources\\profiles\\',
+        pathIsExactFile: false,
         fileToFind: '0.4 Generic Nozzle.json',
         fileName: 'weird_name.json',
       },
@@ -161,12 +167,13 @@ describe('importSlicerConfigs: multi-file Orca inherits resolution', () => {
     expect(result.missing).toContain('bedTempC')
     expect(result.missing).toContain('filamentType')
     expect(result.warnings.some((w) => w.toLowerCase().includes('generic pc @system'))).toBe(true)
-    // Filament preset locations are irregular, so no folder is fabricated: pathHint is null and the
-    // UI shows the exact filename to search for instead.
+    // Filament preset locations are irregular, so no exact file is fabricated: pathHint is the
+    // resources\profiles base folder and the UI tells the user to find the file inside it.
     expect(result.unresolvedParents).toEqual([
       {
         presetName: 'Generic PC @System',
-        pathHint: null,
+        pathHint: 'OrcaSlicer\\resources\\profiles\\',
+        pathIsExactFile: false,
         fileToFind: 'Generic PC @System.json',
         fileName: 'orca_filament_treed_pc.json',
       },
@@ -240,6 +247,7 @@ describe('importSlicerConfigs: multi-file Orca inherits resolution', () => {
         presetName: 'Voron 2.4 300 0.4 nozzle',
         pathHint:
           'C:\\Program Files\\OrcaSlicer\\resources\\profiles\\Voron\\machine\\Voron 2.4 300 0.4 nozzle.json',
+        pathIsExactFile: true,
         fileToFind: 'Voron 2.4 300 0.4 nozzle.json',
         fileName: 'orca_machine_chubechanger.json',
       },
@@ -332,9 +340,9 @@ describe('importSlicerConfigs: multi-file Orca inherits resolution', () => {
     )
   })
 
-  it('emits a null pathHint for a machine base whose only candidate is a non-vendor name', () => {
+  it('emits the base folder for a machine base whose only candidate is a non-vendor name', () => {
     // "Mybox custom" is vendor-shaped but not a real Orca vendor folder, and nothing nearer carries
-    // one, so no path is fabricated; the UI shows the filename to search for instead.
+    // one, so no exact file is fabricated; the UI shows the base folder to search inside instead.
     const child = JSON.stringify({
       type: 'machine',
       name: 'Mybox custom',
@@ -344,26 +352,8 @@ describe('importSlicerConfigs: multi-file Orca inherits resolution', () => {
     })
     const result = importSlicerConfigs([{ fileName: 'mybox.json', content: child }])
     const parent = result.unresolvedParents?.find((p) => p.presetName === 'fdm_machine_common')
-    expect(parent?.pathHint).toBe(null)
+    expect(parent?.pathHint).toBe('OrcaSlicer\\resources\\profiles\\')
+    expect(parent?.pathIsExactFile).toBe(false)
     expect(parent?.fileToFind).toBe('fdm_machine_common.json')
-  })
-})
-
-describe('isVendorWord', () => {
-  it('accepts a plausible vendor word', () => {
-    expect(isVendorWord('Voron')).toBe(true)
-    expect(isVendorWord('Generic')).toBe(true)
-  })
-
-  it('rejects an underscore-joined base preset name', () => {
-    expect(isVendorWord('fdm_klipper_common')).toBe(false)
-  })
-
-  it('rejects an empty name', () => {
-    expect(isVendorWord('')).toBe(false)
-  })
-
-  it('rejects a name starting with a number', () => {
-    expect(isVendorWord('0.4')).toBe(false)
   })
 })
