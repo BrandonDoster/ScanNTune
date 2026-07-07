@@ -1,5 +1,6 @@
 import type { PrinterProfile, PaTestSpec } from './types'
 import { couponGeometry, paValueForLine } from './types'
+import { substituteSlicerVariables } from './slicerVariables'
 
 /** Standard slicer volumetric flow: bead cross-section approximated as w * h. */
 export function extrusionMm(
@@ -153,6 +154,31 @@ function rasterBase(
 }
 
 export function generatePaGcode(profile: PrinterProfile, spec: PaTestSpec): string {
+  return generatePaGcodeWithReport(profile, spec).gcode
+}
+
+/**
+ * Generate the PA test G-code, substituting slicer placeholder variables in the profile's
+ * start/pause/end G-code, and report any placeholders that were left verbatim.
+ */
+export function generatePaGcodeWithReport(
+  profile: PrinterProfile,
+  spec: PaTestSpec,
+): { gcode: string; unknownVariables: string[] } {
+  const start = substituteSlicerVariables(profile.startGcode, profile)
+  const pause = substituteSlicerVariables(profile.pauseGcode, profile)
+  const end = substituteSlicerVariables(profile.endGcode, profile)
+  const substituted: PrinterProfile = {
+    ...profile,
+    startGcode: start.gcode,
+    pauseGcode: pause.gcode,
+    endGcode: end.gcode,
+  }
+  const unknownVariables = [...new Set([...start.unknown, ...pause.unknown, ...end.unknown])]
+  return { gcode: emitPaGcode(substituted, spec), unknownVariables }
+}
+
+function emitPaGcode(profile: PrinterProfile, spec: PaTestSpec): string {
   const g = couponGeometry(spec)
   // Center the coupon on the bed.
   const ox = (profile.bedWidthMm - g.baseWidthMm) / 2

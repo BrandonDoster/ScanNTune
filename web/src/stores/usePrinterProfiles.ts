@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import type { PrinterProfile } from '../engine/pa/types'
+import { defaultPrinterProfile } from '../engine/pa/types'
 
 const STORAGE_KEY = 'scanntune.printerProfiles'
 
@@ -15,18 +16,47 @@ const NUMERIC_FIELDS = [
   'layerHeightMm',
   'retractMm',
   'retractSpeedMmS',
+  'chamberTempC',
 ] as const
 
-const STRING_FIELDS = ['id', 'name', 'firmware', 'startGcode', 'pauseGcode', 'endGcode'] as const
+const STRING_FIELDS = [
+  'id',
+  'name',
+  'firmware',
+  'startGcode',
+  'pauseGcode',
+  'endGcode',
+  'filamentType',
+] as const
+
+// Fields added after the first release: profiles saved before they existed are still valid and
+// get the default value filled in on load.
+const OPTIONAL_NUMERIC_FIELDS: readonly (typeof NUMERIC_FIELDS)[number][] = ['chamberTempC']
+const OPTIONAL_STRING_FIELDS: readonly (typeof STRING_FIELDS)[number][] = ['filamentType']
 
 function isValidProfile(value: unknown): value is PrinterProfile {
   if (typeof value !== 'object' || value === null) return false
   const record = value as Record<string, unknown>
   const numbersOk = NUMERIC_FIELDS.every(
-    (k) => typeof record[k] === 'number' && Number.isFinite(record[k]),
+    (k) =>
+      (typeof record[k] === 'number' && Number.isFinite(record[k])) ||
+      (OPTIONAL_NUMERIC_FIELDS.includes(k) && record[k] === undefined),
   )
-  const stringsOk = STRING_FIELDS.every((k) => typeof record[k] === 'string')
+  const stringsOk = STRING_FIELDS.every(
+    (k) =>
+      typeof record[k] === 'string' ||
+      (OPTIONAL_STRING_FIELDS.includes(k) && record[k] === undefined),
+  )
   return numbersOk && stringsOk
+}
+
+function withDefaults(profile: PrinterProfile): PrinterProfile {
+  const defaults = defaultPrinterProfile()
+  return {
+    ...profile,
+    chamberTempC: profile.chamberTempC ?? defaults.chamberTempC,
+    filamentType: profile.filamentType ?? defaults.filamentType,
+  }
 }
 
 interface StoredState {
@@ -42,11 +72,13 @@ function loadFromStorage(): StoredState {
     if (typeof parsed !== 'object' || parsed === null) return { profiles: [], selectedId: null }
     const record = parsed as Record<string, unknown>
     const rawProfiles = Array.isArray(record.profiles) ? record.profiles : []
-    const profiles = rawProfiles.filter((p): p is PrinterProfile => {
-      if (isValidProfile(p)) return true
-      console.warn('Dropping invalid stored printer profile', p)
-      return false
-    })
+    const profiles = rawProfiles
+      .filter((p): p is PrinterProfile => {
+        if (isValidProfile(p)) return true
+        console.warn('Dropping invalid stored printer profile', p)
+        return false
+      })
+      .map(withDefaults)
     const selectedId = typeof record.selectedId === 'string' ? record.selectedId : null
     return { profiles, selectedId }
   } catch (e) {

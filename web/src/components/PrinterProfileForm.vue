@@ -27,6 +27,8 @@ const nozzleDiameterMm = ref<number | null>(null)
 const filamentDiameterMm = ref<number | null>(null)
 const nozzleTempC = ref<number | null>(null)
 const bedTempC = ref<number | null>(null)
+const chamberTempC = ref<number | null>(null)
+const filamentType = ref('')
 const travelSpeedMmS = ref<number | null>(null)
 const layerHeightMm = ref<number | null>(null)
 const retractMm = ref<number | null>(null)
@@ -45,6 +47,8 @@ function loadFrom(p: PrinterProfile): void {
   filamentDiameterMm.value = p.filamentDiameterMm
   nozzleTempC.value = p.nozzleTempC
   bedTempC.value = p.bedTempC
+  chamberTempC.value = p.chamberTempC
+  filamentType.value = p.filamentType
   travelSpeedMmS.value = p.travelSpeedMmS
   layerHeightMm.value = p.layerHeightMm
   retractMm.value = p.retractMm
@@ -68,6 +72,7 @@ const numbers = computed(() => [
   filamentDiameterMm.value,
   nozzleTempC.value,
   bedTempC.value,
+  chamberTempC.value,
   travelSpeedMmS.value,
   layerHeightMm.value,
   retractMm.value,
@@ -93,6 +98,8 @@ function save(): void {
     filamentDiameterMm: filamentDiameterMm.value!,
     nozzleTempC: nozzleTempC.value!,
     bedTempC: bedTempC.value!,
+    chamberTempC: chamberTempC.value!,
+    filamentType: filamentType.value.trim() || 'PLA',
     travelSpeedMmS: travelSpeedMmS.value!,
     layerHeightMm: layerHeightMm.value!,
     retractMm: retractMm.value!,
@@ -135,6 +142,15 @@ function save(): void {
           <NumericField v-model="bedDepthMm" label="Bed depth (mm)" :step="10" :min="10" />
           <NumericField v-model="nozzleTempC" label="Nozzle temp (°C)" :step="5" :min="0" />
           <NumericField v-model="bedTempC" label="Bed temp (°C)" :step="5" :min="0" />
+        </div>
+        <div class="fields mb-2">
+          <NumericField v-model="chamberTempC" label="Chamber temp (°C)" :step="5" :min="0" />
+          <v-text-field
+            v-model="filamentType"
+            label="Filament type"
+            density="comfortable"
+            data-testid="profile-filament-type"
+          />
         </div>
         <div class="fields mb-2">
           <NumericField

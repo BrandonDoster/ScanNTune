@@ -10,6 +10,8 @@ export interface PrinterProfile {
   filamentDiameterMm: number
   nozzleTempC: number
   bedTempC: number
+  chamberTempC: number
+  filamentType: string
   travelSpeedMmS: number
   layerHeightMm: number
   retractMm: number
@@ -82,6 +84,8 @@ export function defaultPrinterProfile(): PrinterProfile {
     filamentDiameterMm: 1.75,
     nozzleTempC: 210,
     bedTempC: 60,
+    chamberTempC: 0,
+    filamentType: 'PLA',
     travelSpeedMmS: 150,
     layerHeightMm: 0.2,
     retractMm: 0.8,

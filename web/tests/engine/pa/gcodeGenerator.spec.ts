@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { generatePaGcode, extrusionMm, estimatePaPrintSeconds } from '../../../src/engine/pa/gcodeGenerator'
+import {
+  generatePaGcode,
+  generatePaGcodeWithReport,
+  extrusionMm,
+  estimatePaPrintSeconds,
+} from '../../../src/engine/pa/gcodeGenerator'
 import { defaultPrinterProfile, defaultPaTestSpec, paValueForLine, couponGeometry } from '../../../src/engine/pa/types'
 
 describe('extrusionMm', () => {
@@ -123,6 +128,38 @@ describe('generatePaGcode', () => {
   it('ends with the end gcode', () => {
     const g = generatePaGcode(profile, spec)
     expect(g.trimEnd().endsWith('M84')).toBe(true)
+  })
+
+  it('substitutes slicer variables in the start gcode', () => {
+    const p = {
+      ...defaultPrinterProfile(),
+      startGcode:
+        'M117\nPRINT_START BED=[first_layer_bed_temperature] HOTEND=[first_layer_temperature] FILAMENT_TYPE=[filament_type] CHAMBER_TEMP=[chamber_temperature]',
+    }
+    const g = generatePaGcode(p, spec)
+    expect(g).toContain('PRINT_START BED=60 HOTEND=210 FILAMENT_TYPE=PLA CHAMBER_TEMP=0')
+  })
+})
+
+describe('generatePaGcodeWithReport', () => {
+  it('reports unknown variables across start, pause, and end gcode, deduplicated', () => {
+    const p = {
+      ...defaultPrinterProfile(),
+      startGcode: 'START [mystery_var]',
+      pauseGcode: 'PAUSE {mystery_var} {other_var}',
+      endGcode: 'M104 S{temperature}\nM84',
+    }
+    const r = generatePaGcodeWithReport(p, defaultPaTestSpec())
+    expect(r.unknownVariables).toEqual(['mystery_var', 'other_var'])
+    expect(r.gcode).toContain('START [mystery_var]')
+    expect(r.gcode).toContain('M104 S210')
+  })
+
+  it('reports nothing for the default profile and matches generatePaGcode', () => {
+    const p = defaultPrinterProfile()
+    const r = generatePaGcodeWithReport(p, defaultPaTestSpec())
+    expect(r.unknownVariables).toEqual([])
+    expect(r.gcode).toBe(generatePaGcode(p, defaultPaTestSpec()))
   })
 })
 
