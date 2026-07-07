@@ -122,8 +122,6 @@ describe('importSlicerConfig with a flat PrusaSlicer export', () => {
 
   it('reads the plain scalar keys', () => {
     expect(result.fields.filament.filamentDiameterMm).toBe(1.75)
-    expect(result.fields.printer.layerHeightMm).toBe(0.2)
-    expect(result.fields.printer.travelSpeedMmS).toBe(180)
     expect(result.fields.filament.filamentType).toBe('PETG')
   })
 
@@ -157,11 +155,10 @@ describe('importSlicerConfig with a flat PrusaSlicer export', () => {
 
 describe('importSlicerConfig Prusa edge cases', () => {
   it('skips percent values with a warning', () => {
-    const result = importSlicerConfig('config.ini', 'layer_height = 75%\ntravel_speed = 150\n')
-    expect(result.fields.printer.layerHeightMm).toBeUndefined()
-    expect(result.missing).toContain('layerHeightMm')
+    const result = importSlicerConfig('config.ini', 'retract_speed = 75%\n')
+    expect(result.fields.printer.retractSpeedMmS).toBeUndefined()
+    expect(result.missing).toContain('retractSpeedMmS')
     expect(result.warnings.some((w) => w.includes('75%'))).toBe(true)
-    expect(result.fields.printer.travelSpeedMmS).toBe(150)
   })
 
   it('warns on an unknown gcode_flavor and leaves firmware unset', () => {
@@ -190,8 +187,7 @@ describe('importSlicerConfig with a PrusaSlicer bundle', () => {
   const result = importSlicerConfig('bundle.ini', prusaBundle)
 
   it('uses the presets named in [presets], not hidden *common* presets', () => {
-    expect(result.fields.printer.layerHeightMm).toBe(0.2)
-    expect(result.fields.printer.travelSpeedMmS).toBe(150)
+    expect(result.fields.printer.printAccelMmS2).toBe(1250)
   })
 
   it('merges printer, filament, and print sections', () => {
@@ -230,7 +226,7 @@ describe('importSlicerConfig with a PrusaSlicer bundle', () => {
   it('falls back to the first non-hidden preset per section when [presets] is absent', () => {
     const noPresets = prusaBundle.replace(/\[presets\][\s\S]*$/, '')
     const r = importSlicerConfig('bundle.ini', noPresets)
-    expect(r.fields.printer.layerHeightMm).toBe(0.2)
+    expect(r.fields.printer.printAccelMmS2).toBe(1250)
     expect(r.fields.printer.bedWidthMm).toBe(250)
   })
 })
@@ -299,11 +295,11 @@ describe('importSlicerConfig with a sparse Orca preset that inherits', () => {
       type: 'process',
       name: '0.20mm mine',
       inherits: '0.20mm Standard @BBL X1C',
-      layer_height: '0.2',
+      machine_max_jerk_x: ['8', '8'],
     })
     const result = importSlicerConfig('process.json', sparse)
-    expect(result.fields.printer.layerHeightMm).toBe(0.2)
-    expect(result.imported).toEqual(['layerHeightMm'])
+    expect(result.fields.printer.squareCornerVelocityMmS).toBe(8)
+    expect(result.imported).toEqual(['squareCornerVelocityMmS'])
     expect(result.warnings.some((w) => w.toLowerCase().includes('inherit'))).toBe(true)
   })
 })
@@ -354,8 +350,6 @@ describe('importSlicerConfig with real-world fixtures', () => {
       expect(result.missing).toContain('filamentDiameterMm')
       expect(result.missing).toContain('nozzleTempC')
       expect(result.missing).toContain('bedTempC')
-      expect(result.missing).toContain('layerHeightMm')
-      expect(result.missing).toContain('travelSpeedMmS')
       expect(result.missing).toContain('filamentType')
       expect(result.missing).toContain('chamberTempC')
       for (const field of result.missing) expect(result.imported).not.toContain(field)

@@ -5,8 +5,8 @@ import { useCopyPath } from '../composables/useCopyPath'
 import { fieldLabel } from './fieldLabels'
 import {
   importHeadline,
+  missingHasUnresolvedParent,
   plainWarnings as computePlainWarnings,
-  splitMissing,
 } from './importSummaryText'
 
 const props = defineProps<{ summary: ImportSummary }>()
@@ -19,7 +19,7 @@ const parentFileInput = ref<HTMLInputElement | null>(null)
 
 const headline = computed(() => importHeadline(props.summary))
 const plainWarnings = computed(() => computePlainWarnings(props.summary))
-const missing = computed(() => splitMissing(props.summary))
+const hasUnresolvedParent = computed(() => missingHasUnresolvedParent(props.summary))
 
 /** How many filled-field label chips a source card shows before collapsing into "+N more". */
 const CARD_LABEL_LIMIT = 5
@@ -179,11 +179,11 @@ function onParentPicked(event: Event): void {
           {{ summary.missing.length }} fields not in the file (kept as-is)
         </button>
         <div v-if="missingExpanded" class="mt-1">
-          <div v-if="missing.inBasePreset.length > 0" data-testid="import-missing-base">
+          <div v-if="hasUnresolvedParent" data-testid="import-missing-base">
             <div class="text-caption text-medium-emphasis">In the base preset:</div>
             <div class="chip-row mt-1">
               <v-chip
-                v-for="field in missing.inBasePreset"
+                v-for="field in summary.missing"
                 :key="field"
                 size="small"
                 color="warning"
@@ -193,17 +193,10 @@ function onParentPicked(event: Event): void {
               </v-chip>
             </div>
           </div>
-          <div
-            v-if="missing.setManually.length > 0"
-            :class="{ 'mt-1': missing.inBasePreset.length > 0 }"
-            data-testid="import-missing-chips"
-          >
-            <div v-if="missing.inBasePreset.length > 0" class="text-caption text-medium-emphasis">
-              Set manually:
-            </div>
+          <div v-else data-testid="import-missing-chips">
             <div class="chip-row mt-1">
               <v-chip
-                v-for="field in missing.setManually"
+                v-for="field in summary.missing"
                 :key="field"
                 size="small"
                 variant="outlined"

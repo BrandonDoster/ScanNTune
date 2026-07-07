@@ -7,10 +7,8 @@ const PRINTER_FIELDS = new Set([
   'bedWidthMm',
   'bedDepthMm',
   'nozzleDiameterMm',
-  'layerHeightMm',
   'retractMm',
   'retractSpeedMmS',
-  'travelSpeedMmS',
   'printAccelMmS2',
   'squareCornerVelocityMmS',
   'startGcode',
@@ -28,9 +26,18 @@ const FILAMENT_FIELDS = new Set([
 
 describe('FIELD_KINDS', () => {
   it('classifies every mapped printer and filament field', () => {
-    // id, name, and the filament list itself aren't slicer-import targets; every other
-    // PrinterProfile and FilamentProfile key must be classified.
-    const skip = new Set(['id', 'name', 'filaments', 'selectedFilamentId'])
+    // id, name, and the filament list itself aren't slicer-import targets; layerHeightMm and
+    // travelSpeedMmS are deliberately excluded (process/print settings that slicer machine or
+    // filament presets don't carry, so import never touches them); every other PrinterProfile
+    // and FilamentProfile key must be classified.
+    const skip = new Set([
+      'id',
+      'name',
+      'filaments',
+      'selectedFilamentId',
+      'layerHeightMm',
+      'travelSpeedMmS',
+    ])
     const mappedKeys = [
       ...Object.keys(defaultPrinterProfile()),
       ...Object.keys(defaultFilamentProfile()),

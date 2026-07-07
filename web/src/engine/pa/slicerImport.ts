@@ -44,10 +44,8 @@ const MAPPED_FIELDS_LIST = [
   'bedTempC',
   'chamberTempC',
   'filamentType',
-  'layerHeightMm',
   'retractMm',
   'retractSpeedMmS',
-  'travelSpeedMmS',
   'printAccelMmS2',
   'squareCornerVelocityMmS',
   'startGcode',
@@ -55,7 +53,7 @@ const MAPPED_FIELDS_LIST = [
   'endGcode',
 ] as const satisfies readonly (keyof ImportedFields)[]
 
-const MAPPED_FIELDS: (keyof ImportedFields)[] = [...MAPPED_FIELDS_LIST]
+const MAPPED_FIELDS: (typeof MAPPED_FIELDS_LIST)[number][] = [...MAPPED_FIELDS_LIST]
 
 const FLAVOR_TO_FIRMWARE: Record<string, Firmware> = {
   klipper: 'Klipper',
@@ -87,10 +85,8 @@ export const FIELD_KINDS: Record<(typeof MAPPED_FIELDS_LIST)[number], 'printer' 
   bedWidthMm: 'printer',
   bedDepthMm: 'printer',
   nozzleDiameterMm: 'printer',
-  layerHeightMm: 'printer',
   retractMm: 'printer',
   retractSpeedMmS: 'printer',
-  travelSpeedMmS: 'printer',
   printAccelMmS2: 'printer',
   squareCornerVelocityMmS: 'printer',
   startGcode: 'printer',
@@ -102,14 +98,6 @@ export const FIELD_KINDS: Record<(typeof MAPPED_FIELDS_LIST)[number], 'printer' 
   bedTempC: 'filament',
   chamberTempC: 'filament',
 }
-
-/** Printer-kind fields OrcaSlicer stores in process presets, never in machine presets: a machine
- *  preset chain cannot fill these, so the UI tells the user to set them manually instead of
- *  pointing at the base preset. */
-export const ORCA_PROCESS_FIELDS = [
-  'layerHeightMm',
-  'travelSpeedMmS',
-] as const satisfies readonly (keyof ImportedFields)[]
 
 interface Ctx {
   fields: ImportedFields
@@ -232,10 +220,8 @@ function applyCommon(
   }
   setNum(ctx, 'nozzleDiameterMm', numberFrom(ctx, 'nozzle_diameter'))
   applyFilamentKeys(ctx, keys)
-  setNum(ctx, 'layerHeightMm', firstNumber(ctx, ['layer_height']))
   setNum(ctx, 'retractMm', firstNumber(ctx, keys.retractLength))
   setNum(ctx, 'retractSpeedMmS', firstNumber(ctx, keys.retractSpeed))
-  setNum(ctx, 'travelSpeedMmS', numberFrom(ctx, 'travel_speed'))
   const defaultAccel = numberFrom(ctx, 'default_acceleration')
   setNum(
     ctx,

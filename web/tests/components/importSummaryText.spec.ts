@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { importHeadline, plainWarnings, splitMissing } from '../../src/components/importSummaryText'
+import {
+  importHeadline,
+  missingHasUnresolvedParent,
+  plainWarnings,
+} from '../../src/components/importSummaryText'
 import type { ImportSummary } from '../../src/composables/useProfileForm'
 
 function baseSummary(overrides: Partial<ImportSummary> = {}): ImportSummary {
@@ -91,39 +95,37 @@ describe('plainWarnings', () => {
   })
 })
 
-describe('splitMissing', () => {
-  const missing = ['bedWidthMm', 'layerHeightMm', 'travelSpeedMmS', 'printAccelMmS2']
+describe('missingHasUnresolvedParent', () => {
+  const missing = ['bedWidthMm', 'printAccelMmS2']
 
-  it('splits Orca machine imports with an unresolved parent into base-preset vs manual fields', () => {
-    const result = splitMissing(
-      baseSummary({ missing, orcaMachine: true, unresolvedParents: [unresolvedVoron] }),
-    )
-    expect(result.inBasePreset).toEqual(['bedWidthMm', 'printAccelMmS2'])
-    expect(result.setManually).toEqual(['layerHeightMm', 'travelSpeedMmS'])
+  it('flags an Orca machine import with an unresolved parent as possibly in the base preset', () => {
+    expect(
+      missingHasUnresolvedParent(
+        baseSummary({ missing, orcaMachine: true, unresolvedParents: [unresolvedVoron] }),
+      ),
+    ).toBe(true)
   })
 
-  it('keeps a single manual list for non-Orca imports', () => {
-    const result = splitMissing(baseSummary({ missing, orcaMachine: false }))
-    expect(result.inBasePreset).toEqual([])
-    expect(result.setManually).toEqual(missing)
+  it('is not flagged for non-Orca imports', () => {
+    expect(missingHasUnresolvedParent(baseSummary({ missing, orcaMachine: false }))).toBe(false)
   })
 
-  it('keeps a single manual list once the chain is fully resolved', () => {
-    const result = splitMissing(baseSummary({ missing, orcaMachine: true, unresolvedParents: [] }))
-    expect(result.inBasePreset).toEqual([])
-    expect(result.setManually).toEqual(missing)
+  it('is not flagged once the chain is fully resolved', () => {
+    expect(
+      missingHasUnresolvedParent(baseSummary({ missing, orcaMachine: true, unresolvedParents: [] })),
+    ).toBe(false)
   })
 
-  it('keeps a single manual list for the filament kind', () => {
-    const result = splitMissing(
-      baseSummary({
-        kind: 'filament',
-        missing: ['bedTempC'],
-        orcaMachine: true,
-        unresolvedParents: [unresolvedVoron],
-      }),
-    )
-    expect(result.inBasePreset).toEqual([])
-    expect(result.setManually).toEqual(['bedTempC'])
+  it('is not flagged for the filament kind', () => {
+    expect(
+      missingHasUnresolvedParent(
+        baseSummary({
+          kind: 'filament',
+          missing: ['bedTempC'],
+          orcaMachine: true,
+          unresolvedParents: [unresolvedVoron],
+        }),
+      ),
+    ).toBe(false)
   })
 })
