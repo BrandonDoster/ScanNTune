@@ -172,6 +172,7 @@ function generate(): void {
 // either analysis runs, every control on the page is disabled. `analyzeKind` only says which
 // card shows the progress spinner.
 const analyzing = ref(false)
+const showPaInfo = ref(false)
 const analyzeKind = ref<'pa' | 'smoothTime' | null>(null)
 const progressText = ref('')
 const scanError = ref('')
@@ -408,34 +409,61 @@ const stCorrection = computed(() => {
     <section class="step mb-3">
       <div class="step-head mb-2">
         <span class="num">2</span><span class="step-title">Test range</span>
+        <v-spacer />
+        <v-btn
+          variant="text"
+          size="small"
+          prepend-icon="mdi-information-outline"
+          class="info-link"
+          data-testid="pa-info-panel"
+          @click="showPaInfo = true"
+        >
+          What affects PA?
+        </v-btn>
       </div>
-      <div class="fields">
-        <v-select
-          :model-value="extruderPreset"
-          :items="extruderItems"
-          label="Extruder"
-          placeholder="Prefill range..."
-          density="comfortable"
-          :disabled="analyzing"
-          data-testid="pa-extruder-preset"
-          @update:model-value="onExtruderPreset"
-        />
-        <NumericField v-model="paStart" label="PA start" :step="0.01" :min="0" :precision="4" :disabled="analyzing" />
-        <NumericField v-model="paEnd" label="PA end" :step="0.01" :min="0" :precision="4" :disabled="analyzing" />
-        <NumericField v-model="lineCount" label="Lines" :step="1" :min="4" :disabled="analyzing" />
+      <div class="field-group">
+        <span class="group-label">Sweep</span>
+        <div class="fields">
+          <v-select
+            :model-value="extruderPreset"
+            :items="extruderItems"
+            label="Extruder"
+            placeholder="Prefill range..."
+            density="comfortable"
+            :disabled="analyzing"
+            data-testid="pa-extruder-preset"
+            @update:model-value="onExtruderPreset"
+          />
+          <NumericField v-model="paStart" label="PA start" :step="0.01" :min="0" :precision="4" :disabled="analyzing" />
+          <NumericField v-model="paEnd" label="PA end" :step="0.01" :min="0" :precision="4" :disabled="analyzing" />
+          <NumericField v-model="lineCount" label="Lines" :step="1" :min="4" :disabled="analyzing" />
+        </div>
       </div>
-      <div class="fields mt-3">
-        <NumericField v-model="slowSpeed" label="Slow speed (mm/s)" :step="5" :min="1" :disabled="analyzing" />
-        <NumericField v-model="fastSpeed" label="Fast speed (mm/s)" :step="5" :min="1" :disabled="analyzing" />
+      <div class="field-group mt-1">
+        <span class="group-label">Test speeds</span>
+        <div class="fields">
+          <NumericField v-model="slowSpeed" label="Slow speed (mm/s)" :step="5" :min="1" :disabled="analyzing" />
+          <NumericField v-model="fastSpeed" label="Fast speed (mm/s)" :step="5" :min="1" :disabled="analyzing" />
+        </div>
       </div>
-      <p class="tip">Step {{ stepPerLine }} per line, {{ footprintText }}.</p>
-      <v-expansion-panels variant="accordion" class="mt-3 info-panels">
-        <v-expansion-panel data-testid="pa-info-panel">
-          <v-expansion-panel-title class="text-body-2">
-            <v-icon size="18" color="primary" class="mr-2">mdi-information-outline</v-icon>
-            What affects pressure advance
-          </v-expansion-panel-title>
-          <v-expansion-panel-text>
+      <div class="facts mt-2">
+        <v-chip size="small" variant="tonal" prepend-icon="mdi-stairs">{{ stepPerLine }} per line</v-chip>
+        <v-chip size="small" variant="tonal" prepend-icon="mdi-ruler-square">{{ footprintText }}</v-chip>
+        <span v-if="!canGenerate" class="tip mt-0">Choose a printer profile first.</span>
+        <v-spacer />
+        <v-btn
+          color="primary"
+          prepend-icon="mdi-download"
+          :disabled="!canGenerate || analyzing"
+          data-testid="generate-btn"
+          @click="generate"
+        >
+          Generate G-code
+        </v-btn>
+      </div>
+      <v-dialog v-model="showPaInfo" max-width="560">
+        <v-card title="What affects pressure advance">
+          <v-card-text>
             <ul class="info-list">
               <li>
                 <strong>Temperature:</strong> the biggest factor. Hotter plastic flows easier and
@@ -465,14 +493,19 @@ const stCorrection = computed(() => {
                 after a nozzle swap.
               </li>
             </ul>
-          </v-expansion-panel-text>
-        </v-expansion-panel>
-      </v-expansion-panels>
+          </v-card-text>
+          <v-card-actions>
+            <v-spacer />
+            <v-btn variant="text" @click="showPaInfo = false">Close</v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
       <v-alert
         v-if="speedContrastLow"
         type="warning"
         variant="tonal"
-        class="mt-3"
+        density="compact"
+        class="mt-3 soft-alert"
         data-testid="pa-speed-warning"
         text="Fast speed should be at least 3x the slow speed; the speed contrast is what makes pressure advance measurable."
       />
@@ -480,7 +513,8 @@ const stCorrection = computed(() => {
         v-if="tooManyLines"
         type="info"
         variant="tonal"
-        class="mt-3"
+        density="compact"
+        class="mt-3 soft-alert"
         data-testid="pa-lines-hint"
         text="More than 24 lines adds little precision; a narrower follow-up range works better."
       />
@@ -488,23 +522,11 @@ const stCorrection = computed(() => {
         v-if="exceedsA4"
         type="warning"
         variant="tonal"
-        class="mt-3"
+        density="compact"
+        class="mt-3 soft-alert"
         data-testid="pa-a4-warning"
         :text="`The coupon is larger than A4. Most flatbed scanners cannot scan it in one pass. Reduce the line count to ${maxLinesForA4} or fewer unless your scanner is larger.`"
       />
-      <div class="gen-row mt-2">
-        <v-btn
-          color="primary"
-          prepend-icon="mdi-download"
-          :disabled="!canGenerate || analyzing"
-          data-testid="generate-btn"
-          @click="generate"
-        >
-          Generate G-code
-        </v-btn>
-        <span v-if="filename" class="tip mt-0">{{ filename }}</span>
-        <span v-else class="tip mt-0">Choose a printer profile first.</span>
-      </div>
       <v-alert
         v-if="generateError"
         type="error"
@@ -529,13 +551,11 @@ const stCorrection = computed(() => {
         :text="templateWarnings.join(' ')"
         data-testid="template-warnings"
       />
-      <div class="warn-box mt-3">
-        <v-icon color="warning" size="16" class="warn-icon">mdi-alert-outline</v-icon>
-        <span>
-          <strong class="warn-lead">Use two filaments with clearly different brightness.</strong>
-          Any colors work; the pause is where you swap to the second filament for the test lines.
-        </span>
-      </div>
+      <p class="caption-note">
+        <v-icon size="14" class="mr-1">mdi-invert-colors</v-icon>
+        Use two filaments with clearly different brightness (any colors work); swap to the second
+        one at the pause.
+      </p>
     </section>
 
     <!-- 3. Scan the print -->
@@ -826,6 +846,36 @@ const stCorrection = computed(() => {
 }
 .fields > * {
   flex: 1 1 140px;
+}
+.field-group .group-label {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.55;
+  margin-bottom: 4px;
+}
+.facts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.soft-alert {
+  font-size: 0.875rem;
+}
+.info-link {
+  text-transform: none;
+  letter-spacing: normal;
+  opacity: 0.8;
+}
+.caption-note {
+  display: flex;
+  align-items: center;
+  font-size: 0.8rem;
+  opacity: 0.65;
+  margin: 12px 0 0;
 }
 .gen-row {
   display: flex;
