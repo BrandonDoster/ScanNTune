@@ -20,7 +20,7 @@ describe('generatePaGcode', () => {
   const filament = defaultFilamentProfile()
   const spec = defaultPaTestSpec()
 
-  it('emits temps, start gcode, and relative extrusion', () => {
+  it('emits resolved heat lines from the start gcode, plus homing and relative extrusion', () => {
     const g = generatePaGcode(profile, filament, spec)
     expect(g).toContain('M104 S210')
     expect(g).toContain('M140 S60')
@@ -28,6 +28,21 @@ describe('generatePaGcode', () => {
     expect(g).toContain('M109 S210')
     expect(g).toContain('G28')
     expect(g).toContain('M83')
+  })
+
+  it('emits the heat commands only inside the start gcode, not as a separate preamble', () => {
+    const g = generatePaGcode(profile, filament, spec)
+    const lines = g.split('\n')
+    // Each heat command appears exactly once (no double-heat from a generator preamble).
+    for (const cmd of ['M140 S60', 'M104 S210', 'M190 S60', 'M109 S210']) {
+      expect(lines.filter((l) => l === cmd).length, cmd).toBe(1)
+    }
+    // The heat commands sit after the header comments (they come from the start gcode block,
+    // which the generator emits after its two header comment lines), and before homing/G90.
+    const g28At = lines.indexOf('G28')
+    for (const cmd of ['M140 S60', 'M104 S210', 'M190 S60', 'M109 S210']) {
+      expect(lines.indexOf(cmd), cmd).toBeLessThan(g28At)
+    }
   })
 
   it('emits one PA command per line with the stepped value', () => {
@@ -203,6 +218,30 @@ describe('generatePaGcodeWithReport', () => {
     expect(r.unknownVariables).toEqual(['mystery_var', 'other_var'])
     expect(r.gcode).toContain('START [mystery_var]')
     expect(r.gcode).toContain('M104 S210')
+  })
+
+  it('warns when the start gcode sets no temperatures', () => {
+    const p = { ...defaultPrinterProfile(), startGcode: 'G28\nG90' }
+    const r = generatePaGcodeWithReport(p, defaultFilamentProfile(), defaultPaTestSpec())
+    expect(r.warnings.some((w) => /sets no temperatures/i.test(w))).toBe(true)
+  })
+
+  it('does not warn for the default profile, whose start gcode heats via placeholders', () => {
+    const p = defaultPrinterProfile()
+    const r = generatePaGcodeWithReport(p, defaultFilamentProfile(), defaultPaTestSpec())
+    expect(r.warnings.some((w) => /sets no temperatures/i.test(w))).toBe(false)
+  })
+
+  it('does not double-heat or warn for an imported start gcode that already heats', () => {
+    const p = {
+      ...defaultPrinterProfile(),
+      startGcode: 'M140 S[first_layer_bed_temperature]\nM104 S[first_layer_temperature]\nPRINT_START\nG28',
+    }
+    const r = generatePaGcodeWithReport(p, defaultFilamentProfile(), defaultPaTestSpec())
+    expect(r.warnings.some((w) => /sets no temperatures/i.test(w))).toBe(false)
+    const lines = r.gcode.split('\n')
+    expect(lines.filter((l) => l === 'M104 S210').length).toBe(1)
+    expect(lines.filter((l) => l === 'M140 S60').length).toBe(1)
   })
 
   it('reports nothing for the default profile and matches generatePaGcode', () => {

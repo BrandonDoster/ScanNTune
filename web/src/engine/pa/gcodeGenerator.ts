@@ -184,6 +184,17 @@ function motionLimitCommands(profile: PrinterProfile): string[] {
   return [`SET_VELOCITY_LIMIT ACCEL=${accel} SQUARE_CORNER_VELOCITY=${scv}`]
 }
 
+const COLD_PRINT_WARNING =
+  'Your start G-code sets no temperatures; the printer may not heat. Add heating to your start G-code.'
+
+/** Temperature-setting commands the printer understands: set/wait for nozzle or bed, or wait. */
+const TEMP_COMMAND = /\b(M104|M109|M140|M190|M116)\b/i
+
+/** True when the (already substituted) start G-code contains no temperature-setting command. */
+function startGcodeSetsNoTemperature(startGcode: string): boolean {
+  return !TEMP_COMMAND.test(startGcode)
+}
+
 /**
  * Generate the PA test G-code, substituting slicer placeholder variables in the profile's
  * start/pause/end G-code, and report any placeholders that were left verbatim.
@@ -207,6 +218,7 @@ export function generatePaGcodeWithReport(
   }
   const unknownVariables = [...new Set([...start.unknown, ...pause.unknown, ...end.unknown])]
   const warnings = [...new Set([...start.warnings, ...pause.warnings, ...end.warnings])]
+  if (startGcodeSetsNoTemperature(start.gcode)) warnings.push(COLD_PRINT_WARNING)
   return { gcode: emitPaGcode(substituted, filament, spec), unknownVariables, warnings }
 }
 
@@ -229,10 +241,6 @@ function emitPaGcode(profile: PrinterProfile, filament: FilamentProfile, spec: P
   const L = e.lines
   L.push('; ScanNTune pressure advance test')
   L.push('; fiducial holes preserved')
-  L.push(`M140 S${filament.bedTempC}`)
-  L.push(`M104 S${filament.nozzleTempC}`)
-  L.push(`M190 S${filament.bedTempC}`)
-  L.push(`M109 S${filament.nozzleTempC}`)
   L.push(...profile.startGcode.split('\n'))
   L.push('M83') // relative extrusion, restated in case start gcode changed it
   L.push('G90')

@@ -111,7 +111,13 @@ export function defaultPrinterProfile(): PrinterProfile {
     layerHeightMm: 0.2,
     retractMm: 0.8,
     retractSpeedMmS: 35,
-    startGcode: 'G28\nG90\nM83',
+    startGcode:
+      'M140 S[first_layer_bed_temperature]\n' +
+      'M104 S[first_layer_temperature]\n' +
+      'M190 S[first_layer_bed_temperature]\n' +
+      'M109 S[first_layer_temperature]\n' +
+      'G28\n' +
+      'G90',
     pauseGcode: 'PAUSE',
     endGcode: 'M104 S0\nM140 S0\nG91\nG1 Z10 F600\nG90\nM84',
   }
