@@ -147,6 +147,13 @@ export function defaultPaTestSpec(): PaTestSpec {
   }
 }
 
+// Recommended PA sweep ranges by extruder style, from the Klipper pressure advance
+// documentation: direct drive tunes below 0.06, a bowden setup can need up to 1.0.
+export const extruderPresetRanges = {
+  directDrive: { paStart: 0, paEnd: 0.06 },
+  bowden: { paStart: 0, paEnd: 1.0 },
+} as const
+
 export function paValueForLine(spec: PaTestSpec, index: number): number {
   return spec.paStart + ((spec.paEnd - spec.paStart) * index) / (spec.lineCount - 1)
 }

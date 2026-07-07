@@ -12,6 +12,7 @@ import {
   defaultPaTestSpec,
   defaultPrinterProfile,
   edgeShiftRange,
+  extruderPresetRanges,
   fitsA4,
   maxLineCountForHeight,
 } from '../engine/pa/types'
@@ -89,6 +90,21 @@ const spec = computed<PaTestSpec>(() => ({
   slowSpeedMmS: slowSpeed.value ?? specDefaults.slowSpeedMmS,
   fastSpeedMmS: fastSpeed.value ?? specDefaults.fastSpeedMmS,
 }))
+// Extruder preset picker: prefills the PA range once per selection, never persisted, and manual
+// edits leave the selection alone (it is a one-shot prefill, not a bound value).
+const extruderPreset = ref<keyof typeof extruderPresetRanges | null>(null)
+const extruderItems = [
+  { title: 'Direct drive', value: 'directDrive' },
+  { title: 'Bowden', value: 'bowden' },
+]
+function onExtruderPreset(key: keyof typeof extruderPresetRanges | null): void {
+  extruderPreset.value = key
+  if (!key) return
+  const range = extruderPresetRanges[key]
+  paStart.value = range.paStart
+  paEnd.value = range.paEnd
+}
+
 const stepPerLine = computed(() =>
   ((spec.value.paEnd - spec.value.paStart) / (spec.value.lineCount - 1)).toFixed(4),
 )
@@ -105,6 +121,8 @@ const exceedsA4 = computed(() => {
   return !fitsA4(g.baseWidthMm, g.baseHeightMm)
 })
 const maxLinesForA4 = computed(() => maxLineCountForHeight(spec.value, A4_LONG_MM))
+const speedContrastLow = computed(() => spec.value.fastSpeedMmS < 3 * spec.value.slowSpeedMmS)
+const tooManyLines = computed(() => spec.value.lineCount > 24)
 
 const generateError = ref('')
 const unknownVariables = ref<string[]>([])
@@ -306,6 +324,17 @@ function applyShift(): void {
         <span class="num">2</span><span class="step-title">Test range</span>
       </div>
       <div class="fields">
+        <v-select
+          :model-value="extruderPreset"
+          :items="extruderItems"
+          label="Extruder"
+          placeholder="Prefill range..."
+          density="comfortable"
+          hide-details
+          :disabled="analyzing"
+          data-testid="pa-extruder-preset"
+          @update:model-value="onExtruderPreset"
+        />
         <NumericField v-model="paStart" label="PA start" :step="0.01" :min="0" :precision="4" :disabled="analyzing" />
         <NumericField v-model="paEnd" label="PA end" :step="0.01" :min="0" :precision="4" :disabled="analyzing" />
         <NumericField v-model="lineCount" label="Lines" :step="1" :min="4" :disabled="analyzing" />
@@ -314,22 +343,30 @@ function applyShift(): void {
         <NumericField v-model="slowSpeed" label="Slow speed (mm/s)" :step="5" :min="1" :disabled="analyzing" />
         <NumericField v-model="fastSpeed" label="Fast speed (mm/s)" :step="5" :min="1" :disabled="analyzing" />
       </div>
-      <p class="tip">
-        The speed contrast creates the measurable transitions. Keep fast at least 3x slow.
-      </p>
       <p class="tip">Step {{ stepPerLine }} per line, {{ footprintText }}.</p>
-      <p class="tip" data-testid="pa-lines-hint">
-        16 to 24 lines is plenty. The result is interpolated between lines, and the app suggests a
-        narrower follow-up range for extra precision. Up to {{ maxLinesForA4 }} lines stays within an
-        A4 scanner bed.
-      </p>
+      <v-alert
+        v-if="speedContrastLow"
+        type="warning"
+        variant="tonal"
+        class="mt-3"
+        data-testid="pa-speed-warning"
+        text="Fast speed should be at least 3x the slow speed; the speed contrast is what makes pressure advance measurable."
+      />
+      <v-alert
+        v-if="tooManyLines"
+        type="info"
+        variant="tonal"
+        class="mt-3"
+        data-testid="pa-lines-hint"
+        text="More than 24 lines adds little precision; a narrower follow-up range works better."
+      />
       <v-alert
         v-if="exceedsA4"
         type="warning"
         variant="tonal"
         class="mt-3"
         data-testid="pa-a4-warning"
-        text="The coupon is larger than A4. Most flatbed scanners cannot scan it in one pass. Reduce the line count unless your scanner is larger."
+        :text="`The coupon is larger than A4. Most flatbed scanners cannot scan it in one pass. Reduce the line count to ${maxLinesForA4} or fewer unless your scanner is larger.`"
       />
       <div class="gen-row mt-2">
         <v-btn
