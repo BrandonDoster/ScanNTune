@@ -177,6 +177,8 @@ function importOrcaChain(
   const preset = file.orca as Record<string, unknown>
   const chain = resolveChain(preset, orcaByName)
   const result = importOrcaMerged(chain.merged)
+  // The uploaded leaf preset the user selected names the profile, never a resolved parent.
+  result.presetName = orcaPresetName(preset)
   result.unresolvedParents = []
   result.resolvedFromCache = chain.parentNamesVisited
     .filter((name) => cachedOnlyNames.has(name))
@@ -328,6 +330,7 @@ function mergeResults(imports: SlicerImportResult[]): SlicerImportResult {
   const unresolvedParents: NonNullable<SlicerImportResult['unresolvedParents']> = []
   const resolvedFromCache: NonNullable<SlicerImportResult['resolvedFromCache']> = []
   let missing: string[] = []
+  let presetName: string | undefined
   for (const result of imports) {
     Object.assign(fields.printer, result.fields.printer)
     Object.assign(fields.filament, result.fields.filament)
@@ -340,6 +343,8 @@ function mergeResults(imports: SlicerImportResult[]): SlicerImportResult {
       if (!resolvedFromCache.some((c) => c.presetName === cached.presetName))
         resolvedFromCache.push(cached)
     }
+    // later-file-wins, matching the field merge: the last uploaded leaf names the profile.
+    if (result.presetName !== undefined) presetName = result.presetName
   }
   return {
     fields,
@@ -349,5 +354,6 @@ function mergeResults(imports: SlicerImportResult[]): SlicerImportResult {
     warnings,
     unresolvedParents,
     resolvedFromCache,
+    presetName,
   }
 }

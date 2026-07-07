@@ -47,6 +47,11 @@ export interface ImportSummary {
   orcaMachine: boolean
 }
 
+/** Names an import may overwrite with the imported preset's name: the profile/filament defaults a
+ *  fresh editor starts with, which the user has not deliberately chosen. */
+const PLACEHOLDER_PRINTER_NAME = defaultPrinterProfile().name
+const PLACEHOLDER_FILAMENT_NAMES = [defaultFilamentProfile().name, 'New filament']
+
 const WRONG_KIND_MESSAGES: Record<ImportKind, string> = {
   printer: 'This looks like a filament preset. Use the import button on the Filament tab.',
   filament: 'This looks like a printer preset. Use the import button on the Printer tab.',
@@ -182,6 +187,20 @@ export function useProfileForm() {
     if (fields.chamberTempC !== undefined) target.chamberTempC = fields.chamberTempC
   }
 
+  /** Names the profile after the imported preset, unless the user already chose a name. */
+  function applyPresetNameToPrinter(presetName: string | undefined): void {
+    if (presetName === undefined) return
+    const current = name.value.trim()
+    if (current === '' || current === PLACEHOLDER_PRINTER_NAME) name.value = presetName
+  }
+
+  /** Names the selected filament after the imported preset, unless the user already chose a name. */
+  function applyPresetNameToFilament(target: EditableFilament, presetName: string | undefined): void {
+    if (presetName === undefined) return
+    const current = target.name.trim()
+    if (current === '' || PLACEHOLDER_FILAMENT_NAMES.includes(current)) target.name = presetName
+  }
+
   /** Appends one new filament per named bundle section and selects the first of them. */
   function addBundleFilaments(sections: { name: string; fields: ImportedFilamentFields }[]): void {
     const firstNewIndex = filaments.value.length
@@ -289,6 +308,7 @@ export function useProfileForm() {
     if (wrongKind === null) {
       if (kind === 'printer') {
         applyPrinterFields(result.fields.printer)
+        applyPresetNameToPrinter(result.presetName)
         importedCount = printerCount
         filled = Object.keys(result.fields.printer)
       } else if (result.filaments.length > 0) {
@@ -300,6 +320,7 @@ export function useProfileForm() {
         importedCount = filled.length
       } else if (currentFilament.value) {
         applyFilamentFields(currentFilament.value, result.fields.filament)
+        applyPresetNameToFilament(currentFilament.value, result.presetName)
         importedCount = filamentCount
         filled = Object.keys(result.fields.filament)
       }

@@ -32,6 +32,11 @@ export interface SlicerImportResult {
   /** Inherited parents that resolved from the passed-in cached presets (not from an upload in
    *  this batch), so the UI can show them as remembered rather than as still-missing. */
   resolvedFromCache?: { presetName: string }[]
+  /** The imported preset's own name, so the tool can name its profile after it. For an Orca
+   *  file it is the preset "name"; for a Prusa bundle the chosen printer or first filament
+   *  section; for a flat Prusa export the file name without its extension. Undefined when no
+   *  non-empty name is available. */
+  presetName?: string
 }
 
 /** Profile fields the importer knows how to fill; anything not found lands in missing[]. */
@@ -71,12 +76,24 @@ const FLAVOR_TO_FIRMWARE: Record<string, Firmware> = {
  */
 export function importSlicerConfig(fileName: string, content: string): SlicerImportResult {
   const orca = tryParseOrca(content)
-  if (orca !== null) return importOrca(orca)
+  if (orca !== null) return { ...importOrca(orca), presetName: orcaPresetName(orca) }
   const ini = tryParseIni(content)
-  if (ini !== null) return importPrusa(ini)
+  if (ini !== null) return { ...importPrusa(ini), presetName: prusaPresetName(ini, fileName) }
   throw new Error(
     `"${fileName}" does not look like a PrusaSlicer config export or an OrcaSlicer preset file.`,
   )
+}
+
+/** The file name with its final extension stripped and trimmed; undefined when nothing remains. */
+function fileNameStem(fileName: string): string | undefined {
+  const stem = fileName.replace(/\.[^./\\]+$/, '').trim()
+  return stem === '' ? undefined : stem
+}
+
+/** A Prusa import's preset name: the chosen printer section (or first filament section) of a
+ *  bundle, else the flat export's file name without its extension. */
+function prusaPresetName(ini: ParsedIni, fileName: string): string | undefined {
+  return ini.chosenSectionName ?? ini.filamentSections[0]?.name ?? fileNameStem(fileName)
 }
 
 /** Field-kind classification for every {@link MAPPED_FIELDS} entry: which side of the
@@ -274,6 +291,8 @@ interface ParsedIni {
   keys: Map<string, string>
   /** Named (non-hidden) [filament:...] sections in file order; empty for flat exports. */
   filamentSections: { name: string; keys: Map<string, string> }[]
+  /** The chosen [printer:...] section name of a bundle; undefined for a flat export. */
+  chosenSectionName?: string
 }
 
 /** Returns the parsed ini, or null when the content has no key = value lines at all. */
@@ -304,30 +323,42 @@ function tryParseIni(content: string): ParsedIni | null {
       filamentSections.push({ name: name.slice('filament:'.length), keys })
     }
   }
-  return { keys: mergeBundle(sections), filamentSections }
+  const bundle = mergeBundle(sections)
+  return { keys: bundle.keys, filamentSections, chosenSectionName: bundle.chosenPrinterName }
 }
 
-/** Merges a config-bundle's chosen print/filament/printer presets into one key map. */
-function mergeBundle(sections: Map<string, Map<string, string>>): Map<string, string> {
+/** Merges a config-bundle's chosen print/filament/printer presets into one key map, and reports
+ *  the chosen printer preset's section name (for naming the imported profile). */
+function mergeBundle(sections: Map<string, Map<string, string>>): {
+  keys: Map<string, string>
+  chosenPrinterName: string | undefined
+} {
   const presets = sections.get('presets')
   const merged = new Map<string, string>()
+  let chosenPrinterName: string | undefined
   for (const kind of ['printer', 'filament', 'print']) {
     let chosen: Map<string, string> | undefined
+    let chosenName: string | undefined
     const named = presets?.get(kind)
-    if (named !== undefined) chosen = sections.get(`${kind}:${named}`)
+    if (named !== undefined) {
+      chosen = sections.get(`${kind}:${named}`)
+      if (chosen !== undefined) chosenName = named
+    }
     if (chosen === undefined) {
       for (const [name, values] of sections) {
         if (name.startsWith(`${kind}:`) && !name.slice(kind.length + 1).startsWith('*')) {
           chosen = values
+          chosenName = name.slice(kind.length + 1)
           break
         }
       }
     }
     if (chosen !== undefined) {
       for (const [k, v] of chosen) merged.set(k, v)
+      if (kind === 'printer') chosenPrinterName = chosenName
     }
   }
-  return merged
+  return { keys: merged, chosenPrinterName }
 }
 
 const PRUSA_FILAMENT_KEYS: FilamentKeys = {

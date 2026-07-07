@@ -304,6 +304,37 @@ describe('importSlicerConfig with a sparse Orca preset that inherits', () => {
   })
 })
 
+describe('importSlicerConfig preset name resolution', () => {
+  it('uses the Orca machine preset "name" field', () => {
+    const content = readFixture('orca_machine_chubechanger.json')
+    expect(importSlicerConfig('orca_machine_chubechanger.json', content).presetName).toBe(
+      'Chubechanger',
+    )
+  })
+
+  it('uses the Orca filament preset "name" field', () => {
+    const content = readFixture('orca_filament_treed_pc.json')
+    expect(importSlicerConfig('orca_filament_treed_pc.json', content).presetName).toBe(
+      'T - TreeD PC BPT GF',
+    )
+  })
+
+  it('falls back to the file name without extension for a flat Prusa export', () => {
+    expect(importSlicerConfig('Tridentbert  0.4 nozzle.ini', prusaFlat).presetName).toBe(
+      'Tridentbert  0.4 nozzle',
+    )
+  })
+
+  it('uses the chosen [printer:...] section name for a Prusa bundle', () => {
+    expect(importSlicerConfig('bundle.ini', prusaBundle).presetName).toBe('Original Prusa MK4')
+  })
+
+  it('uses the first [filament:...] section name when a bundle has no printer section', () => {
+    const filamentOnly = `[presets]\nfilament = Prusament PLA\n\n[filament:Prusament PLA]\nfilament_type = PLA\ntemperature = 215\n`
+    expect(importSlicerConfig('bundle.ini', filamentOnly).presetName).toBe('Prusament PLA')
+  })
+})
+
 describe('importSlicerConfig with unusable content', () => {
   it('throws a user-worded error on content that is neither JSON nor INI-like', () => {
     expect(() => importSlicerConfig('photo.txt', 'PK not a config at all')).toThrow(

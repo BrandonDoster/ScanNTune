@@ -43,6 +43,14 @@ describe('importSlicerConfigs: multi-file Orca inherits resolution', () => {
     expect(orderA.fields.printer.retractMm).toBe(0.8)
   })
 
+  it('names the result after the uploaded leaf preset, not a resolved parent', () => {
+    const result = importSlicerConfigs([
+      { fileName: 'orca_machine_chubechanger.json', content: chubechanger },
+      { fileName: 'voron24_parent.json', content: voron24Parent },
+    ])
+    expect(result.presetName).toBe('Chubechanger')
+  })
+
   it('has no unresolved-inherits warning once the parent is uploaded', () => {
     const result = importSlicerConfigs([
       { fileName: 'orca_machine_chubechanger.json', content: chubechanger },

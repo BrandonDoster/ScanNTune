@@ -9,6 +9,10 @@ const chubechanger = readFileSync(
   join(__dirname, '../fixtures/slicer/orca_machine_chubechanger.json'),
   'utf8',
 )
+const treedPc = readFileSync(
+  join(__dirname, '../fixtures/slicer/orca_filament_treed_pc.json'),
+  'utf8',
+)
 
 // Minimal synthetic parent, mirroring the chain-resolution engine tests: the real one lives in
 // the OrcaSlicer install, not in the repo.
@@ -70,6 +74,40 @@ describe('useProfileForm importFiles: bundle filaments', () => {
     // UI doesn't show a count that doesn't match the chips rendered.
     expect(summary!.filled.length).toBe(summary!.importedCount)
     expect(summary!.orcaMachine).toBe(false)
+  })
+})
+
+describe('useProfileForm importFiles: preset naming', () => {
+  it('names a default-named profile after an imported printer preset', async () => {
+    const form = useProfileForm()
+    form.loadNew()
+    expect(form.name.value).toBe('My printer')
+    await form.importFiles([fileOf(chubechanger, 'orca_machine_chubechanger.json')], 'printer')
+    expect(form.name.value).toBe('Chubechanger')
+  })
+
+  it('keeps a user-chosen profile name on a printer import', async () => {
+    const form = useProfileForm()
+    form.loadNew()
+    form.name.value = 'My Trident'
+    await form.importFiles([fileOf(chubechanger, 'orca_machine_chubechanger.json')], 'printer')
+    expect(form.name.value).toBe('My Trident')
+  })
+
+  it('names a default-named selected filament after an imported filament preset', async () => {
+    const form = useProfileForm()
+    form.loadNew()
+    expect(form.currentFilament.value!.name).toBe('Default')
+    await form.importFiles([fileOf(treedPc, 'orca_filament_treed_pc.json')], 'filament')
+    expect(form.currentFilament.value!.name).toBe('T - TreeD PC BPT GF')
+  })
+
+  it('still names each bundle filament after its own section, not the preset name', async () => {
+    const form = useProfileForm()
+    form.loadNew()
+    await form.importFiles([fileOf(bundleIni, 'bundle.ini')], 'filament')
+    expect(form.filaments.value.map((f) => f.name)).toContain('PLA')
+    expect(form.filaments.value.map((f) => f.name)).toContain('PETG')
   })
 })
 
