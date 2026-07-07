@@ -344,6 +344,45 @@ function applyShift(): void {
         <NumericField v-model="fastSpeed" label="Fast speed (mm/s)" :step="5" :min="1" :disabled="analyzing" />
       </div>
       <p class="tip">Step {{ stepPerLine }} per line, {{ footprintText }}.</p>
+      <v-expansion-panels variant="accordion" class="mt-3 info-panels">
+        <v-expansion-panel data-testid="pa-info-panel">
+          <v-expansion-panel-title class="text-body-2">
+            <v-icon size="18" color="primary" class="mr-2">mdi-information-outline</v-icon>
+            What affects pressure advance
+          </v-expansion-panel-title>
+          <v-expansion-panel-text>
+            <ul class="info-list">
+              <li>
+                <strong>Temperature:</strong> the biggest factor. Hotter plastic flows easier and
+                needs less advance. Calibrate at the temperature you print with (the test uses your
+                filament profile's temperature).
+              </li>
+              <li>
+                <strong>Filament:</strong> every material, brand, and even color has its own value.
+                Recalibrate when you switch filament.
+              </li>
+              <li>
+                <strong>Extruder type:</strong> direct drive needs small values (around 0.02 to
+                0.06); bowden needs far more (0.2 to 1.0), because the long tube adds compliance.
+              </li>
+              <li>
+                <strong>Print speed:</strong> a secondary effect. The linear model is an
+                approximation, so calibrate near the speeds you actually print at; the test's slow
+                and fast speeds are configurable for that reason.
+              </li>
+              <li>
+                <strong>Acceleration and jerk (square corner velocity):</strong> these do not
+                change the correct value; they change how visible a wrong value is. Higher
+                acceleration makes speed changes sharper, so errors bulge or starve more.
+              </li>
+              <li>
+                <strong>Nozzle size:</strong> larger nozzles change the flow behavior; recalibrate
+                after a nozzle swap.
+              </li>
+            </ul>
+          </v-expansion-panel-text>
+        </v-expansion-panel>
+      </v-expansion-panels>
       <v-alert
         v-if="speedContrastLow"
         type="warning"
@@ -553,6 +592,16 @@ function applyShift(): void {
 .step-title {
   font-weight: 500;
   font-size: 14px;
+}
+.info-panels :deep(.v-expansion-panel) {
+  background: transparent;
+}
+.info-list {
+  padding-left: 18px;
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+  color: rgba(var(--v-theme-on-surface), 0.78);
 }
 .tip {
   font-size: 12.5px;
