@@ -30,6 +30,8 @@ const bedTempC = ref<number | null>(null)
 const chamberTempC = ref<number | null>(null)
 const filamentType = ref('')
 const travelSpeedMmS = ref<number | null>(null)
+const printAccelMmS2 = ref<number | null>(null)
+const squareCornerVelocityMmS = ref<number | null>(null)
 const layerHeightMm = ref<number | null>(null)
 const retractMm = ref<number | null>(null)
 const retractSpeedMmS = ref<number | null>(null)
@@ -50,6 +52,8 @@ function loadFrom(p: PrinterProfile): void {
   chamberTempC.value = p.chamberTempC
   filamentType.value = p.filamentType
   travelSpeedMmS.value = p.travelSpeedMmS
+  printAccelMmS2.value = p.printAccelMmS2
+  squareCornerVelocityMmS.value = p.squareCornerVelocityMmS
   layerHeightMm.value = p.layerHeightMm
   retractMm.value = p.retractMm
   retractSpeedMmS.value = p.retractSpeedMmS
@@ -74,6 +78,8 @@ const numbers = computed(() => [
   bedTempC.value,
   chamberTempC.value,
   travelSpeedMmS.value,
+  printAccelMmS2.value,
+  squareCornerVelocityMmS.value,
   layerHeightMm.value,
   retractMm.value,
   retractSpeedMmS.value,
@@ -101,6 +107,8 @@ function save(): void {
     chamberTempC: chamberTempC.value!,
     filamentType: filamentType.value.trim() || defaultPrinterProfile().filamentType,
     travelSpeedMmS: travelSpeedMmS.value!,
+    printAccelMmS2: printAccelMmS2.value!,
+    squareCornerVelocityMmS: squareCornerVelocityMmS.value!,
     layerHeightMm: layerHeightMm.value!,
     retractMm: retractMm.value!,
     retractSpeedMmS: retractSpeedMmS.value!,
@@ -194,6 +202,20 @@ function save(): void {
             label="Travel speed (mm/s)"
             :step="10"
             :min="10"
+          />
+        </div>
+        <div class="fields mb-2">
+          <NumericField
+            v-model="printAccelMmS2"
+            label="Acceleration (mm/s2)"
+            :step="500"
+            :min="100"
+          />
+          <NumericField
+            v-model="squareCornerVelocityMmS"
+            label="Square corner velocity (mm/s)"
+            :step="1"
+            :min="1"
           />
         </div>
         <v-textarea

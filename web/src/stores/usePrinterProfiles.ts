@@ -17,6 +17,8 @@ const NUMERIC_FIELDS = [
   'retractMm',
   'retractSpeedMmS',
   'chamberTempC',
+  'printAccelMmS2',
+  'squareCornerVelocityMmS',
 ] as const
 
 const STRING_FIELDS = [
@@ -31,12 +33,18 @@ const STRING_FIELDS = [
 
 // Fields added after the first release: profiles saved before they existed are still valid and
 // get the default value filled in on load.
-const OPTIONAL_NUMERIC_FIELDS: readonly (typeof NUMERIC_FIELDS)[number][] = ['chamberTempC']
+const OPTIONAL_NUMERIC_FIELDS: readonly (typeof NUMERIC_FIELDS)[number][] = [
+  'chamberTempC',
+  'printAccelMmS2',
+  'squareCornerVelocityMmS',
+]
 const OPTIONAL_STRING_FIELDS: readonly (typeof STRING_FIELDS)[number][] = ['filamentType']
 
+type LaterAddedField = 'chamberTempC' | 'filamentType' | 'printAccelMmS2' | 'squareCornerVelocityMmS'
+
 /** A stored profile from an older release: fields added later may be absent. */
-type StoredProfile = Omit<PrinterProfile, 'chamberTempC' | 'filamentType'> &
-  Partial<Pick<PrinterProfile, 'chamberTempC' | 'filamentType'>>
+type StoredProfile = Omit<PrinterProfile, LaterAddedField> &
+  Partial<Pick<PrinterProfile, LaterAddedField>>
 
 function isValidProfile(value: unknown): value is StoredProfile {
   if (typeof value !== 'object' || value === null) return false
@@ -59,6 +67,8 @@ function withDefaults(profile: StoredProfile): PrinterProfile {
   return {
     chamberTempC: defaults.chamberTempC,
     filamentType: defaults.filamentType,
+    printAccelMmS2: defaults.printAccelMmS2,
+    squareCornerVelocityMmS: defaults.squareCornerVelocityMmS,
     ...profile,
   }
 }

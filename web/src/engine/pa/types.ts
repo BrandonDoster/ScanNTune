@@ -13,6 +13,9 @@ export interface PrinterProfile {
   chamberTempC: number
   filamentType: string
   travelSpeedMmS: number
+  printAccelMmS2: number
+  /** Klipper square corner velocity, Marlin XY jerk, in mm/s. */
+  squareCornerVelocityMmS: number
   layerHeightMm: number
   retractMm: number
   retractSpeedMmS: number
@@ -87,6 +90,8 @@ export function defaultPrinterProfile(): PrinterProfile {
     chamberTempC: 0,
     filamentType: 'PLA',
     travelSpeedMmS: 150,
+    printAccelMmS2: 3000,
+    squareCornerVelocityMmS: 5,
     layerHeightMm: 0.2,
     retractMm: 0.8,
     retractSpeedMmS: 35,

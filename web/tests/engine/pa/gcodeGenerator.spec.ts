@@ -141,7 +141,56 @@ describe('generatePaGcode', () => {
   })
 })
 
+describe('motion limits', () => {
+  const spec = defaultPaTestSpec()
+
+  function linesOf(firmware: 'Klipper' | 'Marlin' | 'RepRapFirmware'): string[] {
+    return generatePaGcode({ ...defaultPrinterProfile(), firmware }, spec).split('\n')
+  }
+
+  function assertAfterStartBeforeFirstMove(lines: string[], expected: string[]): void {
+    const g90At = lines.indexOf('G90')
+    expect(g90At).toBeGreaterThan(0)
+    const firstMoveAt = lines.findIndex((l) => l.startsWith('G1 Z'))
+    expect(firstMoveAt).toBeGreaterThan(g90At)
+    for (let i = 0; i < expected.length; i++) {
+      const at = lines.indexOf(expected[i])
+      expect(at, expected[i]).toBeGreaterThan(g90At)
+      expect(at, expected[i]).toBeLessThan(firstMoveAt)
+      if (i > 0) expect(at).toBeGreaterThan(lines.indexOf(expected[i - 1]))
+    }
+  }
+
+  it('emits SET_VELOCITY_LIMIT for Klipper after start G-code, before the first layer move', () => {
+    assertAfterStartBeforeFirstMove(linesOf('Klipper'), [
+      'SET_VELOCITY_LIMIT ACCEL=3000 SQUARE_CORNER_VELOCITY=5',
+    ])
+  })
+
+  it('emits M204 and M205 for Marlin after start G-code, before the first layer move', () => {
+    assertAfterStartBeforeFirstMove(linesOf('Marlin'), ['M204 P3000 T3000', 'M205 X5 Y5'])
+  })
+
+  it('emits M204 and M566 in mm/min for RepRapFirmware after start G-code, before the first layer move', () => {
+    assertAfterStartBeforeFirstMove(linesOf('RepRapFirmware'), ['M204 P3000 T3000', 'M566 X300 Y300'])
+  })
+
+  it('uses the profile values, not constants', () => {
+    const p = { ...defaultPrinterProfile(), printAccelMmS2: 1500, squareCornerVelocityMmS: 8 }
+    const g = generatePaGcode(p, spec)
+    expect(g).toContain('SET_VELOCITY_LIMIT ACCEL=1500 SQUARE_CORNER_VELOCITY=8')
+  })
+})
+
 describe('generatePaGcodeWithReport', () => {
+  it('throws when fast speed does not exceed slow speed', () => {
+    const p = defaultPrinterProfile()
+    const bad = { ...defaultPaTestSpec(), slowSpeedMmS: 50, fastSpeedMmS: 50 }
+    expect(() => generatePaGcodeWithReport(p, bad)).toThrow('Fast speed must exceed slow speed')
+    const worse = { ...defaultPaTestSpec(), slowSpeedMmS: 60, fastSpeedMmS: 40 }
+    expect(() => generatePaGcodeWithReport(p, worse)).toThrow('Fast speed must exceed slow speed')
+  })
+
   it('reports unknown variables across start, pause, and end gcode, deduplicated', () => {
     const p = {
       ...defaultPrinterProfile(),

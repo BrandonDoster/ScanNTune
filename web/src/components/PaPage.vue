@@ -77,12 +77,16 @@ const specDefaults = defaultPaTestSpec()
 const paStart = ref<number | null>(specDefaults.paStart)
 const paEnd = ref<number | null>(specDefaults.paEnd)
 const lineCount = ref<number | null>(specDefaults.lineCount)
+const slowSpeed = ref<number | null>(specDefaults.slowSpeedMmS)
+const fastSpeed = ref<number | null>(specDefaults.fastSpeedMmS)
 
 const spec = computed<PaTestSpec>(() => ({
   ...defaultPaTestSpec(),
   paStart: paStart.value ?? specDefaults.paStart,
   paEnd: paEnd.value ?? specDefaults.paEnd,
   lineCount: lineCount.value ?? specDefaults.lineCount,
+  slowSpeedMmS: slowSpeed.value ?? specDefaults.slowSpeedMmS,
+  fastSpeedMmS: fastSpeed.value ?? specDefaults.fastSpeedMmS,
 }))
 const stepPerLine = computed(() =>
   ((spec.value.paEnd - spec.value.paStart) / (spec.value.lineCount - 1)).toFixed(4),
@@ -273,6 +277,13 @@ function applyShift(): void {
         <NumericField v-model="paEnd" label="PA end" :step="0.01" :min="0" :precision="4" />
         <NumericField v-model="lineCount" label="Lines" :step="1" :min="4" />
       </div>
+      <div class="fields mt-3">
+        <NumericField v-model="slowSpeed" label="Slow speed (mm/s)" :step="5" :min="1" />
+        <NumericField v-model="fastSpeed" label="Fast speed (mm/s)" :step="5" :min="1" />
+      </div>
+      <p class="tip">
+        The speed contrast creates the measurable transitions. Keep fast at least 3x slow.
+      </p>
       <p class="tip">Step {{ stepPerLine }} per line, {{ footprintText }}.</p>
       <p class="tip" data-testid="pa-lines-hint">
         16 to 24 lines is plenty. The result is interpolated between lines, and the app suggests a

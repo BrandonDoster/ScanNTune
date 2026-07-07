@@ -43,10 +43,12 @@ describe('usePrinterProfiles', () => {
     expect(store.selectedId).toBeNull()
   })
 
-  it('keeps a legacy profile missing filamentType and chamberTempC, filling defaults', () => {
+  it('keeps a legacy profile missing later-added fields, filling defaults', () => {
     const legacy: Record<string, unknown> = { ...defaultPrinterProfile(), id: 'legacy-1' }
     delete legacy.filamentType
     delete legacy.chamberTempC
+    delete legacy.printAccelMmS2
+    delete legacy.squareCornerVelocityMmS
     localStorage.setItem(
       'scanntune.printerProfiles',
       JSON.stringify({ profiles: [legacy], selectedId: 'legacy-1' }),
@@ -55,6 +57,8 @@ describe('usePrinterProfiles', () => {
     expect(store.profiles).toHaveLength(1)
     expect(store.profiles[0].filamentType).toBe('PLA')
     expect(store.profiles[0].chamberTempC).toBe(0)
+    expect(store.profiles[0].printAccelMmS2).toBe(3000)
+    expect(store.profiles[0].squareCornerVelocityMmS).toBe(5)
     expect(store.selected?.id).toBe('legacy-1')
   })
 

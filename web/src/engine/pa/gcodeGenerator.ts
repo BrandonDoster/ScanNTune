@@ -157,6 +157,20 @@ export function generatePaGcode(profile: PrinterProfile, spec: PaTestSpec): stri
   return generatePaGcodeWithReport(profile, spec).gcode
 }
 
+/** Firmware-specific print acceleration and corner velocity (jerk) limit commands. */
+function motionLimitCommands(profile: PrinterProfile): string[] {
+  const accel = profile.printAccelMmS2
+  const scv = profile.squareCornerVelocityMmS
+  if (profile.firmware === 'Marlin') {
+    return [`M204 P${accel} T${accel}`, `M205 X${scv} Y${scv}`]
+  }
+  if (profile.firmware === 'RepRapFirmware') {
+    // M566 takes mm/min.
+    return [`M204 P${accel} T${accel}`, `M566 X${scv * 60} Y${scv * 60}`]
+  }
+  return [`SET_VELOCITY_LIMIT ACCEL=${accel} SQUARE_CORNER_VELOCITY=${scv}`]
+}
+
 /**
  * Generate the PA test G-code, substituting slicer placeholder variables in the profile's
  * start/pause/end G-code, and report any placeholders that were left verbatim.
@@ -165,6 +179,9 @@ export function generatePaGcodeWithReport(
   profile: PrinterProfile,
   spec: PaTestSpec,
 ): { gcode: string; unknownVariables: string[] } {
+  if (spec.fastSpeedMmS <= spec.slowSpeedMmS) {
+    throw new Error('Fast speed must exceed slow speed')
+  }
   const start = substituteSlicerVariables(profile.startGcode, profile)
   const pause = substituteSlicerVariables(profile.pauseGcode, profile)
   const end = substituteSlicerVariables(profile.endGcode, profile)
@@ -204,6 +221,7 @@ function emitPaGcode(profile: PrinterProfile, spec: PaTestSpec): string {
   L.push(...profile.startGcode.split('\n'))
   L.push('M83') // relative extrusion, restated in case start gcode changed it
   L.push('G90')
+  L.push(...motionLimitCommands(profile))
 
   // Base layers.
   for (let layer = 0; layer < BASE_LAYERS; layer++) {
