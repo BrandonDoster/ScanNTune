@@ -39,8 +39,11 @@ export function alignPaCoupon(cv: OpenCv, image: Mat, spec: PaTestSpec): PaAlign
   // showing through the holes, light base), so no single threshold isolates the base. Every
   // threshold-band hypothesis is tried and validated against the known geometry; the first that
   // yields the three-hole corner pattern wins.
-  const attempts = analyzeThresholdBands(cv, image, (objectWhite) =>
-    tryAlign(cv, objectWhite, geometry),
+  const attempts = analyzeThresholdBands(
+    cv,
+    image,
+    (objectWhite) => tryAlign(cv, objectWhite, geometry),
+    (r) => r.success,
   )
   const aligned = attempts.find((r) => r.success)
   if (aligned) return aligned
@@ -144,7 +147,12 @@ function tryAlign(
     const holeContours = new cv.MatVector()
     const holeHierarchy = new cv.Mat()
     try {
-      const kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(kernelPx, kernelPx))
+      // A rectangular kernel: rectangular morphology runs via the separable van Herk/Gil-Werman
+      // algorithm, O(N) regardless of kernel size (an elliptical kernel of this width costs
+      // kernel-area per pixel and takes minutes on a 35 MP scan). The closing's job, erasing test
+      // lines narrower than the kernel while preserving the fiducial holes and their centroids, is
+      // shape-independent for a symmetric kernel.
+      const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(kernelPx, kernelPx))
       cv.morphologyEx(objectWhite, closed, cv.MORPH_CLOSE, kernel)
       kernel.delete()
       cv.findContours(closed, holeContours, holeHierarchy, cv.RETR_CCOMP, cv.CHAIN_APPROX_SIMPLE)
