@@ -329,7 +329,7 @@ function applyShift(): void {
           :items="extruderItems"
           label="Extruder"
           placeholder="Prefill range..."
-          density="comfortable"
+          density="compact"
           hide-details
           :disabled="analyzing"
           data-testid="pa-extruder-preset"
