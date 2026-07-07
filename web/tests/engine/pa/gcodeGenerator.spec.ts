@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { generatePaGcode, extrusionMm } from '../../../src/engine/pa/gcodeGenerator'
+import { generatePaGcode, extrusionMm, estimatePaPrintSeconds } from '../../../src/engine/pa/gcodeGenerator'
 import { defaultPrinterProfile, defaultPaTestSpec, paValueForLine, couponGeometry } from '../../../src/engine/pa/types'
 
 describe('extrusionMm', () => {
@@ -123,5 +123,17 @@ describe('generatePaGcode', () => {
   it('ends with the end gcode', () => {
     const g = generatePaGcode(profile, spec)
     expect(g.trimEnd().endsWith('M84')).toBe(true)
+  })
+})
+
+describe('estimatePaPrintSeconds', () => {
+  it('estimates a finite, positive, and plausible print time for the default profile/spec', () => {
+    const profile = defaultPrinterProfile()
+    const spec = defaultPaTestSpec()
+    const seconds = estimatePaPrintSeconds(profile, spec)
+    expect(Number.isFinite(seconds)).toBe(true)
+    expect(seconds).toBeGreaterThan(0)
+    expect(seconds).toBeGreaterThan(3 * 60)
+    expect(seconds).toBeLessThan(90 * 60)
   })
 })

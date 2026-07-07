@@ -55,7 +55,9 @@ describe('pa types', () => {
     })
 
     it('shifts the range around the first line when it is the optimum', () => {
-      const spec = defaultPaTestSpec()
+      // A non-zero paStart, so the shifted range differs from the current one (see the
+      // bottom-edge clamp refinement case below for paStart already at 0).
+      const spec = { ...defaultPaTestSpec(), paStart: 0.02, paEnd: 0.08 }
       const shift = edgeShiftRange(spec, 0)
       expect(shift).not.toBeNull()
       const range = spec.paEnd - spec.paStart
@@ -78,6 +80,12 @@ describe('pa types', () => {
       const analyzedSpec = { ...defaultPaTestSpec(), paStart: 0.02, paEnd: 0.08, lineCount: 5 }
       const shift = edgeShiftRange(analyzedSpec, 0)
       expect(shift).toEqual({ start: 0, end: 0.06 })
+    })
+
+    it('returns a narrowing refinement when the shifted range would be a no-op (bottom-edge clamp)', () => {
+      const spec = { ...defaultPaTestSpec(), paStart: 0, paEnd: 0.06 }
+      const shift = edgeShiftRange(spec, 0)
+      expect(shift).toEqual({ start: 0, end: 0.03 })
     })
   })
 })

@@ -123,7 +123,13 @@ export function edgeShiftRange(
   const range = spec.paEnd - spec.paStart
   const centre = paValueForLine(spec, bestLineIndex)
   const start = Math.max(0, centre - range / 2)
-  return { start, end: start + range }
+  const end = start + range
+  // The bottom-edge clamp case (bestLineIndex 0, paStart already 0) produces a shift identical to
+  // the current range: offer a refinement narrowing the sweep toward zero instead of a no-op rerun.
+  if (bestLineIndex === 0 && start === spec.paStart && end === spec.paEnd) {
+    return { start: 0, end: (spec.paEnd - spec.paStart) / 2 }
+  }
+  return { start, end }
 }
 
 export function couponGeometry(spec: PaTestSpec): CouponGeometry {

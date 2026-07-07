@@ -12,9 +12,10 @@ describe('usePrinterProfiles', () => {
   it('starts empty and upserts with a generated id', () => {
     const store = usePrinterProfiles()
     expect(store.profiles).toHaveLength(0)
-    store.upsert({ ...defaultPrinterProfile(), name: 'Voron' })
+    const id = store.upsert({ ...defaultPrinterProfile(), name: 'Voron' })
     expect(store.profiles).toHaveLength(1)
     expect(store.profiles[0].id).not.toBe('')
+    expect(id).toBe(store.profiles[0].id)
   })
 
   it('persists and reloads across store instances', () => {
@@ -32,9 +33,11 @@ describe('usePrinterProfiles', () => {
     const store = usePrinterProfiles()
     store.upsert({ ...defaultPrinterProfile(), name: 'A' })
     const id = store.profiles[0].id
-    store.upsert({ ...store.profiles[0], name: 'B' })
+    const updatedId = store.upsert({ ...store.profiles[0], name: 'B' })
     expect(store.profiles).toHaveLength(1)
     expect(store.profiles[0].name).toBe('B')
+    expect(updatedId).toBe(id)
+    expect(updatedId).toBe(store.profiles[0].id)
     store.remove(id)
     expect(store.profiles).toHaveLength(0)
     expect(store.selectedId).toBeNull()

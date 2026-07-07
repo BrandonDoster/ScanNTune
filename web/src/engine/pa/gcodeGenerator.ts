@@ -12,7 +12,7 @@ export function extrusionMm(
   return (lineWidthMm * layerHeightMm * lengthMm) / filamentArea
 }
 
-function paCommand(firmware: PrinterProfile['firmware'], value: number): string {
+export function paCommand(firmware: PrinterProfile['firmware'], value: number): string {
   const v = value.toFixed(4)
   if (firmware === 'Marlin') return `M900 K${v}`
   if (firmware === 'RepRapFirmware') return `M572 D0 S${v}`
@@ -84,6 +84,12 @@ function clipRangeAgainstBox(
   return out.filter(([s, t]) => t > s)
 }
 
+const BASE_LAYERS = 2
+/** Raster line pitch as a fraction of line width, for a slight overlap giving a solid layer. */
+const RASTER_STEP_FACTOR = 0.9
+/** Raster fill speed as a fraction of the profile's travel speed. */
+const RASTER_SPEED_FACTOR = 1 / 3
+
 /** Raster-fill a rectangle at a 45 or 135 degree angle, skipping fiducial holes. */
 function rasterBase(
   e: Emitter,
@@ -96,7 +102,7 @@ function rasterBase(
   angle45: boolean,
   holes: { x0: number; y0: number; x1: number; y1: number }[],
 ): void {
-  const step = spec.lineWidthMm * 0.9 // slight overlap for a solid layer
+  const step = spec.lineWidthMm * RASTER_STEP_FACTOR
   // Diagonal raster: iterate scanlines along the diagonal direction. Each
   // scanline is clipped against the rectangle and split around holes.
   const dir = angle45 ? { dx: 1, dy: 1 } : { dx: -1, dy: 1 }
@@ -141,7 +147,7 @@ function rasterBase(
     for (const [a, b] of ranges) {
       if (b - a < spec.lineWidthMm) continue
       travel(e, p, bx + a * ux, by + a * uy)
-      extrude(e, p, spec, bx + b * ux, by + b * uy, p.travelSpeedMmS / 3)
+      extrude(e, p, spec, bx + b * ux, by + b * uy, p.travelSpeedMmS * RASTER_SPEED_FACTOR)
     }
   }
 }
@@ -173,8 +179,8 @@ export function generatePaGcode(profile: PrinterProfile, spec: PaTestSpec): stri
   L.push('M83') // relative extrusion, restated in case start gcode changed it
   L.push('G90')
 
-  // Two base layers.
-  for (let layer = 0; layer < 2; layer++) {
+  // Base layers.
+  for (let layer = 0; layer < BASE_LAYERS; layer++) {
     const z = profile.layerHeightMm * (layer + 1)
     L.push(`G1 Z${z.toFixed(3)} F600`)
     rasterBase(e, profile, spec, ox, oy, g.baseWidthMm, g.baseHeightMm, layer === 0, holes)
@@ -189,7 +195,7 @@ export function generatePaGcode(profile: PrinterProfile, spec: PaTestSpec): stri
   retract(e, profile, -1)
 
   // Prime line along the bottom base edge, outside the measured region.
-  const z3 = profile.layerHeightMm * 3
+  const z3 = profile.layerHeightMm * (BASE_LAYERS + 1)
   L.push(`G1 Z${z3.toFixed(3)} F600`)
   L.push(paCommand(profile.firmware, 0))
   travel(e, profile, ox + 2, oy + 1.5)
@@ -211,4 +217,25 @@ export function generatePaGcode(profile: PrinterProfile, spec: PaTestSpec): stri
   retract(e, profile, 1)
   L.push(...profile.endGcode.split('\n'))
   return L.join('\n') + '\n'
+}
+
+/**
+ * Rough print time estimate: base raster distance at the raster speed, plus the test lines at
+ * their segment speeds and travel between them, plus a flat heat-up allowance. Reuses the same
+ * raster step/speed constants the generator itself uses, so the estimate tracks the generated
+ * G-code rather than duplicating separately tuned numbers. Ignores acceleration.
+ */
+export function estimatePaPrintSeconds(profile: PrinterProfile, spec: PaTestSpec): number {
+  const g = couponGeometry(spec)
+  const rasterStep = spec.lineWidthMm * RASTER_STEP_FACTOR
+  const rasterSpeedMmS = profile.travelSpeedMmS * RASTER_SPEED_FACTOR
+  const baseDist = (BASE_LAYERS * (g.baseWidthMm * g.baseHeightMm)) / rasterStep
+  const baseSeconds = baseDist / rasterSpeedMmS
+  const lineSeconds =
+    spec.lineCount *
+    ((2 * spec.slowSegmentMm) / spec.slowSpeedMmS +
+      spec.fastSegmentMm / spec.fastSpeedMmS +
+      (g.baseWidthMm + spec.linePitchMm) / profile.travelSpeedMmS)
+  const heatUpSeconds = 180
+  return baseSeconds + lineSeconds + heatUpSeconds
 }

@@ -34,11 +34,16 @@ export function measureLineWidthProfile(
   spec: PaTestSpec,
   lineIndex: number,
 ): WidthSample[] {
-  void cv
   if (!gray || gray.empty()) throw new Error('Image is null or empty.')
   if (gray.channels() !== 1) throw new Error('measureLineWidthProfile expects a single-channel image.')
+  if (gray.type() !== cv.CV_8UC1) {
+    throw new Error('measureLineWidthProfile expects a CV_8UC1 (single-channel 8-bit) image.')
+  }
   if (!alignment.success) throw new Error('Cannot profile lines without a successful alignment.')
   if (lineIndex < 0 || lineIndex >= spec.lineCount) throw new Error('Line index out of range.')
+
+  const data = gray.data as Uint8Array
+  const cols = gray.cols
 
   const g = couponGeometry(spec)
   const lineLenMm = 2 * spec.slowSegmentMm + spec.fastSegmentMm
@@ -55,11 +60,13 @@ export function measureLineWidthProfile(
   const profileLen = 2 * Math.floor(halfRangePx / PROFILE_STEP_PX) + 1
   const s0 = -Math.floor(halfRangePx / PROFILE_STEP_PX) * PROFILE_STEP_PX
 
+  const rows = gray.rows
   const samples: WidthSample[] = []
   const profile = new Float64Array(profileLen)
   for (let xMm = END_SKIP_MM; xMm <= lineLenMm - END_SKIP_MM + 1e-9; xMm += SAMPLE_STEP_MM) {
     const centre = mmToPx(alignment, g.lineStartXMm + xMm, yMm)
-    const widthMm = measureAt(gray, centre.x, centre.y, ux, uy, s0, profileLen, profile) / perpPxPerMm
+    const widthMm =
+      measureAt(data, cols, rows, centre.x, centre.y, ux, uy, s0, profileLen, profile) / perpPxPerMm
     samples.push({ xMm, widthMm })
   }
   return samples
@@ -68,7 +75,9 @@ export function measureLineWidthProfile(
 // Width in px of the dark line crossing the profile centred at (cx, cy), or NaN when no line or no
 // edge pair is found there.
 function measureAt(
-  gray: Mat,
+  data: Uint8Array,
+  cols: number,
+  rows: number,
   cx: number,
   cy: number,
   ux: number,
@@ -79,7 +88,7 @@ function measureAt(
 ): number {
   for (let k = 0; k < profileLen; k++) {
     const s = s0 + k * PROFILE_STEP_PX
-    const v = bilinear(gray, cx + ux * s, cy + uy * s)
+    const v = bilinear(data, cols, rows, cx + ux * s, cy + uy * s)
     if (Number.isNaN(v)) return NaN
     profile[k] = v
   }
@@ -122,15 +131,13 @@ function subPixEdge(grad: (k: number) => number, kLo: number, kHi: number): numb
 }
 
 // Bilinear intensity at a fractional pixel position; NaN outside the image.
-function bilinear(gray: Mat, x: number, y: number): number {
+function bilinear(data: Uint8Array, cols: number, rows: number, x: number, y: number): number {
   const x0 = Math.floor(x)
   const y0 = Math.floor(y)
-  if (x0 < 0 || y0 < 0 || x0 + 1 >= gray.cols || y0 + 1 >= gray.rows) return NaN
+  if (x0 < 0 || y0 < 0 || x0 + 1 >= cols || y0 + 1 >= rows) return NaN
   const fx = x - x0
   const fy = y - y0
-  const d = gray.data as Uint8Array
-  const w = gray.cols
-  const p = (yy: number, xx: number) => d[yy * w + xx]
+  const p = (yy: number, xx: number) => data[yy * cols + xx]
   return (
     p(y0, x0) * (1 - fx) * (1 - fy) +
     p(y0, x0 + 1) * fx * (1 - fy) +

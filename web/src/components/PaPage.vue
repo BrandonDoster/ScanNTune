@@ -4,10 +4,9 @@ import { usePrinterProfiles } from '../stores/usePrinterProfiles'
 import { readBytes } from '../util/preview'
 import { analyzePaScan } from '../workerClient'
 import type { PaProcessing } from '../workerClient'
-import { generatePaGcode } from '../engine/pa/gcodeGenerator'
+import { generatePaGcode, estimatePaPrintSeconds } from '../engine/pa/gcodeGenerator'
 import { paCorrection } from '../engine/pa/paCorrectionFormatter'
 import {
-  couponGeometry,
   defaultPaTestSpec,
   defaultPrinterProfile,
   edgeShiftRange,
@@ -47,14 +46,8 @@ function openEdit(): void {
   formOpen.value = true
 }
 function onSave(profile: PrinterProfile): void {
-  store.upsert(profile)
-  if (profile.id === '') {
-    // A fresh profile got its id inside the store; select the latest entry.
-    const added = store.profiles[store.profiles.length - 1]
-    if (added) store.select(added.id)
-  } else {
-    store.select(profile.id)
-  }
+  const id = store.upsert(profile)
+  store.select(id)
 }
 function confirmDelete(): void {
   if (store.selected) store.remove(store.selected.id)
@@ -102,23 +95,12 @@ const filename = computed(() =>
   store.selected ? `pa_test_${sanitizeName(store.selected.name)}.gcode` : '',
 )
 
-// Rough print time: base raster distance at travelSpeed/3, plus the test lines at their segment
-// speeds, plus a flat heat-up allowance. Labelled with "~" because it ignores acceleration.
+// Rough print time from the generator's own estimator. Labelled with "~" because it ignores
+// acceleration.
 const printTimeText = computed(() => {
   const p = store.selected
   if (!p) return ''
-  const s = spec.value
-  const g = couponGeometry(s)
-  const rasterStep = s.lineWidthMm * 0.9
-  const baseDist = (2 * (g.baseWidthMm * g.baseHeightMm)) / rasterStep
-  const baseSeconds = baseDist / (p.travelSpeedMmS / 3)
-  const lineSeconds =
-    s.lineCount *
-    ((2 * s.slowSegmentMm) / s.slowSpeedMmS +
-      s.fastSegmentMm / s.fastSpeedMmS +
-      (g.baseWidthMm + s.linePitchMm) / p.travelSpeedMmS)
-  const heatUpSeconds = 180
-  const minutes = Math.max(1, Math.round((baseSeconds + lineSeconds + heatUpSeconds) / 60))
+  const minutes = Math.max(1, Math.round(estimatePaPrintSeconds(p, spec.value) / 60))
   return `~${minutes} min`
 })
 
@@ -151,6 +133,12 @@ const processing = shallowRef<PaProcessing | null>(null)
 // stays consistent even if the form fields below change afterwards.
 const analyzedSpec = shallowRef<PaTestSpec | null>(null)
 
+function resetProcessing(): void {
+  processing.value?.overlay.close()
+  processing.value = null
+  analyzedSpec.value = null
+}
+
 async function onPick(e: Event): Promise<void> {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0]
@@ -159,9 +147,7 @@ async function onPick(e: Event): Promise<void> {
   if (!file) return
   analyzing.value = true
   scanError.value = ''
-  processing.value?.overlay.close()
-  processing.value = null
-  analyzedSpec.value = null
+  resetProcessing()
   try {
     const bytes = await readBytes(file)
     const usedSpec = spec.value
@@ -197,9 +183,7 @@ function applyShift(): void {
   if (!edgeShift.value) return
   paStart.value = Number(edgeShift.value.start.toFixed(4))
   paEnd.value = Number(edgeShift.value.end.toFixed(4))
-  processing.value?.overlay.close()
-  processing.value = null
-  analyzedSpec.value = null
+  resetProcessing()
 }
 </script>
 

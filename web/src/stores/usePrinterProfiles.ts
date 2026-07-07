@@ -75,7 +75,7 @@ export const usePrinterProfiles = defineStore('printerProfiles', () => {
     }
   }
 
-  function upsert(profile: PrinterProfile): void {
+  function upsert(profile: PrinterProfile): string {
     const id = profile.id === '' ? crypto.randomUUID() : profile.id
     const withId = { ...profile, id }
     const index = profiles.value.findIndex((p) => p.id === id)
@@ -85,6 +85,7 @@ export const usePrinterProfiles = defineStore('printerProfiles', () => {
       profiles.value = profiles.value.map((p, i) => (i === index ? withId : p))
     }
     persist()
+    return id
   }
 
   function remove(id: string): void {
