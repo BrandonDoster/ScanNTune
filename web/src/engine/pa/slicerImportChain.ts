@@ -45,6 +45,14 @@ export function importSlicerConfigs(
 ): SlicerImportResult {
   const parsed = files.map(parseFile)
   const orcaByName = buildOrcaNameMap([...cachedPresets.map(parseFile), ...parsed])
+  // Names present only in the cache (no uploaded preset of the same name in this batch): a chain
+  // parent resolved through one of these is a remembered-from-cache resolution, not an upload.
+  const uploadedNames = new Set(buildOrcaNameMap(parsed).keys())
+  const cachedOnlyNames = new Set(
+    [...buildOrcaNameMap(cachedPresets.map(parseFile)).keys()].filter(
+      (name) => !uploadedNames.has(name),
+    ),
+  )
   const consumedAsParent = findParentNames(parsed, orcaByName)
 
   const imports: { fileName: string; result: SlicerImportResult }[] = []
@@ -63,7 +71,10 @@ export function importSlicerConfigs(
     if (name !== undefined && consumedAsParent.has(name)) continue
     imports.push({
       fileName: file.fileName,
-      result: prefixWarnings(file.fileName, importOrcaChain(file, orcaByName, installPath)),
+      result: prefixWarnings(
+        file.fileName,
+        importOrcaChain(file, orcaByName, installPath, cachedOnlyNames),
+      ),
     })
   }
   const merged = mergeResults(imports.map((i) => i.result))
@@ -110,6 +121,7 @@ function importSingleFile(file: ParsedFile): SlicerImportResult {
   try {
     const result = importSlicerConfig(file.fileName, file.content)
     result.unresolvedParents = []
+    result.resolvedFromCache = []
     return result
   } catch (e) {
     return {
@@ -119,6 +131,7 @@ function importSingleFile(file: ParsedFile): SlicerImportResult {
       missing: [],
       warnings: [e instanceof Error ? e.message : String(e)],
       unresolvedParents: [],
+      resolvedFromCache: [],
     }
   }
 }
@@ -151,11 +164,15 @@ function importOrcaChain(
   file: ParsedFile,
   orcaByName: Map<string, Record<string, unknown>>,
   installPath: string | null,
+  cachedOnlyNames: Set<string>,
 ): SlicerImportResult {
   const preset = file.orca as Record<string, unknown>
   const chain = resolveChain(preset, orcaByName)
   const result = importOrcaMerged(chain.merged)
   result.unresolvedParents = []
+  result.resolvedFromCache = chain.parentNamesVisited
+    .filter((name) => cachedOnlyNames.has(name))
+    .map((presetName) => ({ presetName }))
   if (chain.cycle) {
     result.warnings.push(
       `"${file.fileName}" has an "inherits" cycle; stopped resolving to avoid a hang.`,
@@ -248,6 +265,7 @@ function mergeResults(imports: SlicerImportResult[]): SlicerImportResult {
   const importedFields = new Set<string>()
   const warnings: string[] = []
   const unresolvedParents: NonNullable<SlicerImportResult['unresolvedParents']> = []
+  const resolvedFromCache: NonNullable<SlicerImportResult['resolvedFromCache']> = []
   let missing: string[] = []
   for (const result of imports) {
     Object.assign(fields.printer, result.fields.printer)
@@ -257,6 +275,18 @@ function mergeResults(imports: SlicerImportResult[]): SlicerImportResult {
     missing = result.missing.filter((f) => !importedFields.has(f))
     warnings.push(...result.warnings)
     unresolvedParents.push(...(result.unresolvedParents ?? []))
+    for (const cached of result.resolvedFromCache ?? []) {
+      if (!resolvedFromCache.some((c) => c.presetName === cached.presetName))
+        resolvedFromCache.push(cached)
+    }
   }
-  return { fields, filaments, imported: [...importedFields], missing, warnings, unresolvedParents }
+  return {
+    fields,
+    filaments,
+    imported: [...importedFields],
+    missing,
+    warnings,
+    unresolvedParents,
+    resolvedFromCache,
+  }
 }

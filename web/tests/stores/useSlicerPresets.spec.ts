@@ -77,7 +77,9 @@ describe('useSlicerPresets', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const store = useSlicerPresets()
     expect(store.presets).toHaveLength(0)
-    expect(store.installPath).toBeNull()
+    // A fresh (or unreadable) state seeds the install path to the platform default so base-preset
+    // path hints are absolute out of the box.
+    expect(store.installPath).not.toBeNull()
     expect(warn).toHaveBeenCalled()
     warn.mockRestore()
   })
@@ -96,6 +98,20 @@ describe('useSlicerPresets', () => {
     )
     const store = useSlicerPresets()
     expect(store.presets.map((p) => p.name)).toEqual(['Good'])
-    expect(store.installPath).toBeNull()
+    // An invalid stored install path falls back to the seeded platform default, not null.
+    expect(store.installPath).not.toBeNull()
+  })
+
+  it('seeds slicer, os, and the default install path on a fresh store and persists them', () => {
+    const a = useSlicerPresets()
+    expect(a.slicer).toBe('OrcaSlicer')
+    expect(['Windows', 'macOS', 'Linux']).toContain(a.os)
+    expect(a.installPath).not.toBeNull()
+    a.setSlicer('PrusaSlicer')
+    a.setOs('Linux')
+    setActivePinia(createPinia())
+    const b = useSlicerPresets()
+    expect(b.slicer).toBe('PrusaSlicer')
+    expect(b.os).toBe('Linux')
   })
 })

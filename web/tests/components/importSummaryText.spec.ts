@@ -12,6 +12,7 @@ function baseSummary(overrides: Partial<ImportSummary> = {}): ImportSummary {
     wrongKind: null,
     fileNames: ['config.ini'],
     unresolvedParents: [],
+    resolvedFromCache: [],
     sources: [],
     orcaMachine: false,
     ...overrides,

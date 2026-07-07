@@ -101,6 +101,30 @@ function onParentPicked(event: Event): void {
         @change="onParentPicked"
       />
       <div
+        v-for="(cached, i) in summary.resolvedFromCache"
+        :key="`cache-${i}`"
+        class="resolved-parent mt-2 text-body-2"
+        data-testid="import-resolved-parent"
+      >
+        <div class="d-flex align-center ga-2">
+          <v-icon icon="mdi-check-circle" color="success" size="18" />
+          <span>
+            <code class="preset-chip">{{ cached.presetName }}</code>, from your remembered presets
+          </span>
+        </div>
+        <div class="mt-1">
+          <button
+            type="button"
+            class="upload-new-link text-caption"
+            data-testid="import-upload-new-version"
+            @click="parentFileInput?.click()"
+          >
+            Upload new version
+          </button>
+        </div>
+      </div>
+
+      <div
         v-for="(parent, i) in summary.unresolvedParents"
         :key="i"
         class="unresolved-parent mt-2 text-body-2"
@@ -229,6 +253,22 @@ function onParentPicked(event: Event): void {
   border: 1px solid rgba(var(--v-theme-warning), 0.45);
   border-radius: 4px;
   padding: 8px 12px;
+}
+.resolved-parent {
+  background: rgba(var(--v-theme-success), 0.08);
+  border: 1px solid rgba(var(--v-theme-success), 0.35);
+  border-radius: 4px;
+  padding: 8px 12px;
+}
+.upload-new-link {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: rgb(var(--v-theme-primary));
+}
+.upload-new-link:hover {
+  text-decoration: underline;
 }
 .preset-chip {
   font-family: 'Roboto Mono', ui-monospace, monospace;

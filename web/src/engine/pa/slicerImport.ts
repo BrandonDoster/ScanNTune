@@ -28,6 +28,9 @@ export interface SlicerImportResult {
   /** Per-uploaded-file breakdown of which fields each file's import filled (cached or
    *  consumed-as-parent presets excluded); only set by multi-file chain resolution. */
   sources?: { fileName: string; imported: string[] }[]
+  /** Inherited parents that resolved from the passed-in cached presets (not from an upload in
+   *  this batch), so the UI can show them as remembered rather than as still-missing. */
+  resolvedFromCache?: { presetName: string }[]
 }
 
 /** Profile fields the importer knows how to fill; anything not found lands in missing[]. */

@@ -6,8 +6,7 @@ import { useProfileForm } from '../composables/useProfileForm'
 import type { ImportKind } from '../composables/useProfileForm'
 import type { Firmware } from '../engine/pa/types'
 import NumericField from './NumericField.vue'
-import ConfigPathsMenu from './ConfigPathsMenu.vue'
-import ImportSummaryPanel from './ImportSummaryPanel.vue'
+import ImportView from './ImportView.vue'
 
 const app = useApp()
 const store = usePrinterProfiles()
@@ -29,19 +28,14 @@ const title = computed(() =>
 
 const tab = ref<ImportKind>('printer')
 
-const printerFileInput = ref<HTMLInputElement | null>(null)
-const filamentFileInput = ref<HTMLInputElement | null>(null)
+// 'form' shows the tabbed editor; 'import' swaps the body for the full-screen ImportView while
+// ProfilePage stays mounted, so all unsaved form edits and import state persist.
+const viewMode = ref<'form' | 'import'>('form')
+const importKind = ref<ImportKind>('printer')
 
-function onImportFiles(event: Event, kind: ImportKind): void {
-  const input = event.target as HTMLInputElement
-  const files = Array.from(input.files ?? [])
-  // Clear the input so picking the same file again still fires change.
-  input.value = ''
-  void form.importFiles(files, kind)
-}
-
-function onUploadParent(file: File): void {
-  void form.importParentFile(file)
+function openImport(kind: ImportKind): void {
+  importKind.value = kind
+  viewMode.value = 'import'
 }
 
 function back(): void {
@@ -58,6 +52,11 @@ function save(): void {
 </script>
 
 <template>
+  <v-container v-if="viewMode === 'import'" class="page" data-testid="profile-page">
+    <ImportView :kind="importKind" :form="form" @done="viewMode = 'form'" />
+  </v-container>
+
+  <template v-else>
   <div class="profile-header" data-testid="profile-page">
     <div class="header-inner">
       <v-btn
@@ -93,32 +92,16 @@ function save(): void {
       <!-- Printer tab -->
       <v-tabs-window-item value="printer">
         <div class="toolbar">
-          <input
-            ref="printerFileInput"
-            type="file"
-            accept=".ini,.json,.cfg,.txt"
-            multiple
-            class="d-none"
-            data-testid="import-printer-input"
-            @change="onImportFiles($event, 'printer')"
-          />
           <v-btn
             variant="tonal"
             size="small"
             prepend-icon="mdi-import"
             data-testid="import-printer"
-            @click="printerFileInput?.click()"
+            @click="openImport('printer')"
           >
             Import printer settings
           </v-btn>
         </div>
-        <ConfigPathsMenu kind="printer" />
-        <ImportSummaryPanel
-          v-if="form.importSummary.value?.kind === 'printer'"
-          :summary="form.importSummary.value"
-          class="mt-2"
-          @upload-parent="onUploadParent"
-        />
 
         <div class="column mt-4">
           <div class="group-caption">Printer</div>
@@ -256,32 +239,16 @@ function save(): void {
             @click="form.removeFilament"
           />
           <v-spacer />
-          <input
-            ref="filamentFileInput"
-            type="file"
-            accept=".ini,.json,.cfg,.txt"
-            multiple
-            class="d-none"
-            data-testid="import-filament-input"
-            @change="onImportFiles($event, 'filament')"
-          />
           <v-btn
             variant="tonal"
             size="small"
             prepend-icon="mdi-import"
             data-testid="import-filament"
-            @click="filamentFileInput?.click()"
+            @click="openImport('filament')"
           >
             Import filament
           </v-btn>
         </div>
-        <ConfigPathsMenu kind="filament" />
-        <ImportSummaryPanel
-          v-if="form.importSummary.value?.kind === 'filament'"
-          :summary="form.importSummary.value"
-          class="mt-2"
-          @upload-parent="onUploadParent"
-        />
 
         <div v-if="form.currentFilament.value" class="column mt-4">
           <div class="group-caption">Filament</div>
@@ -331,6 +298,7 @@ function save(): void {
       </v-tabs-window-item>
     </v-tabs-window>
   </v-container>
+  </template>
 </template>
 
 <style scoped>

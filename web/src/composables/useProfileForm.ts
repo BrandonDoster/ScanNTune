@@ -37,6 +37,9 @@ export interface ImportSummary {
   /** Source file names, for the headline and single-file warning-prefix suppression. */
   fileNames: string[]
   unresolvedParents: UnresolvedParent[]
+  /** Inherited base presets that resolved from the remembered cache, shown as a resolved card
+   *  with an "upload new version" affordance rather than as a missing-parent warning. */
+  resolvedFromCache: { presetName: string }[]
   /** Per-file success cards: which of this kind's fields each uploaded file filled. */
   sources: { fileName: string; filled: string[] }[]
   /** True when the upload contained an OrcaSlicer machine preset, enabling the missing-field
@@ -310,6 +313,7 @@ export function useProfileForm() {
       wrongKind,
       fileNames: slicerFiles.map((f) => f.fileName),
       unresolvedParents: result.unresolvedParents ?? [],
+      resolvedFromCache: result.resolvedFromCache ?? [],
       sources: (result.sources ?? []).map((s) => ({
         fileName: s.fileName,
         filled: s.imported.filter((f) => kindOfMissing(f) === kind),

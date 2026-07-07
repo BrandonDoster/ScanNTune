@@ -161,6 +161,23 @@ describe('importSlicerConfigs: multi-file Orca inherits resolution', () => {
     expect(result.fields.printer.retractMm).toBe(0.8)
   })
 
+  it('reports a parent resolved from the cache under resolvedFromCache', () => {
+    const result = importSlicerConfigs(
+      [{ fileName: 'orca_machine_chubechanger.json', content: chubechanger }],
+      [{ fileName: 'Voron 2.4 300 0.4 nozzle.json', content: voron24Parent }],
+    )
+    expect(result.resolvedFromCache).toEqual([{ presetName: 'Voron 2.4 300 0.4 nozzle' }])
+    expect(result.unresolvedParents).toEqual([])
+  })
+
+  it('does not report an uploaded (non-cached) parent as resolved from cache', () => {
+    const result = importSlicerConfigs([
+      { fileName: 'orca_machine_chubechanger.json', content: chubechanger },
+      { fileName: 'voron24_parent.json', content: voron24Parent },
+    ])
+    expect(result.resolvedFromCache).toEqual([])
+  })
+
   it('never imports a cached preset standalone: cache alone with no upload fills nothing', () => {
     const result = importSlicerConfigs(
       [],
