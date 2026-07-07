@@ -1,0 +1,78 @@
+{
+    "change_filament_gcode": "PAUSE",
+    "cooling_tube_length": "0",
+    "cooling_tube_retraction": "0",
+    "enable_filament_ramming": "0",
+    "extra_loading_move": "0",
+    "fan_speedup_overhangs": "0",
+    "from": "User",
+    "inherits": "Voron Trident 300 0.4 nozzle",
+    "machine_max_acceleration_extruding": [
+        "45000",
+        "20000"
+    ],
+    "machine_max_acceleration_retracting": [
+        "45000",
+        "5000"
+    ],
+    "machine_max_acceleration_x": [
+        "45000",
+        "20000"
+    ],
+    "machine_max_acceleration_y": [
+        "45000",
+        "20000"
+    ],
+    "machine_max_jerk_x": [
+        "40",
+        "12"
+    ],
+    "machine_max_jerk_y": [
+        "40",
+        "12"
+    ],
+    "machine_max_speed_e": [
+        "50",
+        "25"
+    ],
+    "machine_max_speed_x": [
+        "700",
+        "200"
+    ],
+    "machine_max_speed_y": [
+        "700",
+        "200"
+    ],
+    "machine_start_gcode": "M117\nPRINT_START BED=[first_layer_bed_temperature] HOTEND=[first_layer_temperature] FILAMENT_TYPE=[filament_type] CHAMBER_TEMP=[chamber_temperature]",
+    "name": "Tridentbert",
+    "nozzle_type": [
+        "hardened_steel"
+    ],
+    "parking_pos_retraction": "0",
+    "print_host": "192.168.0.27",
+    "printable_area": [
+        "0x0",
+        "300x0",
+        "300x240",
+        "0x240"
+    ],
+    "printable_height": "248",
+    "printer_extruder_id": [
+        "1"
+    ],
+    "printer_extruder_variant": [
+        "Direct Drive Standard"
+    ],
+    "printer_settings_id": "Tridentbert",
+    "printhost_ssl_ignore_revoke": "1",
+    "retract_length_toolchange": [
+        "0"
+    ],
+    "retraction_length": [
+        "0.6"
+    ],
+    "version": "2.3.0.3",
+    "z_hop": [
+        "0"
+    ]
+}

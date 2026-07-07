@@ -53,11 +53,14 @@ export function valueChannel(cv: OpenCv, image: Mat): Mat {
 // backing sheet, the object, a bright scanner-lid margin) has no single threshold that isolates the
 // object; one of the three-class bands does. As with analyzeBothPolarities, the caller validates
 // each hypothesis against known geometry and keeps what fits. Duplicate bands are analysed once.
-// `analyze` must not retain or mutate the binary it is given.
+// `analyze` must not retain or mutate the binary it is given. When `isDone` is provided, band
+// evaluation stops as soon as it returns true for a result, and the results collected so far are
+// returned; without it every band is analysed.
 export function analyzeThresholdBands<T>(
   cv: OpenCv,
   image: Mat,
   analyze: (objectWhite: Mat) => T,
+  isDone?: (result: T) => boolean,
 ): T[] {
   if (!image || image.empty()) throw new Error('Image is null or empty.')
   const value = image.channels() === 1 ? image : valueChannel(cv, image)
@@ -88,7 +91,9 @@ export function analyzeThresholdBands<T>(
         low.delete()
         high.delete()
       }
-      results.push(analyze(binary))
+      const result = analyze(binary)
+      results.push(result)
+      if (isDone && isDone(result)) return results
     }
     return results
   } finally {

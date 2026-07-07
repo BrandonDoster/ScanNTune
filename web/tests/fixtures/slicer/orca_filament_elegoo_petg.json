@@ -1,0 +1,31 @@
+{
+    "compatible_printers": [
+        "Voron Trident 300 0.4 nozzle"
+    ],
+    "fan_max_speed": [
+        "40"
+    ],
+    "filament_flow_ratio": [
+        "0.9"
+    ],
+    "filament_settings_id": [
+        "T - Elegoo PETG"
+    ],
+    "from": "User",
+    "inherits": "Generic PETG @System",
+    "is_custom_defined": "0",
+    "name": "T - Elegoo PETG",
+    "nozzle_temperature": [
+        "260"
+    ],
+    "nozzle_temperature_initial_layer": [
+        "260"
+    ],
+    "overhang_fan_speed": [
+        "40"
+    ],
+    "slow_down_layer_time": [
+        "4"
+    ],
+    "version": "2.3.1.10"
+}

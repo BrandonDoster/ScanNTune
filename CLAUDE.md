@@ -118,6 +118,29 @@ there is deliberately no rotation-only fallback).
 cluster** (radius-median filter), NOT by circularity: a strict threshold silently drops nearly every ring on
 a real scan.
 
+## Pressure advance calibration
+
+A second, independent calibration flow lives under `web/src/engine/pa/`: it estimates linear
+pressure advance (Klipper `PRESSURE_ADVANCE`, Marlin `M900 K`, RepRapFirmware `M572 S`) from a single
+scan of a printed test coupon, instead of the eyeballed "prints" the usual tools produce. The coupon
+is a two-layer base (a solid first layer, then a contrasting-color second layer for edge contrast) with
+16 straight test lines, each printed at a different stepped PA value and each containing a slow to fast
+to slow speed change so a PA mismatch bulges or starves the line at the two speed transitions. Three
+corner holes are fiducials; the fourth corner is left solid, so the missing hole marks the origin the
+same way the XYZ coupon's marker does. Measurement: `fiducialAligner` solves the affine from the three
+holes, `lineMeasurer` profiles each line's width to sub-pixel precision perpendicular to the line (any
+base/line filament colors work as long as they differ in brightness: the profile extremum is the point
+deviating most from the base tone, so lines darker or brighter than the base measure identically), and
+`paAnalyzer` scores each line by the RMS width deviation inside a window around each speed transition,
+then refines the discrete best line to a continuous PA value by parabolic minimum of the score curve.
+The G-code for the coupon is generated in-app per printer profile (firmware, speeds, temperatures,
+filament swap pause), stored in the localStorage-backed `usePrinterProfiles` Pinia store, mirroring
+`useCalibration`'s pattern. Validation contract: `web/tests/helpers/paRender.ts` is a synthetic renderer
+that draws a coupon image from known ground-truth PA and geometry; it is the ground-truth fixture for
+this pipeline the same way `TestData_2solid.png` is for the XY/XZ/YZ engine. Do not change the PA
+measurement math (alignment, width profiling, transition scoring, parabolic refinement) without keeping
+the render-recovery tests green (rule 1).
+
 ## Conventions
 
 The coding rules are strict; each is numbered for unambiguous reference. Do not cite these rule numbers in
@@ -149,23 +172,27 @@ shipped source, comments, or UI text: they are guidance for how to work, not doc
    issue/PR comments, tags, or release notes. Keep commit messages to a single short sentence (a concise
    subject line, no body).
 
-5. **Self-review before handoff: multi-file changes only.** Before presenting a multi-file change for commit
-   approval, run a medium-effort `/code-review` scoped to the change. Every finding it surfaces requires a
-   logged disposition: paste the finder list verbatim and mark each one **Fixed** (name the commit that
-   resolves it), **False positive** (the finding is factually wrong, proven with the quoted line that
-   refutes it), or **Owner-waived** (you flagged it to the owner and they chose not to fix it).
-   "Pre-existing," "out of scope," "low value," or "cosmetic" are not valid reasons to silently drop a
-   finding: skipping a correct finding is the owner's decision, never yours.
+5. **Get owner approval before committing or pushing.** Never run `git commit` or `git push` (or open a PR)
+   until the owner has approved. Approval can be **per-change** (present the diff summary, ask, proceed only
+   after a clear "yes") or a **standing grant for a named branch** (once the owner blanket-approves work on a
+   branch, commits to that branch need no further prompt). Pushes, and any commit to `master`, always require
+   explicit approval regardless of a branch grant.
 
-6. **Get owner approval before committing or pushing.** Never run `git commit` or `git push` (or open a PR)
-   until the owner has explicitly approved the change in chat: present the diff summary and ask, and proceed
-   only after a clear "yes". Committing straight to `master` is fine (Pages auto-deploys on push, so there
-   is no PR or release ceremony required), but the approval gate applies to every commit and push without
-   exception.
-
-7. **Never use the em-dash character `—`, and never use a hyphen `-` as a substitute for it.** The em-dash
+6. **Never use the em-dash character `—`, and never use a hyphen `-` as a substitute for it.** The em-dash
    is banned everywhere you write: source, comments, docs, UI text, commit messages, PR titles and bodies,
    issue/PR comments, and chat replies. Do not swap in a hyphen `-` to get the same dash-like pause either.
    Rewrite the sentence: use a colon, parentheses, a comma, or two separate sentences. A hyphen is allowed
    ONLY where grammar genuinely requires one, such as a compound modifier ("sub-pixel", "user-facing") or a
    hyphenated name.
+
+**Verification bar.** The standard for "verified" is `npm run build` plus `npm test` plus `npm run e2e` all
+green (and, for any change to the measurement pipeline, the synthetic-fixture validation of rule 1). That
+automated gate is sufficient: do not additionally launch a dev server for manual browser verification unless
+the owner asks for it.
+
+**Subagent routing.** When delegating to a subagent, prefer the `cavecrew-*` types wherever the task fits,
+because their output is caveman-compressed and keeps the parent context small: use `cavecrew-investigator`
+to locate or map code (read-only), `cavecrew-builder` for a surgical one or two file edit (it refuses three
+or more files), and `cavecrew-reviewer` to review a diff, branch, or file. Only fall back to a general agent
+when no cavecrew type fits, chiefly a multi-file implementation, since there is no cavecrew multi-file
+builder.
