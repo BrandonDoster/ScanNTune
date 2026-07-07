@@ -6,10 +6,11 @@ import { readBytes } from '../util/preview'
 import { analyzePaScan } from '../workerClient'
 import type { PaProcessing } from '../workerClient'
 import { generatePaGcodeWithReport } from '../engine/pa/gcodeGenerator'
-import { paCorrection } from '../engine/pa/paCorrectionFormatter'
+import { paCorrection, sweepCorrection } from '../engine/pa/paCorrectionFormatter'
 import {
   couponGeometry,
   defaultPaTestSpec,
+  defaultSmoothTimeTestSpec,
   defaultPrinterProfile,
   edgeShiftRange,
   extruderPresetRanges,
@@ -136,21 +137,21 @@ const filename = computed(() =>
   store.selected ? `pa_test_${sanitizeName(store.selected.name)}.gcode` : '',
 )
 
-function generate(): void {
+function downloadGcode(usedSpec: PaTestSpec, name: string, errorRef: { value: string }): void {
   const profile = store.selected
   const filament = store.selectedFilament
   if (!profile || !filament) return
-  generateError.value = ''
+  errorRef.value = ''
   unknownVariables.value = []
   templateWarnings.value = []
   let gcode: string
   try {
-    const report = generatePaGcodeWithReport(profile, filament, spec.value)
+    const report = generatePaGcodeWithReport(profile, filament, usedSpec)
     gcode = report.gcode
     unknownVariables.value = report.unknownVariables
     templateWarnings.value = report.warnings
   } catch (e) {
-    generateError.value = e instanceof Error ? e.message : String(e)
+    errorRef.value = e instanceof Error ? e.message : String(e)
     console.error('G-code generation failed', e)
     return
   }
@@ -158,13 +159,20 @@ function generate(): void {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = filename.value
+  a.download = name
   a.click()
   URL.revokeObjectURL(url)
 }
 
-// Scan card state.
+function generate(): void {
+  downloadGcode(spec.value, filename.value, generateError)
+}
+
+// Scan card state. One `analyzing` lock covers BOTH scan uploads (PA and smooth time): while
+// either analysis runs, every control on the page is disabled. `analyzeKind` only says which
+// card shows the progress spinner.
 const analyzing = ref(false)
+const analyzeKind = ref<'pa' | 'smoothTime' | null>(null)
 const progressText = ref('')
 const scanError = ref('')
 
@@ -198,7 +206,20 @@ function resetProcessing(): void {
   analyzedSpec.value = null
 }
 
-async function onPick(e: Event): Promise<void> {
+// Shared upload handler for both scan cards: decodes the picked file, runs the worker analysis
+// against the given spec, and lands the outcome in the given card's refs, all under the one
+// page-wide `analyzing` lock.
+async function analyzeUpload(
+  e: Event,
+  kind: 'pa' | 'smoothTime',
+  usedSpec: PaTestSpec,
+  sink: {
+    processing: typeof processing
+    analyzedSpec: typeof analyzedSpec
+    error: { value: string }
+    reset: () => void
+  },
+): Promise<void> {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0]
   // Clear the input so picking the same file again still fires change.
@@ -206,21 +227,34 @@ async function onPick(e: Event): Promise<void> {
   // A disabled input still receives drops in some browsers; never start a second analysis.
   if (!file || analyzing.value) return
   analyzing.value = true
+  analyzeKind.value = kind
   progressText.value = 'Reading the scan'
-  scanError.value = ''
-  resetProcessing()
+  sink.error.value = ''
+  sink.reset()
   try {
     const bytes = await readBytes(file)
-    const usedSpec = spec.value
-    processing.value = await analyzePaScan(bytes, usedSpec, onProgress)
-    analyzedSpec.value = usedSpec
+    sink.processing.value = await analyzePaScan(bytes, usedSpec, onProgress)
+    sink.analyzedSpec.value = usedSpec
   } catch (err) {
     console.error('PA scan analysis failed', err)
-    scanError.value = err instanceof Error ? err.message : String(err)
+    sink.error.value = err instanceof Error ? err.message : String(err)
   } finally {
     analyzing.value = false
+    analyzeKind.value = null
     progressText.value = ''
   }
+}
+
+async function onPick(e: Event): Promise<void> {
+  await analyzeUpload(e, 'pa', spec.value, {
+    processing,
+    analyzedSpec,
+    error: scanError,
+    reset: resetProcessing,
+  })
+  const r = processing.value?.result
+  // Prefill the smooth-time step's fixed advance with the freshly measured value.
+  if (r?.success && r.bestPa !== null) stFixedAdvance.value = Number(r.bestPa.toFixed(4))
 }
 
 // Result card state. Derived exclusively from analyzedSpec, the snapshot of the spec used for
@@ -247,6 +281,58 @@ function applyShift(): void {
   paEnd.value = Number(edgeShift.value.end.toFixed(4))
   resetProcessing()
 }
+
+// Step 5, smooth time (optional, Klipper only). Shown once a successful PA result exists in this
+// session; hidden again if the user switches to a non-Klipper profile.
+const stDefaults = defaultSmoothTimeTestSpec(0)
+const stStart = ref<number | null>(stDefaults.paStart)
+const stEnd = ref<number | null>(stDefaults.paEnd)
+const stFixedAdvance = ref<number | null>(null)
+const stSpec = computed<PaTestSpec>(() => ({
+  ...defaultSmoothTimeTestSpec(stFixedAdvance.value ?? 0),
+  paStart: stStart.value ?? stDefaults.paStart,
+  paEnd: stEnd.value ?? stDefaults.paEnd,
+}))
+const showSmoothStep = computed(
+  () => store.selected?.firmware === 'Klipper' && result.value?.success === true,
+)
+
+const stGenerateError = ref('')
+const stFilename = computed(() =>
+  store.selected ? `smooth_time_${sanitizeName(store.selected.name)}.gcode` : '',
+)
+function generateSmooth(): void {
+  downloadGcode(stSpec.value, stFilename.value, stGenerateError)
+}
+
+const stScanError = ref('')
+const stProcessing = shallowRef<PaProcessing | null>(null)
+const stAnalyzedSpec = shallowRef<PaTestSpec | null>(null)
+function resetStProcessing(): void {
+  stProcessing.value?.overlay.close()
+  stProcessing.value = null
+  stAnalyzedSpec.value = null
+}
+async function onPickSmooth(e: Event): Promise<void> {
+  await analyzeUpload(e, 'smoothTime', stSpec.value, {
+    processing: stProcessing,
+    analyzedSpec: stAnalyzedSpec,
+    error: stScanError,
+    reset: resetStProcessing,
+  })
+}
+
+const stResult = computed(() => stProcessing.value?.result ?? null)
+const stLinesReadable = computed(() =>
+  stResult.value ? stResult.value.lines.filter((l) => l.measured).length : 0,
+)
+const stCorrection = computed(() => {
+  const r = stResult.value
+  const s = stAnalyzedSpec.value
+  if (!r || !r.success || r.bestPa === null || !s) return null
+  if (store.selected?.firmware !== 'Klipper') return null
+  return sweepCorrection('Klipper', s, r.bestPa)
+})
 </script>
 
 <template>
@@ -474,7 +560,7 @@ function applyShift(): void {
         <span class="dz-label">Choose the scan image</span>
         <span class="dz-sub">or drop it here</span>
       </label>
-      <div v-if="analyzing" class="d-flex align-center ga-2 mt-3">
+      <div v-if="analyzing && analyzeKind === 'pa'" class="d-flex align-center ga-2 mt-3">
         <v-progress-circular indeterminate size="20" width="2" color="primary" />
         <span class="tip mt-0" data-testid="pa-progress">{{ progressText || 'Analyzing the scan...' }}</span>
       </div>
@@ -551,6 +637,115 @@ function applyShift(): void {
         label="Detected lines and scores"
         class="mt-3"
       />
+    </section>
+
+    <!-- 5. Smooth time (optional, Klipper only) -->
+    <section v-if="showSmoothStep" class="step mt-3" data-testid="pa-st-step">
+      <div class="step-head mb-1">
+        <span class="num">5</span><span class="step-title">Smooth time (optional)</span>
+      </div>
+      <p class="tip mb-3">
+        optional, Klipper only: sharper corners at high acceleration. The test lines all use the
+        pressure advance measured above and sweep pressure_advance_smooth_time instead.
+      </p>
+      <div class="fields">
+        <NumericField v-model="stStart" label="Smooth time start (s)" :step="0.005" :min="0" :precision="4" :disabled="analyzing" />
+        <NumericField v-model="stEnd" label="Smooth time end (s)" :step="0.005" :min="0" :precision="4" :disabled="analyzing" />
+        <NumericField v-model="stFixedAdvance" label="Pressure advance" :step="0.005" :min="0" :precision="4" :disabled="analyzing" />
+      </div>
+      <div class="gen-row mt-2">
+        <v-btn
+          color="primary"
+          prepend-icon="mdi-download"
+          :disabled="!canGenerate || analyzing"
+          data-testid="st-generate-btn"
+          @click="generateSmooth"
+        >
+          Generate G-code
+        </v-btn>
+        <span v-if="stFilename" class="tip mt-0">{{ stFilename }}</span>
+      </div>
+      <v-alert
+        v-if="stGenerateError"
+        type="error"
+        variant="tonal"
+        class="mt-3"
+        :text="stGenerateError"
+        data-testid="st-generate-error"
+      />
+      <p class="tip mb-3 mt-3">
+        Print it the same way as the first coupon, scan it, and drop the image in.
+      </p>
+      <label class="dropzone">
+        <input
+          type="file"
+          accept="image/*"
+          class="file-input"
+          :disabled="analyzing"
+          data-testid="pa-st-scan-input"
+          @change="onPickSmooth"
+        />
+        <v-icon size="28" color="primary">mdi-image-plus</v-icon>
+        <span class="dz-label">Choose the scan image</span>
+        <span class="dz-sub">or drop it here</span>
+      </label>
+      <div v-if="analyzing && analyzeKind === 'smoothTime'" class="d-flex align-center ga-2 mt-3">
+        <v-progress-circular indeterminate size="20" width="2" color="primary" />
+        <span class="tip mt-0" data-testid="pa-st-progress">{{ progressText || 'Analyzing the scan...' }}</span>
+      </div>
+      <v-alert
+        v-if="stScanError"
+        type="error"
+        variant="tonal"
+        class="mt-3"
+        :text="stScanError"
+        data-testid="st-scan-error"
+      />
+
+      <template v-if="stResult">
+        <template v-if="stResult.success">
+          <div class="tiles mb-3 mt-3">
+            <MetricTile
+              label="Best smooth time (s)"
+              :value="stResult.bestPa!.toFixed(4)"
+              testid="pa-st-best"
+            />
+            <MetricTile
+              label="Best line"
+              :value="`${stResult.bestLineIndex! + 1} of ${stAnalyzedSpec!.lineCount}`"
+              testid="pa-st-best-line"
+            />
+            <MetricTile
+              label="Lines readable"
+              :value="`${stLinesReadable} / ${stAnalyzedSpec!.lineCount}`"
+              testid="pa-st-lines-readable"
+            />
+          </div>
+          <template v-if="stCorrection">
+            <CodeBlock :code="stCorrection.code" data-testid="pa-st-code" />
+            <CodeBlock
+              v-if="stCorrection.secondaryCode"
+              :code="stCorrection.secondaryCode"
+              :caption="stCorrection.secondaryCaption"
+            />
+            <p class="tip mt-0">{{ stCorrection.hint }}</p>
+          </template>
+        </template>
+        <v-alert
+          v-else
+          type="error"
+          variant="tonal"
+          class="mb-3 mt-3"
+          :text="stResult.failureReason ?? 'The scan could not be analyzed.'"
+          data-testid="pa-st-failure"
+        />
+        <OverlayCanvas
+          v-if="stProcessing?.overlay"
+          :bitmap="stProcessing.overlay"
+          label="Detected lines and scores"
+          class="mt-3"
+        />
+      </template>
     </section>
   </v-container>
 

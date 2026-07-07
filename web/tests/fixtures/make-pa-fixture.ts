@@ -8,12 +8,23 @@ import { fileURLToPath } from 'node:url'
 import { PNG } from 'pngjs'
 import { renderPaScan } from '../helpers/paRender'
 import type { PaRenderOptions } from '../helpers/paRender'
+import { defaultSmoothTimeTestSpec } from '../../src/engine/pa/types'
 
 const fixtures: Array<{ file: string; options: Partial<PaRenderOptions> & { truePa: number } }> = [
   { file: 'pa_synthetic.png', options: { truePa: 0.03, rotationDegrees: 3 } },
   {
     file: 'pa_synthetic_inverted.png',
     options: { truePa: 0.03, rotationDegrees: 3, baseGray: 40, lineGray: 220, backgroundGray: 245 },
+  },
+  // Smooth-time sweep coupon: ground-truth smooth time 0.035 s at a fixed PA of 0.03.
+  {
+    file: 'pa_smooth_synthetic.png',
+    options: {
+      spec: defaultSmoothTimeTestSpec(0.03),
+      truePa: 0.03,
+      trueSmoothTime: 0.035,
+      rotationDegrees: 3,
+    },
   },
 ]
 

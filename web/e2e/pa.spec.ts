@@ -11,6 +11,8 @@ const paScanInverted = fileURLToPath(
 )
 // A real 35 MP flatbed scan of a printed coupon (default spec, measured PA near 0.035).
 const paScanReal = fileURLToPath(new URL('./fixtures/pa_real_scan.png', import.meta.url))
+// Smooth-time sweep coupon: ground-truth smooth time 0.035 s at a fixed PA of 0.03.
+const paScanSmooth = fileURLToPath(new URL('./fixtures/pa_smooth_synthetic.png', import.meta.url))
 
 test.beforeEach(async ({ page }) => {
   page.on('console', (msg) => console.log(`[browser:${msg.type()}]`, msg.text()))
@@ -55,6 +57,32 @@ test('pressure advance flow: profile, G-code download, scan analysis', async ({ 
   // The Klipper command for the recovered value is shown.
   await expect(page.getByTestId('pa-code')).toContainText('SET_PRESSURE_ADVANCE')
   await expect(page.getByTestId('pa-code')).toContainText(bestPa.toFixed(4))
+
+  // Step 5 (smooth time, Klipper only) appears once a PA result exists, with the measured
+  // value prefilled as the fixed advance.
+  await expect(page.getByTestId('pa-st-step')).toBeVisible()
+  await expect(page.getByLabel('Pressure advance')).toHaveValue(bestPa.toFixed(4))
+
+  // Generating the smooth-time coupon fires a .gcode download too.
+  const stDownloadPromise = page.waitForEvent('download')
+  await page.getByTestId('st-generate-btn').click()
+  const stDownload = await stDownloadPromise
+  expect(stDownload.suggestedFilename()).toMatch(/^smooth_time_.*\.gcode$/)
+
+  // Upload the smooth-time coupon scan; the fixture's fixed advance is 0.03, so match it.
+  await page.getByLabel('Pressure advance').fill('0.03')
+  await page.getByLabel('Pressure advance').press('Tab')
+  await page.getByTestId('pa-st-scan-input').setInputFiles(paScanSmooth)
+  await expect(page.getByTestId('pa-st-best')).toBeVisible({ timeout: 120000 })
+  await expect(page.getByTestId('st-scan-error')).toHaveCount(0)
+  await expect(page.getByTestId('pa-st-failure')).toHaveCount(0)
+
+  const bestSt = parseFloat(await page.getByTestId('pa-st-best').innerText())
+  console.log('best smooth time =', bestSt)
+  // Ground truth 0.035 s, within one sweep step (0.05 / 15).
+  expect(Math.abs(bestSt - 0.035)).toBeLessThan(0.0034)
+  await expect(page.getByTestId('pa-st-code')).toContainText('SMOOTH_TIME=' + bestSt.toFixed(4))
+  await expect(page.getByTestId('pa-st-code')).toContainText('ADVANCE=0.0300')
 })
 
 test('pressure advance scan analysis: white lines on a black base', async ({ page }) => {

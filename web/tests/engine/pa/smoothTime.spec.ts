@@ -5,9 +5,10 @@ import { renderPaScan } from '../../helpers/paRender'
 import { rgbaToBgrMat } from '../../../src/engine/imageData'
 import { analyzePaCoupon } from '../../../src/engine/pa/paAnalyzer'
 import { generatePaGcode } from '../../../src/engine/pa/gcodeGenerator'
-import { smoothTimeCorrection } from '../../../src/engine/pa/paCorrectionFormatter'
+import { smoothTimeCorrection, sweepCorrection } from '../../../src/engine/pa/paCorrectionFormatter'
 import {
   defaultFilamentProfile,
+  defaultPaTestSpec,
   defaultPrinterProfile,
   defaultSmoothTimeTestSpec,
   paValueForLine,
@@ -70,6 +71,23 @@ describe('smoothTimeCorrection', () => {
   it('throws for non-Klipper firmwares', () => {
     expect(() => smoothTimeCorrection('Marlin', 0.03, 0.035)).toThrow(/Klipper/)
     expect(() => smoothTimeCorrection('RepRapFirmware', 0.03, 0.035)).toThrow(/Klipper/)
+  })
+})
+
+describe('sweepCorrection', () => {
+  it('picks the smooth time correction for a smoothTime sweep', () => {
+    const c = sweepCorrection('Klipper', defaultSmoothTimeTestSpec(0.03), 0.0351)
+    expect(c.code).toBe('SET_PRESSURE_ADVANCE ADVANCE=0.0300 SMOOTH_TIME=0.0351')
+  })
+
+  it('picks the pressure advance correction for an advance sweep', () => {
+    const c = sweepCorrection('Klipper', defaultPaTestSpec(), 0.0312)
+    expect(c.code).toBe('SET_PRESSURE_ADVANCE ADVANCE=0.0312')
+  })
+
+  it('throws when a smoothTime sweep has no fixed advance', () => {
+    const spec = { ...defaultSmoothTimeTestSpec(0.03), fixedAdvance: undefined }
+    expect(() => sweepCorrection('Klipper', spec, 0.035)).toThrow(/fixedAdvance/)
   })
 })
 
