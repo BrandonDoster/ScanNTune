@@ -9,6 +9,8 @@ const paScan = fileURLToPath(new URL('./fixtures/pa_synthetic.png', import.meta.
 const paScanInverted = fileURLToPath(
   new URL('./fixtures/pa_synthetic_inverted.png', import.meta.url),
 )
+// A real 35 MP flatbed scan of a printed coupon (default spec, measured PA near 0.035).
+const paScanReal = fileURLToPath(new URL('./fixtures/pa_real_scan.png', import.meta.url))
 
 test.beforeEach(async ({ page }) => {
   page.on('console', (msg) => console.log(`[browser:${msg.type()}]`, msg.text()))
@@ -68,4 +70,24 @@ test('pressure advance scan analysis: white lines on a black base', async ({ pag
   console.log('best PA (inverted palette) =', bestPa)
   expect(bestPa).toBeGreaterThan(0.026)
   expect(bestPa).toBeLessThan(0.034)
+})
+
+test('pressure advance scan analysis: real flatbed scan', async ({ page }) => {
+  await page.goto('/')
+  await page.getByTestId('nav-pa').click()
+  await expect(page.getByRole('heading', { name: 'Pressure advance calibration' })).toBeVisible()
+
+  await page.getByTestId('pa-scan-input').setInputFiles(paScanReal)
+  // The 35 MP scan takes a few seconds in the worker, so the progress line must appear.
+  await expect(page.getByTestId('pa-progress')).toBeVisible({ timeout: 60000 })
+  await expect(page.getByTestId('pa-best')).toBeVisible({ timeout: 180000 })
+  await expect(page.getByTestId('scan-error')).toHaveCount(0)
+  await expect(page.getByTestId('pa-failure')).toHaveCount(0)
+
+  const bestPa = parseFloat(await page.getByTestId('pa-best').innerText())
+  console.log('best PA (real scan) =', bestPa)
+  expect(Number.isFinite(bestPa)).toBe(true)
+  // Regression bound: the value measured when the fixture was added, within one sweep
+  // step of the default range (0.06 / 15 = 0.004).
+  expect(Math.abs(bestPa - 0.0348)).toBeLessThan(0.004)
 })
