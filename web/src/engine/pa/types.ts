@@ -132,6 +132,25 @@ export function edgeShiftRange(
   return { start, end }
 }
 
+const A4_SHORT_MM = 210
+const A4_LONG_MM = 297
+
+/** True if a widthMm x heightMm footprint fits an A4 sheet in either orientation. */
+export function fitsA4(widthMm: number, heightMm: number): boolean {
+  return (
+    (widthMm <= A4_SHORT_MM && heightMm <= A4_LONG_MM) ||
+    (widthMm <= A4_LONG_MM && heightMm <= A4_SHORT_MM)
+  )
+}
+
+/**
+ * The largest line count whose baseHeightMm stays within maxHeightMm, inverting
+ * baseHeightMm = (n-1)*linePitchMm + 2*marginMm.
+ */
+export function maxLineCountForHeight(spec: PaTestSpec, maxHeightMm: number): number {
+  return Math.floor((maxHeightMm - 2 * spec.marginMm) / spec.linePitchMm) + 1
+}
+
 export function couponGeometry(spec: PaTestSpec): CouponGeometry {
   const lineLen = 2 * spec.slowSegmentMm + spec.fastSegmentMm
   const baseWidthMm = lineLen + 2 * spec.marginMm

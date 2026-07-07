@@ -7,9 +7,12 @@ import type { PaProcessing } from '../workerClient'
 import { generatePaGcode, estimatePaPrintSeconds } from '../engine/pa/gcodeGenerator'
 import { paCorrection } from '../engine/pa/paCorrectionFormatter'
 import {
+  couponGeometry,
   defaultPaTestSpec,
   defaultPrinterProfile,
   edgeShiftRange,
+  fitsA4,
+  maxLineCountForHeight,
 } from '../engine/pa/types'
 import type { PaTestSpec, PrinterProfile } from '../engine/pa/types'
 import NumericField from './NumericField.vue'
@@ -84,6 +87,19 @@ const spec = computed<PaTestSpec>(() => ({
 const stepPerLine = computed(() =>
   ((spec.value.paEnd - spec.value.paStart) / (spec.value.lineCount - 1)).toFixed(4),
 )
+
+const A4_LONG_MM = 297
+
+const geometry = computed(() => couponGeometry(spec.value))
+const footprintText = computed(() => {
+  const g = geometry.value
+  return `coupon ${Math.round(g.baseWidthMm)} x ${Math.round(g.baseHeightMm)} mm`
+})
+const exceedsA4 = computed(() => {
+  const g = geometry.value
+  return !fitsA4(g.baseWidthMm, g.baseHeightMm)
+})
+const maxLinesForA4 = computed(() => maxLineCountForHeight(spec.value, A4_LONG_MM))
 
 const generateError = ref('')
 const canGenerate = computed(() => store.selected !== null)
@@ -253,7 +269,20 @@ function applyShift(): void {
         <NumericField v-model="paEnd" label="PA end" :step="0.01" :min="0" :precision="4" />
         <NumericField v-model="lineCount" label="Lines" :step="1" :min="4" />
       </div>
-      <p class="tip">Step {{ stepPerLine }} per line.</p>
+      <p class="tip">Step {{ stepPerLine }} per line, {{ footprintText }}.</p>
+      <p class="tip" data-testid="pa-lines-hint">
+        16 to 24 lines is plenty. The result is interpolated between lines, and the app suggests a
+        narrower follow-up range for extra precision. Up to {{ maxLinesForA4 }} lines stays within an
+        A4 scanner bed.
+      </p>
+      <v-alert
+        v-if="exceedsA4"
+        type="warning"
+        variant="tonal"
+        class="mt-3"
+        data-testid="pa-a4-warning"
+        text="The coupon is larger than A4. Most flatbed scanners cannot scan it in one pass. Reduce the line count unless your scanner is larger."
+      />
       <div class="gen-row mt-2">
         <v-btn
           color="primary"
