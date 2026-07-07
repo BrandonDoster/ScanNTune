@@ -1,6 +1,7 @@
 import type { Mat, OpenCv } from '../opencv'
 import type { PaLineScore, PaResult, PaTestSpec } from './types'
 import { couponGeometry, paValueForLine } from './types'
+import type { PaProgressCallback } from './types'
 import { alignPaCoupon } from './fiducialAligner'
 import type { PaAlignment } from './fiducialAligner'
 import { estimateLineContrast, measureLineWidthProfile, MIN_LINE_CONTRAST } from './lineMeasurer'
@@ -65,9 +66,11 @@ export function analyzePaCoupon(
   image: Mat,
   spec: PaTestSpec,
   alignmentHolder?: { alignment?: PaAlignment },
+  onProgress?: PaProgressCallback,
 ): PaResult {
   if (!image || image.empty()) throw new Error('Image is null or empty.')
 
+  onProgress?.({ stage: 'align' })
   const alignment = alignPaCoupon(cv, image, spec)
   if (alignmentHolder) alignmentHolder.alignment = alignment
   if (!alignment.success) {
@@ -91,6 +94,7 @@ export function analyzePaCoupon(
       }
     }
     for (let i = 0; i < spec.lineCount; i++) {
+      onProgress?.({ stage: 'measure', line: i, lineCount: spec.lineCount })
       const samples = measureLineWidthProfile(cv, gray, alignment, spec, i)
       const nanCount = samples.filter((s) => !Number.isFinite(s.widthMm)).length
       if (samples.length === 0 || nanCount > samples.length / 2) {
@@ -110,6 +114,7 @@ export function analyzePaCoupon(
     gray.delete()
   }
 
+  onProgress?.({ stage: 'score' })
   const measured = lines.filter((l) => l.measured)
   if (measured.length < 3) {
     return {

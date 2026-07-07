@@ -15,7 +15,7 @@ import {
   fitsA4,
   maxLineCountForHeight,
 } from '../engine/pa/types'
-import type { PaTestSpec } from '../engine/pa/types'
+import type { PaProgress, PaTestSpec } from '../engine/pa/types'
 import NumericField from './NumericField.vue'
 import OverlayCanvas from './OverlayCanvas.vue'
 import CodeBlock from './CodeBlock.vue'
@@ -147,7 +147,28 @@ function generate(): void {
 
 // Scan card state.
 const analyzing = ref(false)
+const progressText = ref('')
 const scanError = ref('')
+
+function onProgress(p: PaProgress): void {
+  switch (p.stage) {
+    case 'decode':
+      progressText.value = 'Reading the scan'
+      break
+    case 'align':
+      progressText.value = 'Locating the fiducials'
+      break
+    case 'measure':
+      progressText.value = `Measuring line ${(p.line ?? 0) + 1} of ${p.lineCount ?? '?'}`
+      break
+    case 'score':
+      progressText.value = 'Scoring'
+      break
+    case 'render':
+      progressText.value = 'Rendering the result'
+      break
+  }
+}
 const processing = shallowRef<PaProcessing | null>(null)
 // The spec the current `processing` result was actually analyzed against, so the result card
 // stays consistent even if the form fields below change afterwards.
@@ -166,18 +187,20 @@ async function onPick(e: Event): Promise<void> {
   input.value = ''
   if (!file) return
   analyzing.value = true
+  progressText.value = 'Reading the scan'
   scanError.value = ''
   resetProcessing()
   try {
     const bytes = await readBytes(file)
     const usedSpec = spec.value
-    processing.value = await analyzePaScan(bytes, usedSpec)
+    processing.value = await analyzePaScan(bytes, usedSpec, onProgress)
     analyzedSpec.value = usedSpec
   } catch (err) {
     console.error('PA scan analysis failed', err)
     scanError.value = err instanceof Error ? err.message : String(err)
   } finally {
     analyzing.value = false
+    progressText.value = ''
   }
 }
 
@@ -230,6 +253,7 @@ function applyShift(): void {
           density="comfortable"
           hide-details
           placeholder="Choose or create a printer"
+          :disabled="analyzing"
           class="profile-select"
           data-testid="profile-select"
           @update:model-value="onSelect"
@@ -241,6 +265,7 @@ function applyShift(): void {
           label="Filament"
           density="comfortable"
           hide-details
+          :disabled="analyzing"
           class="filament-select"
           data-testid="pa-filament-select"
           @update:model-value="onSelectFilament"
@@ -248,7 +273,7 @@ function applyShift(): void {
         <v-btn
           variant="tonal"
           size="small"
-          :disabled="!store.selected"
+          :disabled="!store.selected || analyzing"
           data-testid="profile-edit"
           @click="openEdit"
         >
@@ -257,7 +282,7 @@ function applyShift(): void {
         <v-btn
           variant="text"
           size="small"
-          :disabled="!store.selected"
+          :disabled="!store.selected || analyzing"
           data-testid="profile-delete"
           @click="deleteOpen = true"
         >
@@ -265,7 +290,7 @@ function applyShift(): void {
         </v-btn>
       </div>
       <div v-if="!store.profiles.length" class="mt-3">
-        <v-btn color="primary" size="small" prepend-icon="mdi-plus" data-testid="profile-new" @click="openNew">
+        <v-btn color="primary" size="small" prepend-icon="mdi-plus" :disabled="analyzing" data-testid="profile-new" @click="openNew">
           New printer profile
         </v-btn>
       </div>
@@ -280,13 +305,13 @@ function applyShift(): void {
         <span class="num">2</span><span class="step-title">Test range</span>
       </div>
       <div class="fields">
-        <NumericField v-model="paStart" label="PA start" :step="0.01" :min="0" :precision="4" />
-        <NumericField v-model="paEnd" label="PA end" :step="0.01" :min="0" :precision="4" />
-        <NumericField v-model="lineCount" label="Lines" :step="1" :min="4" />
+        <NumericField v-model="paStart" label="PA start" :step="0.01" :min="0" :precision="4" :disabled="analyzing" />
+        <NumericField v-model="paEnd" label="PA end" :step="0.01" :min="0" :precision="4" :disabled="analyzing" />
+        <NumericField v-model="lineCount" label="Lines" :step="1" :min="4" :disabled="analyzing" />
       </div>
       <div class="fields mt-3">
-        <NumericField v-model="slowSpeed" label="Slow speed (mm/s)" :step="5" :min="1" />
-        <NumericField v-model="fastSpeed" label="Fast speed (mm/s)" :step="5" :min="1" />
+        <NumericField v-model="slowSpeed" label="Slow speed (mm/s)" :step="5" :min="1" :disabled="analyzing" />
+        <NumericField v-model="fastSpeed" label="Fast speed (mm/s)" :step="5" :min="1" :disabled="analyzing" />
       </div>
       <p class="tip">
         The speed contrast creates the measurable transitions. Keep fast at least 3x slow.
@@ -309,7 +334,7 @@ function applyShift(): void {
         <v-btn
           color="primary"
           prepend-icon="mdi-download"
-          :disabled="!canGenerate"
+          :disabled="!canGenerate || analyzing"
           data-testid="generate-btn"
           @click="generate"
         >
@@ -364,6 +389,7 @@ function applyShift(): void {
           type="file"
           accept="image/*"
           class="file-input"
+          :disabled="analyzing"
           data-testid="pa-scan-input"
           @change="onPick"
         />
@@ -373,7 +399,7 @@ function applyShift(): void {
       </label>
       <div v-if="analyzing" class="d-flex align-center ga-2 mt-3">
         <v-progress-circular indeterminate size="20" width="2" color="primary" />
-        <span class="tip mt-0">Analyzing the scan...</span>
+        <span class="tip mt-0" data-testid="pa-progress">{{ progressText || 'Analyzing the scan...' }}</span>
       </div>
       <v-alert
         v-if="scanError"

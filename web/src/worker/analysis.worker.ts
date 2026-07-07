@@ -16,7 +16,7 @@ import type {
 import { analyzePaCoupon } from '../engine/pa/paAnalyzer'
 import { renderPaOverlayMat } from '../engine/pa/paOverlayRenderer'
 import type { PaAlignment } from '../engine/pa/fiducialAligner'
-import type { PaResult, PaTestSpec } from '../engine/pa/types'
+import type { PaProgress, PaProgressCallback, PaResult, PaTestSpec } from '../engine/pa/types'
 import { decodeToBgr, matToImageBitmap, grayMatToImageBitmap } from './decode'
 
 // The CV pipeline runs here, off the main thread, so the UI never freezes during analysis. The worker
@@ -108,15 +108,49 @@ export interface PaProcessing {
   overlay: ImageBitmap
 }
 
-async function analyzePaScan(bytes: ArrayBuffer, spec: PaTestSpec): Promise<PaProcessing> {
+// Wraps the caller's (Comlink-proxied, fire-and-forget) progress callback: forwards each stage event
+// without awaiting it, and logs how long each stage took when the next one starts.
+function paStageReporter(onProgress?: PaProgressCallback): {
+  report: PaProgressCallback
+  finish: () => void
+} {
+  let lastStage: PaProgress['stage'] | null = null
+  let lastStart = 0
+  const logStage = () => {
+    if (lastStage) console.info(`PA analyze: ${lastStage} ${Math.round(performance.now() - lastStart)} ms`)
+  }
+  return {
+    report: (p) => {
+      if (p.stage !== lastStage) {
+        logStage()
+        lastStage = p.stage
+        lastStart = performance.now()
+      }
+      if (onProgress) {
+        void Promise.resolve(onProgress(p)).catch((e) => console.error('PA progress callback failed', e))
+      }
+    },
+    finish: logStage,
+  }
+}
+
+async function analyzePaScan(
+  bytes: ArrayBuffer,
+  spec: PaTestSpec,
+  onProgress?: PaProgressCallback,
+): Promise<PaProcessing> {
+  const { report, finish } = paStageReporter(onProgress)
   const cv = await loadOpenCv()
+  report({ stage: 'decode' })
   const img = await decodeToBgr(cv, bytes)
   try {
     const holder: { alignment?: PaAlignment } = {}
-    const result = analyzePaCoupon(cv, img, spec, holder)
+    const result = analyzePaCoupon(cv, img, spec, holder, report)
+    report({ stage: 'render' })
     const overlay = holder.alignment?.success
       ? await renderPaOverlayBitmap(cv, img, holder.alignment, spec, result)
       : await matToImageBitmap(cv, img)
+    finish()
     return Comlink.transfer({ result, overlay }, [overlay])
   } finally {
     img.delete()

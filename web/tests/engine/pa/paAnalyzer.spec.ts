@@ -5,6 +5,7 @@ import { renderPaScan } from '../../helpers/paRender'
 import { rgbaToBgrMat } from '../../../src/engine/imageData'
 import { analyzePaCoupon, parabolicMinimum, scoreLine } from '../../../src/engine/pa/paAnalyzer'
 import { defaultPaTestSpec } from '../../../src/engine/pa/types'
+import type { PaProgress } from '../../../src/engine/pa/types'
 import type { WidthSample } from '../../../src/engine/pa/lineMeasurer'
 
 describe('scoreLine', () => {
@@ -142,4 +143,24 @@ describe('analyzePaCoupon', () => {
       blank.delete()
     }
   }, 60000)
+
+  it('emits progress events: align, one measure per line in order, then score', async () => {
+    const cv = await getCv()
+    const bgr = rgbaToBgrMat(cv, renderPaScan({ truePa: 0.03 }))
+    const events: PaProgress[] = []
+    try {
+      const r = analyzePaCoupon(cv, bgr, spec, undefined, (p) => events.push(p))
+      expect(r.success).toBe(true)
+      expect(events[0]).toEqual({ stage: 'align' })
+      const measures = events.filter((e) => e.stage === 'measure')
+      expect(measures).toHaveLength(spec.lineCount)
+      measures.forEach((e, i) => {
+        expect(e.line).toBe(i)
+        expect(e.lineCount).toBe(spec.lineCount)
+      })
+      expect(events[events.length - 1]).toEqual({ stage: 'score' })
+    } finally {
+      bgr.delete()
+    }
+  }, 120000)
 })

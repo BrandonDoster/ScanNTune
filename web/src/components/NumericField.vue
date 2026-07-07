@@ -10,6 +10,7 @@ defineProps<{
   precision?: number
   placeholder?: string
   hint?: string
+  disabled?: boolean
 }>()
 defineEmits<{ 'update:modelValue': [number | null] }>()
 </script>
@@ -23,6 +24,7 @@ defineEmits<{ 'update:modelValue': [number | null] }>()
     :precision="precision"
     :placeholder="placeholder"
     :hint="hint"
+    :disabled="disabled"
     :persistent-hint="!!hint"
     control-variant="stacked"
     density="comfortable"

@@ -44,6 +44,15 @@ export interface PaTestSpec {
   lineWidthMm: number
 }
 
+/** A stage event of the PA analysis; 'measure' carries the per-line progress. */
+export interface PaProgress {
+  stage: 'decode' | 'align' | 'measure' | 'score' | 'render'
+  line?: number
+  lineCount?: number
+}
+
+export type PaProgressCallback = (progress: PaProgress) => void
+
 export interface Fiducial {
   xMm: number
   yMm: number

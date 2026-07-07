@@ -1,7 +1,7 @@
 import * as Comlink from 'comlink'
 import type { AnalysisApi, PaProcessing, ScanProcessing } from './worker/analysis.worker'
 import type { CouponSpec, ScaleReferenceResult } from './engine/types'
-import type { PaTestSpec } from './engine/pa/types'
+import type { PaProgressCallback, PaTestSpec } from './engine/pa/types'
 
 // Lazily create the analysis worker (which pulls in OpenCV.js) only when the user first analyzes a
 // scan, so the wasm is not loaded on the initial page paint.
@@ -27,9 +27,17 @@ export async function analyzeScan(bytes: Uint8Array, coupon: CouponSpec): Promis
 
 // Analyse one pressure-advance coupon scan: align the fiducials, profile the test lines, and render
 // the score overlay, all inside the worker.
-export async function analyzePaScan(bytes: Uint8Array, spec: PaTestSpec): Promise<PaProcessing> {
+export async function analyzePaScan(
+  bytes: Uint8Array,
+  spec: PaTestSpec,
+  onProgress?: PaProgressCallback,
+): Promise<PaProcessing> {
   const b = bytes.slice().buffer
-  return getApi().analyzePaScan(Comlink.transfer(b, [b]), spec)
+  return getApi().analyzePaScan(
+    Comlink.transfer(b, [b]),
+    spec,
+    onProgress ? Comlink.proxy(onProgress) : undefined,
+  )
 }
 
 export async function measureCardScan(
