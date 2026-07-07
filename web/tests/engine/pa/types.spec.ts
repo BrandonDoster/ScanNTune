@@ -4,6 +4,7 @@ import {
   defaultPaTestSpec,
   paValueForLine,
   couponGeometry,
+  edgeShiftRange,
 } from '../../../src/engine/pa/types'
 
 describe('pa types', () => {
@@ -38,5 +39,43 @@ describe('pa types', () => {
     expect(p.nozzleDiameterMm).toBeCloseTo(0.4)
     expect(p.filamentDiameterMm).toBeCloseTo(1.75)
     expect(p.bedWidthMm).toBeGreaterThan(100)
+  })
+
+  describe('edgeShiftRange', () => {
+    it('returns null when the best line is not null but sits mid-sweep', () => {
+      const spec = defaultPaTestSpec()
+      const mid = Math.floor(spec.lineCount / 2)
+      expect(edgeShiftRange(spec, mid)).toBeNull()
+    })
+
+    it('returns null when there is no best line', () => {
+      expect(edgeShiftRange(defaultPaTestSpec(), null)).toBeNull()
+    })
+
+    it('shifts the range around the first line when it is the optimum', () => {
+      const spec = defaultPaTestSpec()
+      const shift = edgeShiftRange(spec, 0)
+      expect(shift).not.toBeNull()
+      const range = spec.paEnd - spec.paStart
+      const centre = paValueForLine(spec, 0)
+      expect(shift!.start).toBeCloseTo(Math.max(0, centre - range / 2), 10)
+      expect(shift!.end - shift!.start).toBeCloseTo(range, 10)
+    })
+
+    it('shifts the range around the last line when it is the optimum', () => {
+      const spec = defaultPaTestSpec()
+      const shift = edgeShiftRange(spec, spec.lineCount - 1)
+      expect(shift).not.toBeNull()
+      const range = spec.paEnd - spec.paStart
+      const centre = paValueForLine(spec, spec.lineCount - 1)
+      expect(shift!.start).toBeCloseTo(Math.max(0, centre - range / 2), 10)
+      expect(shift!.end - shift!.start).toBeCloseTo(range, 10)
+    })
+
+    it('derives from the spec passed in, not any external live state', () => {
+      const analyzedSpec = { ...defaultPaTestSpec(), paStart: 0.02, paEnd: 0.08, lineCount: 5 }
+      const shift = edgeShiftRange(analyzedSpec, 0)
+      expect(shift).toEqual({ start: 0, end: 0.06 })
+    })
   })
 })

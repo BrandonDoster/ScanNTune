@@ -111,6 +111,21 @@ export function paValueForLine(spec: PaTestSpec, index: number): number {
   return spec.paStart + ((spec.paEnd - spec.paStart) * index) / (spec.lineCount - 1)
 }
 
+// The optimum sitting on the first or last line means the sweep didn't bracket it: offer a range
+// shifted so the current best PA sits in the middle. Takes the spec the analysis was actually run
+// against, not any later live form state, so a result stays consistent with what produced it.
+export function edgeShiftRange(
+  spec: PaTestSpec,
+  bestLineIndex: number | null,
+): { start: number; end: number } | null {
+  if (bestLineIndex === null) return null
+  if (bestLineIndex !== 0 && bestLineIndex !== spec.lineCount - 1) return null
+  const range = spec.paEnd - spec.paStart
+  const centre = paValueForLine(spec, bestLineIndex)
+  const start = Math.max(0, centre - range / 2)
+  return { start, end: start + range }
+}
+
 export function couponGeometry(spec: PaTestSpec): CouponGeometry {
   const lineLen = 2 * spec.slowSegmentMm + spec.fastSegmentMm
   const baseWidthMm = lineLen + 2 * spec.marginMm

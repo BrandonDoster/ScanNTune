@@ -10,7 +10,7 @@ import {
   couponGeometry,
   defaultPaTestSpec,
   defaultPrinterProfile,
-  paValueForLine,
+  edgeShiftRange,
 } from '../engine/pa/types'
 import type { PaTestSpec, PrinterProfile } from '../engine/pa/types'
 import NumericField from './NumericField.vue'
@@ -147,6 +147,9 @@ function generate(): void {
 const analyzing = ref(false)
 const scanError = ref('')
 const processing = shallowRef<PaProcessing | null>(null)
+// The spec the current `processing` result was actually analyzed against, so the result card
+// stays consistent even if the form fields below change afterwards.
+const analyzedSpec = shallowRef<PaTestSpec | null>(null)
 
 async function onPick(e: Event): Promise<void> {
   const input = e.target as HTMLInputElement
@@ -156,10 +159,14 @@ async function onPick(e: Event): Promise<void> {
   if (!file) return
   analyzing.value = true
   scanError.value = ''
+  processing.value?.overlay.close()
   processing.value = null
+  analyzedSpec.value = null
   try {
     const bytes = await readBytes(file)
-    processing.value = await analyzePaScan(bytes, spec.value)
+    const usedSpec = spec.value
+    processing.value = await analyzePaScan(bytes, usedSpec)
+    analyzedSpec.value = usedSpec
   } catch (err) {
     console.error('PA scan analysis failed', err)
     scanError.value = err instanceof Error ? err.message : String(err)
@@ -168,7 +175,8 @@ async function onPick(e: Event): Promise<void> {
   }
 }
 
-// Result card state.
+// Result card state. Derived exclusively from analyzedSpec, the snapshot of the spec used for
+// this analysis, never the live form state above.
 const result = computed(() => processing.value?.result ?? null)
 const linesReadable = computed(() =>
   result.value ? result.value.lines.filter((l) => l.measured).length : 0,
@@ -179,23 +187,19 @@ const correction = computed(() => {
   return paCorrection(store.selected?.firmware ?? 'Klipper', r.bestPa)
 })
 
-// The optimum sitting on the first or last line means the sweep didn't bracket it: offer a range
-// shifted so the current best PA sits in the middle.
 const edgeShift = computed<{ start: number; end: number } | null>(() => {
   const r = result.value
-  if (!r || !r.success || r.bestLineIndex === null) return null
-  const s = spec.value
-  if (r.bestLineIndex !== 0 && r.bestLineIndex !== s.lineCount - 1) return null
-  const range = s.paEnd - s.paStart
-  const centre = paValueForLine(s, r.bestLineIndex)
-  const start = Math.max(0, centre - range / 2)
-  return { start, end: start + range }
+  const s = analyzedSpec.value
+  if (!r || !r.success || !s) return null
+  return edgeShiftRange(s, r.bestLineIndex)
 })
 function applyShift(): void {
   if (!edgeShift.value) return
   paStart.value = Number(edgeShift.value.start.toFixed(4))
   paEnd.value = Number(edgeShift.value.end.toFixed(4))
+  processing.value?.overlay.close()
   processing.value = null
+  analyzedSpec.value = null
 }
 </script>
 
@@ -345,12 +349,12 @@ function applyShift(): void {
           />
           <MetricTile
             label="Best line"
-            :value="`${result.bestLineIndex! + 1} of ${spec.lineCount}`"
+            :value="`${result.bestLineIndex! + 1} of ${analyzedSpec!.lineCount}`"
             testid="pa-best-line"
           />
           <MetricTile
             label="Lines readable"
-            :value="`${linesReadable} / ${spec.lineCount}`"
+            :value="`${linesReadable} / ${analyzedSpec!.lineCount}`"
             testid="pa-lines-readable"
           />
         </div>
