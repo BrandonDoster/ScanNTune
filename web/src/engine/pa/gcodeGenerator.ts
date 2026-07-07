@@ -364,30 +364,3 @@ function emitPaGcode(profile: PrinterProfile, filament: FilamentProfile, spec: P
   L.push(...profile.endGcode.split('\n'))
   return L.join('\n') + '\n'
 }
-
-/**
- * Rough print time estimate: base raster distance at the raster speed, plus the test lines at
- * their segment speeds and travel between them, plus a flat heat-up allowance. Reuses the same
- * raster step/speed constants the generator itself uses, so the estimate tracks the generated
- * G-code rather than duplicating separately tuned numbers. Ignores acceleration.
- */
-export function estimatePaPrintSeconds(profile: PrinterProfile, spec: PaTestSpec): number {
-  const g = couponGeometry(spec)
-  const rasterStep = spec.lineWidthMm * RASTER_STEP_FACTOR
-  const rasterSpeedMmS = profile.travelSpeedMmS * RASTER_SPEED_FACTOR
-  const baseDist = (BASE_LAYERS * (g.baseWidthMm * g.baseHeightMm)) / rasterStep
-  let perimeterDist = 0
-  for (let k = 0; k < PERIMETER_LOOPS; k++) {
-    const ins = (k + 0.5) * spec.lineWidthMm
-    perimeterDist += 2 * (g.baseWidthMm - 2 * ins + (g.baseHeightMm - 2 * ins))
-    perimeterDist += g.fiducials.length * 4 * (g.fiducialSizeMm + 2 * ins)
-  }
-  const baseSeconds = (baseDist + BASE_LAYERS * perimeterDist) / rasterSpeedMmS
-  const lineSeconds =
-    spec.lineCount *
-    ((2 * spec.slowSegmentMm) / spec.slowSpeedMmS +
-      spec.fastSegmentMm / spec.fastSpeedMmS +
-      (g.baseWidthMm + spec.linePitchMm) / profile.travelSpeedMmS)
-  const heatUpSeconds = 180
-  return baseSeconds + lineSeconds + heatUpSeconds
-}

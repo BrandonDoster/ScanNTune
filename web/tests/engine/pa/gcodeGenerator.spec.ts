@@ -3,7 +3,6 @@ import {
   generatePaGcode,
   generatePaGcodeWithReport,
   extrusionMm,
-  estimatePaPrintSeconds,
 } from '../../../src/engine/pa/gcodeGenerator'
 import { defaultFilamentProfile, defaultPrinterProfile, defaultPaTestSpec, paValueForLine, couponGeometry } from '../../../src/engine/pa/types'
 
@@ -310,17 +309,5 @@ describe('generatePaGcodeWithReport', () => {
     const r = generatePaGcodeWithReport(p, defaultFilamentProfile(), defaultPaTestSpec())
     expect(r.unknownVariables).toEqual([])
     expect(r.gcode).toBe(generatePaGcode(p, defaultFilamentProfile(), defaultPaTestSpec()))
-  })
-})
-
-describe('estimatePaPrintSeconds', () => {
-  it('estimates a finite, positive, and plausible print time for the default profile/spec', () => {
-    const profile = defaultPrinterProfile()
-    const spec = defaultPaTestSpec()
-    const seconds = estimatePaPrintSeconds(profile, spec)
-    expect(Number.isFinite(seconds)).toBe(true)
-    expect(seconds).toBeGreaterThan(0)
-    expect(seconds).toBeGreaterThan(3 * 60)
-    expect(seconds).toBeLessThan(90 * 60)
   })
 })

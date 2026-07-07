@@ -5,7 +5,7 @@ import { usePrinterProfiles } from '../stores/usePrinterProfiles'
 import { readBytes } from '../util/preview'
 import { analyzePaScan } from '../workerClient'
 import type { PaProcessing } from '../workerClient'
-import { generatePaGcodeWithReport, estimatePaPrintSeconds } from '../engine/pa/gcodeGenerator'
+import { generatePaGcodeWithReport } from '../engine/pa/gcodeGenerator'
 import { paCorrection } from '../engine/pa/paCorrectionFormatter'
 import {
   couponGeometry,
@@ -117,15 +117,6 @@ function sanitizeName(name: string): string {
 const filename = computed(() =>
   store.selected ? `pa_test_${sanitizeName(store.selected.name)}.gcode` : '',
 )
-
-// Rough print time from the generator's own estimator. Labelled with "~" because it ignores
-// acceleration.
-const printTimeText = computed(() => {
-  const p = store.selected
-  if (!p) return ''
-  const minutes = Math.max(1, Math.round(estimatePaPrintSeconds(p, spec.value) / 60))
-  return `~${minutes} min`
-})
 
 function generate(): void {
   const profile = store.selected
@@ -324,7 +315,7 @@ function applyShift(): void {
         >
           Generate G-code
         </v-btn>
-        <span v-if="filename" class="tip mt-0">{{ filename }} · {{ printTimeText }}</span>
+        <span v-if="filename" class="tip mt-0">{{ filename }}</span>
         <span v-else class="tip mt-0">Choose a printer profile first.</span>
       </div>
       <v-alert
