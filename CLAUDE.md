@@ -189,3 +189,10 @@ shipped source, comments, or UI text: they are guidance for how to work, not doc
 green (and, for any change to the measurement pipeline, the synthetic-fixture validation of rule 1). That
 automated gate is sufficient: do not additionally launch a dev server for manual browser verification unless
 the owner asks for it.
+
+**Subagent routing.** When delegating to a subagent, prefer the `cavecrew-*` types wherever the task fits,
+because their output is caveman-compressed and keeps the parent context small: use `cavecrew-investigator`
+to locate or map code (read-only), `cavecrew-builder` for a surgical one or two file edit (it refuses three
+or more files), and `cavecrew-reviewer` to review a diff, branch, or file. Only fall back to a general agent
+when no cavecrew type fits, chiefly a multi-file implementation, since there is no cavecrew multi-file
+builder.
