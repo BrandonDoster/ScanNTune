@@ -377,6 +377,25 @@ export function orcaPresetName(preset: Record<string, unknown>): string | undefi
   return typeof name === 'string' && name.trim() !== '' ? name : undefined
 }
 
+/** The preset "kind" markers, used to place unresolved-parent path hints under the matching
+ *  vendor profile subfolder. Exported for slicerImportChain.ts. */
+export type OrcaPresetKind = 'filament' | 'process' | 'machine'
+
+/** Infers a preset's kind (filament, process, or machine) from its distinguishing keys. Defaults
+ *  to 'machine' when nothing filament- or process-specific is present, matching every kind of
+ *  preset this importer otherwise treats as a printer profile. */
+export function orcaPresetKind(preset: Record<string, unknown>): OrcaPresetKind {
+  if (
+    'filament_settings_id' in preset ||
+    'filament_type' in preset ||
+    'nozzle_temperature' in preset
+  ) {
+    return 'filament'
+  }
+  if ('print_settings_id' in preset) return 'process'
+  return 'machine'
+}
+
 /** Returns the parsed preset object, or null when the content is not an Orca preset. */
 function tryParseOrca(content: string): Record<string, unknown> | null {
   let parsed: unknown

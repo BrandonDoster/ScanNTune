@@ -142,7 +142,7 @@ describe('importSlicerConfigs: multi-file Orca inherits resolution', () => {
     expect(result.unresolvedParents).toEqual([
       {
         presetName: 'Generic PC @System',
-        pathHint: 'OrcaSlicer\\resources\\profiles\\Generic\\machine\\',
+        pathHint: 'OrcaSlicer\\resources\\profiles\\Generic\\filament\\',
         fileName: 'orca_filament_treed_pc.json',
       },
     ])

@@ -1,7 +1,8 @@
-import type { SlicerImportResult } from './slicerImport'
+import type { OrcaPresetKind, SlicerImportResult } from './slicerImport'
 import {
   importSlicerConfig,
   importOrcaMerged,
+  orcaPresetKind,
   orcaPresetName,
   tryParseOrcaPreset,
 } from './slicerImport'
@@ -134,10 +135,11 @@ function importOrcaChain(
       `"${file.fileName}" has an "inherits" cycle; stopped resolving to avoid a hang.`,
     )
   } else if (chain.unresolvedParent !== undefined) {
-    result.warnings.push(unresolvedInheritsWarning(chain.unresolvedParent))
+    const kind = orcaPresetKind(preset)
+    result.warnings.push(unresolvedInheritsWarning(chain.unresolvedParent, kind))
     result.unresolvedParents.push({
       presetName: chain.unresolvedParent,
-      pathHint: parentPathHint(chain.unresolvedParent),
+      pathHint: parentPathHint(chain.unresolvedParent, kind),
       fileName: file.fileName,
     })
   }
@@ -148,12 +150,13 @@ function importOrcaChain(
  * Guesses the OrcaSlicer vendor profile folder from a missing parent preset's name: the first
  * whitespace-separated word, if it looks like a vendor name (alphabetic). Presets that start with
  * a number or symbol (e.g. a nozzle-size prefix) don't identify a vendor, so callers show the
- * placeholder "<vendor>" hint as plain text instead of a copyable path.
+ * placeholder "<vendor>" hint as plain text instead of a copyable path. The subfolder matches the
+ * child preset's own kind (filament/process/machine), since that's what the missing parent is too.
  */
-function parentPathHint(presetName: string): string | null {
+function parentPathHint(presetName: string, kind: OrcaPresetKind): string | null {
   const firstWord = presetName.trim().split(/\s+/)[0] ?? ''
   if (firstWord === '' || !/^[A-Za-z]+$/.test(firstWord)) return null
-  return `OrcaSlicer\\resources\\profiles\\${firstWord}\\machine\\`
+  return `OrcaSlicer\\resources\\profiles\\${firstWord}\\${kind}\\`
 }
 
 interface ChainResolution {
@@ -202,12 +205,11 @@ function orcaPresetInherits(preset: Record<string, unknown>): string | undefined
   return raw
 }
 
-const ORCA_PARENT_PATH_HINT = 'resources\\profiles\\<vendor>\\machine\\'
-
-function unresolvedInheritsWarning(parentName: string): string {
+function unresolvedInheritsWarning(parentName: string, kind: OrcaPresetKind): string {
+  const placeholderHint = `resources\\profiles\\<vendor>\\${kind}\\`
   return (
     `This preset inherits from '${parentName}' which was not uploaded. ` +
-    `Find it under the OrcaSlicer installation: ${ORCA_PARENT_PATH_HINT}`
+    `Find it under the OrcaSlicer installation: ${placeholderHint}`
   )
 }
 
