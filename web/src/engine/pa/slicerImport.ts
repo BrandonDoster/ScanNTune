@@ -1,0 +1,339 @@
+import type { Firmware, PrinterProfile } from './types'
+
+export interface SlicerImportResult {
+  fields: Partial<PrinterProfile>
+  imported: string[]
+  missing: string[]
+  warnings: string[]
+}
+
+/** Profile fields the importer knows how to fill; anything not found lands in missing[]. */
+const MAPPED_FIELDS: (keyof PrinterProfile)[] = [
+  'firmware',
+  'bedWidthMm',
+  'bedDepthMm',
+  'nozzleDiameterMm',
+  'filamentDiameterMm',
+  'nozzleTempC',
+  'bedTempC',
+  'chamberTempC',
+  'filamentType',
+  'layerHeightMm',
+  'retractMm',
+  'retractSpeedMmS',
+  'travelSpeedMmS',
+  'printAccelMmS2',
+  'squareCornerVelocityMmS',
+  'startGcode',
+  'pauseGcode',
+  'endGcode',
+]
+
+const FLAVOR_TO_FIRMWARE: Record<string, Firmware> = {
+  klipper: 'Klipper',
+  marlin: 'Marlin',
+  marlin2: 'Marlin',
+  reprap: 'RepRapFirmware',
+  reprapfirmware: 'RepRapFirmware',
+}
+
+/**
+ * Parses a PrusaSlicer .ini export (flat or bundle) or an OrcaSlicer preset .json and returns
+ * the printer-profile fields it could fill. Missing keys are reported, never thrown; only
+ * content that is neither format throws.
+ */
+export function importSlicerConfig(fileName: string, content: string): SlicerImportResult {
+  const orca = tryParseOrca(content)
+  if (orca !== null) return importOrca(orca)
+  const ini = tryParseIni(content)
+  if (ini !== null) return importPrusa(ini)
+  throw new Error(
+    `"${fileName}" does not look like a PrusaSlicer config export or an OrcaSlicer preset file.`,
+  )
+}
+
+interface Ctx {
+  fields: Partial<PrinterProfile>
+  warnings: string[]
+  /** Raw config value lookup; returns undefined when absent. */
+  get: (key: string) => string | undefined
+}
+
+function finish(ctx: Ctx): SlicerImportResult {
+  const imported = MAPPED_FIELDS.filter((f) => ctx.fields[f] !== undefined)
+  const missing = MAPPED_FIELDS.filter((f) => ctx.fields[f] === undefined)
+  return { fields: ctx.fields, imported, missing, warnings: ctx.warnings }
+}
+
+/** Parses "123", "123,456" (index 0), rejecting percent values with a warning. */
+function numberFrom(ctx: Ctx, key: string): number | undefined {
+  const raw = ctx.get(key)
+  if (raw === undefined) return undefined
+  const first = raw.split(',')[0].trim()
+  if (first.endsWith('%')) {
+    ctx.warnings.push(`Skipped ${key} = ${first}: percent values cannot be imported directly.`)
+    return undefined
+  }
+  const n = Number.parseFloat(first)
+  if (!Number.isFinite(n)) {
+    ctx.warnings.push(`Skipped ${key}: could not read a number from "${raw}".`)
+    return undefined
+  }
+  return n
+}
+
+function firstNumber(ctx: Ctx, keys: string[]): number | undefined {
+  for (const key of keys) {
+    const n = numberFrom(ctx, key)
+    if (n !== undefined) return n
+  }
+  return undefined
+}
+
+function setNum(ctx: Ctx, field: keyof PrinterProfile, value: number | undefined): void {
+  if (value !== undefined) (ctx.fields as Record<string, unknown>)[field] = value
+}
+
+/** Bounding-box width/depth of an "AxB" corner-point polygon list. */
+function polygonSize(points: string[]): { width: number; depth: number } | undefined {
+  const xs: number[] = []
+  const ys: number[] = []
+  for (const p of points) {
+    const [xStr, yStr] = p.trim().split('x')
+    const x = Number.parseFloat(xStr)
+    const y = Number.parseFloat(yStr)
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return undefined
+    xs.push(x)
+    ys.push(y)
+  }
+  if (xs.length < 3) return undefined
+  return {
+    width: Math.max(...xs) - Math.min(...xs),
+    depth: Math.max(...ys) - Math.min(...ys),
+  }
+}
+
+function applyFirmware(ctx: Ctx): void {
+  const flavor = ctx.get('gcode_flavor')
+  if (flavor === undefined) return
+  const fw = FLAVOR_TO_FIRMWARE[flavor.trim().toLowerCase()]
+  if (fw !== undefined) {
+    ctx.fields.firmware = fw
+  } else {
+    ctx.warnings.push(
+      `G-code flavor "${flavor}" has no matching firmware option here; pick the firmware manually.`,
+    )
+  }
+}
+
+/** Fills the fields shared by both formats (temps, sizes, speeds, accel, jerk). */
+function applyCommon(
+  ctx: Ctx,
+  keys: {
+    bedPoints: () => string[] | undefined
+    nozzleTemp: string[]
+    bedTemp: string[]
+    retractLength: string[]
+    retractSpeed: string[]
+    startGcode: string
+    endGcode: string
+    pauseGcode: string[]
+    chamberTemp: string[]
+    gcodeTransform: (raw: string) => string
+  },
+): void {
+  const bedPoints = keys.bedPoints()
+  if (bedPoints !== undefined) {
+    const size = polygonSize(bedPoints)
+    if (size !== undefined) {
+      ctx.fields.bedWidthMm = size.width
+      ctx.fields.bedDepthMm = size.depth
+    } else {
+      ctx.warnings.push('Could not read the bed shape from this file.')
+    }
+  }
+  setNum(ctx, 'nozzleDiameterMm', numberFrom(ctx, 'nozzle_diameter'))
+  setNum(ctx, 'filamentDiameterMm', numberFrom(ctx, 'filament_diameter'))
+  setNum(ctx, 'nozzleTempC', firstNumber(ctx, keys.nozzleTemp))
+  setNum(ctx, 'bedTempC', firstNumber(ctx, keys.bedTemp))
+  setNum(ctx, 'chamberTempC', firstNumber(ctx, keys.chamberTemp))
+  setNum(ctx, 'layerHeightMm', firstNumber(ctx, ['layer_height']))
+  setNum(ctx, 'retractMm', firstNumber(ctx, keys.retractLength))
+  setNum(ctx, 'retractSpeedMmS', firstNumber(ctx, keys.retractSpeed))
+  setNum(ctx, 'travelSpeedMmS', numberFrom(ctx, 'travel_speed'))
+  const defaultAccel = numberFrom(ctx, 'default_acceleration')
+  setNum(
+    ctx,
+    'printAccelMmS2',
+    defaultAccel !== undefined && defaultAccel > 0
+      ? defaultAccel
+      : firstNumber(ctx, ['machine_max_acceleration_extruding', 'machine_max_acceleration_x']),
+  )
+  setNum(ctx, 'squareCornerVelocityMmS', numberFrom(ctx, 'machine_max_jerk_x'))
+  const filamentType = ctx.get('filament_type')
+  if (filamentType !== undefined && filamentType.trim() !== '') {
+    ctx.fields.filamentType = filamentType.split(',')[0].trim()
+  }
+  const start = ctx.get(keys.startGcode)
+  if (start !== undefined) ctx.fields.startGcode = keys.gcodeTransform(start)
+  const end = ctx.get(keys.endGcode)
+  if (end !== undefined) ctx.fields.endGcode = keys.gcodeTransform(end)
+  for (const key of keys.pauseGcode) {
+    const pause = ctx.get(key)
+    if (pause !== undefined && pause.trim() !== '') {
+      ctx.fields.pauseGcode = keys.gcodeTransform(pause)
+      break
+    }
+  }
+  applyFirmware(ctx)
+}
+
+// ---------------------------------------------------------------------------
+// PrusaSlicer .ini
+// ---------------------------------------------------------------------------
+
+/** Returns a key map, or null when the content has no key = value lines at all. */
+function tryParseIni(content: string): Map<string, string> | null {
+  const sections = new Map<string, Map<string, string>>()
+  const flat = new Map<string, string>()
+  let current: Map<string, string> = flat
+  let sawAssignment = false
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (line === '' || line.startsWith('#') || line.startsWith(';')) continue
+    const section = line.match(/^\[(.+)\]$/)
+    if (section) {
+      current = new Map<string, string>()
+      sections.set(section[1], current)
+      continue
+    }
+    const eq = line.indexOf('=')
+    if (eq <= 0) continue
+    current.set(line.slice(0, eq).trim(), line.slice(eq + 1).trim())
+    sawAssignment = true
+  }
+  if (!sawAssignment) return null
+  if (sections.size === 0) return flat
+  return mergeBundle(sections)
+}
+
+/** Merges a config-bundle's chosen print/filament/printer presets into one key map. */
+function mergeBundle(sections: Map<string, Map<string, string>>): Map<string, string> {
+  const presets = sections.get('presets')
+  const merged = new Map<string, string>()
+  for (const kind of ['printer', 'filament', 'print']) {
+    let chosen: Map<string, string> | undefined
+    const named = presets?.get(kind)
+    if (named !== undefined) chosen = sections.get(`${kind}:${named}`)
+    if (chosen === undefined) {
+      for (const [name, values] of sections) {
+        if (name.startsWith(`${kind}:`) && !name.slice(kind.length + 1).startsWith('*')) {
+          chosen = values
+          break
+        }
+      }
+    }
+    if (chosen !== undefined) {
+      for (const [k, v] of chosen) merged.set(k, v)
+    }
+  }
+  return merged
+}
+
+function importPrusa(keys: Map<string, string>): SlicerImportResult {
+  const ctx: Ctx = { fields: {}, warnings: [], get: (key) => keys.get(key) }
+  applyCommon(ctx, {
+    bedPoints: () => keys.get('bed_shape')?.split(','),
+    nozzleTemp: ['first_layer_temperature', 'temperature'],
+    bedTemp: ['first_layer_bed_temperature', 'bed_temperature'],
+    retractLength: ['retract_length'],
+    retractSpeed: ['retract_speed'],
+    startGcode: 'start_gcode',
+    endGcode: 'end_gcode',
+    pauseGcode: ['pause_print_gcode'],
+    chamberTemp: ['chamber_temperature', 'chamber_minimal_temperature'],
+    gcodeTransform: (raw) => raw.replace(/\\n/g, '\n'),
+  })
+  return finish(ctx)
+}
+
+// ---------------------------------------------------------------------------
+// OrcaSlicer preset .json
+// ---------------------------------------------------------------------------
+
+/** Returns the parsed preset object, or null when the content is not an Orca preset. */
+function tryParseOrca(content: string): Record<string, unknown> | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(content)
+  } catch {
+    // Not JSON: the caller falls through to the INI parser. Nothing is lost here because a
+    // real Orca preset always parses; anything else is handled (or rejected) downstream.
+    return null
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null
+  if (typeof (parsed as Record<string, unknown>).type !== 'string') return null
+  return parsed as Record<string, unknown>
+}
+
+/** Orca values are strings or arrays of strings; element 0 counts and "nil" means absent. */
+function orcaValue(preset: Record<string, unknown>, key: string): string | undefined {
+  const raw = preset[key]
+  const value = Array.isArray(raw) ? raw[0] : raw
+  if (typeof value !== 'string') return undefined
+  if (value === 'nil') return undefined
+  return value
+}
+
+function importOrca(preset: Record<string, unknown>): SlicerImportResult {
+  const ctx: Ctx = { fields: {}, warnings: [], get: (key) => orcaValue(preset, key) }
+  applyCommon(ctx, {
+    bedPoints: () => {
+      const raw = preset.printable_area
+      if (Array.isArray(raw) && raw.every((p) => typeof p === 'string')) return raw as string[]
+      if (typeof raw === 'string') return raw.split(',')
+      return undefined
+    },
+    nozzleTemp: ['nozzle_temperature_initial_layer', 'nozzle_temperature'],
+    bedTemp: [],
+    retractLength: ['filament_retraction_length', 'retraction_length'],
+    retractSpeed: ['filament_retraction_speed', 'retraction_speed'],
+    startGcode: 'machine_start_gcode',
+    endGcode: 'machine_end_gcode',
+    pauseGcode: ['machine_pause_gcode', 'change_filament_gcode'],
+    chamberTemp: ['chamber_temperatures'],
+    gcodeTransform: (raw) => raw,
+  })
+  setNum(ctx, 'bedTempC', orcaBedTemp(ctx))
+  const inherits = orcaValue(preset, 'inherits')
+  if (inherits !== undefined && inherits.trim() !== '') {
+    const filled = MAPPED_FIELDS.filter((f) => ctx.fields[f] !== undefined).length
+    if (filled < MAPPED_FIELDS.length) {
+      ctx.warnings.push(
+        'This preset inherits from a system preset; missing values keep their current defaults. Export the resolved config or import the parent preset too.',
+      )
+    }
+  }
+  return finish(ctx)
+}
+
+/** First non-zero plate temperature, preferring hot and textured plates and first-layer keys. */
+function orcaBedTemp(ctx: Ctx): number | undefined {
+  const keys = [
+    'hot_plate_temp_initial_layer',
+    'hot_plate_temp',
+    'textured_plate_temp_initial_layer',
+    'textured_plate_temp',
+    'supertack_plate_temp_initial_layer',
+    'supertack_plate_temp',
+    'cool_plate_temp_initial_layer',
+    'cool_plate_temp',
+    'eng_plate_temp_initial_layer',
+    'eng_plate_temp',
+  ]
+  for (const key of keys) {
+    const n = numberFrom(ctx, key)
+    if (n !== undefined && n > 0) return n
+  }
+  return undefined
+}

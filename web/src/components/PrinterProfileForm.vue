@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import type { Firmware, PrinterProfile } from '../engine/pa/types'
 import { defaultPrinterProfile } from '../engine/pa/types'
+import { importSlicerConfig } from '../engine/pa/slicerImport'
 import NumericField from './NumericField.vue'
 
 const props = defineProps<{
@@ -65,9 +66,96 @@ function loadFrom(p: PrinterProfile): void {
 watch(
   () => props.modelValue,
   (open) => {
-    if (open) loadFrom(props.profile ?? defaultPrinterProfile())
+    if (open) {
+      loadFrom(props.profile ?? defaultPrinterProfile())
+      importSummary.value = null
+      showImportHelp.value = false
+    }
   },
 )
+
+// --- Slicer config import -------------------------------------------------
+
+const fileInput = ref<HTMLInputElement | null>(null)
+const importSummary = ref<{
+  importedCount: number
+  missing: string[]
+  warnings: string[]
+} | null>(null)
+const showImportHelp = ref(false)
+const copiedPath = ref('')
+
+function applyImported(fields: Partial<PrinterProfile>): void {
+  if (fields.firmware !== undefined) firmware.value = fields.firmware
+  if (fields.bedWidthMm !== undefined) bedWidthMm.value = fields.bedWidthMm
+  if (fields.bedDepthMm !== undefined) bedDepthMm.value = fields.bedDepthMm
+  if (fields.nozzleDiameterMm !== undefined) nozzleDiameterMm.value = fields.nozzleDiameterMm
+  if (fields.filamentDiameterMm !== undefined) filamentDiameterMm.value = fields.filamentDiameterMm
+  if (fields.nozzleTempC !== undefined) nozzleTempC.value = fields.nozzleTempC
+  if (fields.bedTempC !== undefined) bedTempC.value = fields.bedTempC
+  if (fields.chamberTempC !== undefined) chamberTempC.value = fields.chamberTempC
+  if (fields.filamentType !== undefined) filamentType.value = fields.filamentType
+  if (fields.travelSpeedMmS !== undefined) travelSpeedMmS.value = fields.travelSpeedMmS
+  if (fields.printAccelMmS2 !== undefined) printAccelMmS2.value = fields.printAccelMmS2
+  if (fields.squareCornerVelocityMmS !== undefined)
+    squareCornerVelocityMmS.value = fields.squareCornerVelocityMmS
+  if (fields.layerHeightMm !== undefined) layerHeightMm.value = fields.layerHeightMm
+  if (fields.retractMm !== undefined) retractMm.value = fields.retractMm
+  if (fields.retractSpeedMmS !== undefined) retractSpeedMmS.value = fields.retractSpeedMmS
+  if (fields.startGcode !== undefined) startGcode.value = fields.startGcode
+  if (fields.pauseGcode !== undefined) pauseGcode.value = fields.pauseGcode
+  if (fields.endGcode !== undefined) endGcode.value = fields.endGcode
+}
+
+async function onImportFiles(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const files = Array.from(input.files ?? [])
+  input.value = ''
+  if (files.length === 0) return
+  const importedFields = new Set<string>()
+  let missing: string[] = []
+  const warnings: string[] = []
+  for (const file of files) {
+    try {
+      const result = importSlicerConfig(file.name, await file.text())
+      applyImported(result.fields)
+      for (const f of result.imported) importedFields.add(f)
+      // The missing list reflects the last file plus anything an earlier file already filled.
+      missing = result.missing.filter((f) => !importedFields.has(f))
+      warnings.push(...result.warnings.map((w) => `${file.name}: ${w}`))
+    } catch (e) {
+      warnings.push(e instanceof Error ? e.message : String(e))
+    }
+  }
+  importSummary.value = { importedCount: importedFields.size, missing, warnings }
+}
+
+const osOrder = computed<string[]>(() => {
+  const ua = `${navigator.platform ?? ''} ${navigator.userAgent ?? ''}`.toLowerCase()
+  if (ua.includes('mac')) return ['macOS', 'Windows', 'Linux']
+  if (ua.includes('linux') && !ua.includes('android')) return ['Linux', 'Windows', 'macOS']
+  return ['Windows', 'macOS', 'Linux']
+})
+
+const prusaPaths: Record<string, string> = {
+  Windows: '%APPDATA%\\PrusaSlicer\\',
+  macOS: '~/Library/Application Support/PrusaSlicer/',
+  Linux: '~/.config/PrusaSlicer/',
+}
+const orcaPaths: Record<string, string> = {
+  Windows: '%APPDATA%\\OrcaSlicer\\user\\default\\machine\\ and filament\\',
+  macOS: '~/Library/Application Support/OrcaSlicer/user/default/machine/ and filament/',
+  Linux: '~/.config/OrcaSlicer/user/default/machine/ and filament/',
+}
+
+async function copyPath(path: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(path)
+    copiedPath.value = path
+  } catch (e) {
+    console.error('Clipboard copy failed', e)
+  }
+}
 
 const numbers = computed(() => [
   bedWidthMm.value,
@@ -129,6 +217,81 @@ function save(): void {
   >
     <v-card :title="profile ? 'Edit printer profile' : 'New printer profile'">
       <v-card-text>
+        <div class="mb-3">
+          <input
+            ref="fileInput"
+            type="file"
+            accept=".ini,.json,.cfg,.txt"
+            multiple
+            class="d-none"
+            data-testid="import-file-input"
+            @change="onImportFiles"
+          />
+          <v-btn
+            variant="tonal"
+            size="small"
+            prepend-icon="mdi-import"
+            data-testid="import-slicer"
+            @click="fileInput?.click()"
+          >
+            Import from slicer
+          </v-btn>
+          <v-btn
+            variant="text"
+            size="small"
+            class="ml-2"
+            @click="showImportHelp = !showImportHelp"
+          >
+            Where is my config?
+          </v-btn>
+          <div v-if="showImportHelp" class="import-help mt-2">
+            <p class="mb-1">
+              PrusaSlicer: use File &gt; Export &gt; Export Config, or pick the preset .ini from the
+              settings folder. OrcaSlicer: import the machine .json first, then optionally a
+              filament .json. Click a path to copy it.
+            </p>
+            <div v-for="os in osOrder" :key="os" class="mb-1">
+              <strong>{{ os }}</strong>
+              <div>
+                PrusaSlicer:
+                <code class="copy-path" :title="'Copy'" @click="copyPath(prusaPaths[os])">{{
+                  prusaPaths[os]
+                }}</code>
+                <span v-if="copiedPath === prusaPaths[os]" class="text-success ml-1">copied</span>
+              </div>
+              <div>
+                OrcaSlicer:
+                <code class="copy-path" :title="'Copy'" @click="copyPath(orcaPaths[os])">{{
+                  orcaPaths[os]
+                }}</code>
+                <span v-if="copiedPath === orcaPaths[os]" class="text-success ml-1">copied</span>
+              </div>
+            </div>
+          </div>
+          <div v-if="importSummary" class="mt-2" data-testid="import-summary">
+            <div class="text-body-2">
+              Filled {{ importSummary.importedCount }}
+              {{ importSummary.importedCount === 1 ? 'field' : 'fields' }} from the imported
+              config.
+            </div>
+            <div
+              v-if="importSummary.missing.length > 0"
+              class="text-caption text-medium-emphasis"
+            >
+              Not in the file (kept as-is): {{ importSummary.missing.join(', ') }}
+            </div>
+            <v-alert
+              v-for="(warning, i) in importSummary.warnings"
+              :key="i"
+              type="warning"
+              density="compact"
+              variant="tonal"
+              class="mt-1 text-body-2"
+            >
+              {{ warning }}
+            </v-alert>
+          </div>
+        </div>
         <div class="fields mb-2">
           <v-text-field
             v-model="name"
@@ -262,6 +425,17 @@ function save(): void {
 }
 .fields > .wide {
   flex: 2 1 220px;
+}
+.import-help {
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+.copy-path {
+  cursor: pointer;
+  user-select: all;
+  background: rgba(128, 128, 128, 0.15);
+  border-radius: 4px;
+  padding: 0 4px;
 }
 .mono :deep(textarea) {
   font-family: 'Roboto Mono', ui-monospace, monospace;
