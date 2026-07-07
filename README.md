@@ -3,11 +3,9 @@
 [![Web CI](https://github.com/jaak0b/ScanNTune/actions/workflows/web-ci.yml/badge.svg)](https://github.com/jaak0b/ScanNTune/actions/workflows/web-ci.yml)
 [![License: MIT](https://img.shields.io/github/license/jaak0b/ScanNTune)](LICENSE)
 
-**Calibrate your 3D printer's X, Y and Z scale and skew (the XY, XZ and YZ planes) by scanning printed
-coupons on an ordinary office scanner. No calipers, no measuring, no typing numbers into a calculator.**
-
-The result is a ready-to-paste correction for your firmware or slicer, worked out from a flat scan of a
-printed coupon.
+**Caliper-free 3D printer calibration from a flatbed scanner: skew, shrinkage, and pressure advance.**
+Print a coupon, scan it on an ordinary office scanner, and get ready-to-paste firmware or slicer
+corrections. No calipers, no measuring, no eyeballing test prints, no typing numbers into a calculator.
 
 <div align="center">
 
@@ -41,6 +39,24 @@ printed coupon.
    you the firmware or slicer snippet for X/Y/Z scale and skew.
 
 That's it. The whole thing takes a couple of minutes once the plates are printed.
+
+## Pressure advance
+
+ScanNTune also calibrates pressure advance from a scan, instead of you squinting at a tower or a row of
+lines and picking the one that "looks best".
+
+1. **Set up a printer profile** in the app (or import your PrusaSlicer or OrcaSlicer config) and download
+   the generated G-code.
+2. **Print the coupon:** a solid base in one filament, then a pause for a filament swap, then 16 test lines
+   in a contrasting color. Any two filaments work as long as they differ in brightness. Each line prints at
+   a different pressure advance value and contains slow, fast, slow speed changes, so a wrong PA value
+   bulges or starves the line at the transitions.
+3. **Scan it once.** ScanNTune measures each line's width along its length and scores how much it deviates
+   at the speed transitions. The line that stays most even wins, refined to a continuous value between the
+   steps.
+
+The result is ready to paste: Klipper `SET_PRESSURE_ADVANCE`, Marlin `M900`, or RepRapFirmware `M572`.
+On Klipper there's an optional follow-up coupon that sweeps `smooth_time` the same way.
 
 ---
 
