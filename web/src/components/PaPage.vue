@@ -278,8 +278,8 @@ function applyShift(): void {
       <div class="warn-box mt-3">
         <v-icon color="warning" size="16" class="warn-icon">mdi-alert-outline</v-icon>
         <span>
-          <strong class="warn-lead">Print the base in a light filament.</strong>
-          When the printer pauses, switch to a dark contrasting filament.
+          <strong class="warn-lead">Use two filaments with clearly different brightness.</strong>
+          Any colors work; the pause is where you swap to the second filament for the test lines.
         </span>
       </div>
     </section>

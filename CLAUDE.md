@@ -128,7 +128,9 @@ is a two-layer base (a solid first layer, then a contrasting-color second layer 
 to slow speed change so a PA mismatch bulges or starves the line at the two speed transitions. Three
 corner holes are fiducials; the fourth corner is left solid, so the missing hole marks the origin the
 same way the XYZ coupon's marker does. Measurement: `fiducialAligner` solves the affine from the three
-holes, `lineMeasurer` profiles each line's width to sub-pixel precision perpendicular to the line, and
+holes, `lineMeasurer` profiles each line's width to sub-pixel precision perpendicular to the line (any
+base/line filament colors work as long as they differ in brightness: the profile extremum is the point
+deviating most from the base tone, so lines darker or brighter than the base measure identically), and
 `paAnalyzer` scores each line by the RMS width deviation inside a window around each speed transition,
 then refines the discrete best line to a continuous PA value by parabolic minimum of the score curve.
 The G-code for the coupon is generated in-app per printer profile (firmware, speeds, temperatures,

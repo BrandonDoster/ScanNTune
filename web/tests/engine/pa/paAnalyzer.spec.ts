@@ -84,6 +84,52 @@ describe('analyzePaCoupon', () => {
     }
   }, 180000)
 
+  it.each([
+    [0.03, 0, false],
+    [0.03, 7, true],
+  ])(
+    'recovers truePa %f at rotation %d flipped %s with light lines on a dark base',
+    async (truePa, rot, flip) => {
+      const cv = await getCv()
+      const bgr = rgbaToBgrMat(
+        cv,
+        renderPaScan({
+          truePa: truePa as number,
+          rotationDegrees: rot as number,
+          flipped: flip as boolean,
+          baseGray: 40,
+          lineGray: 220,
+          backgroundGray: 245,
+        }),
+      )
+      try {
+        const r = analyzePaCoupon(cv, bgr, spec)
+        expect(r.success).toBe(true)
+        expect(Math.abs((r.bestPa as number) - (truePa as number))).toBeLessThan(0.004)
+        expect(r.lines).toHaveLength(spec.lineCount)
+      } finally {
+        bgr.delete()
+      }
+    },
+    180000,
+  )
+
+  it('fails with a contrast reason when lines match the base brightness', async () => {
+    const cv = await getCv()
+    const bgr = rgbaToBgrMat(
+      cv,
+      renderPaScan({ truePa: 0.03, baseGray: 120, lineGray: 135, backgroundGray: 245 }),
+    )
+    try {
+      const r = analyzePaCoupon(cv, bgr, spec)
+      expect(r.success).toBe(false)
+      expect(r.failureReason).toContain('too similar in brightness')
+      expect(r.bestPa).toBeNull()
+    } finally {
+      bgr.delete()
+    }
+  }, 120000)
+
   it('returns a failure result on a blank image', async () => {
     const cv = await getCv()
     const blank = new cv.Mat(400, 400, cv.CV_8UC3, new cv.Scalar(128, 128, 128, 255))

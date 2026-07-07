@@ -3,7 +3,7 @@ import type { PaLineScore, PaResult, PaTestSpec } from './types'
 import { couponGeometry, paValueForLine } from './types'
 import { alignPaCoupon } from './fiducialAligner'
 import type { PaAlignment } from './fiducialAligner'
-import { measureLineWidthProfile } from './lineMeasurer'
+import { estimateLineContrast, measureLineWidthProfile, MIN_LINE_CONTRAST } from './lineMeasurer'
 import type { WidthSample } from './lineMeasurer'
 import { valueChannel } from '../cvUtils'
 import { median } from '../math'
@@ -78,6 +78,18 @@ export function analyzePaCoupon(
   const gray = valueChannel(cv, image)
   const lines: PaLineScore[] = []
   try {
+    // Polarity-free contrast gate: without enough brightness separation between the lines and the
+    // base, the width profiles cannot tell a line from base texture in either direction.
+    const contrast = estimateLineContrast(cv, gray, alignment, spec)
+    if (contrast < MIN_LINE_CONTRAST) {
+      return {
+        ...failure(
+          'The test lines are too similar in brightness to the base. Print the lines in a filament that contrasts more with the base.',
+        ),
+        flipped: alignment.flipped,
+        rotationQuarterTurns: alignment.rotationQuarterTurns,
+      }
+    }
     for (let i = 0; i < spec.lineCount; i++) {
       const samples = measureLineWidthProfile(cv, gray, alignment, spec, i)
       const nanCount = samples.filter((s) => !Number.isFinite(s.widthMm)).length

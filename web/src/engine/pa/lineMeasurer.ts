@@ -8,8 +8,10 @@ import { median } from '../math'
 // Profiles a PA test line's extruded width along its length to sub-pixel precision. Every 0.25 mm
 // along the line (skipping the ragged 2 mm at each end), a perpendicular intensity profile is
 // extracted by bilinear interpolation, and the line's two edges are located as the strongest
-// intensity-gradient peak on each side of the darkest point, refined by parabolic interpolation of
-// the gradient (the same sub-pixel edge model the card measurer uses). Width is converted to mm
+// intensity-gradient peak on each side of the profile's extremum (the point deviating most from
+// the base tone, so lines darker or brighter than the base measure identically), refined by
+// parabolic interpolation of the gradient (the same sub-pixel edge model the card measurer uses).
+// Width is converted to mm
 // with the alignment's local scale along the perpendicular, so rotation, flip, and scanner
 // anisotropy are all accounted for by the affine itself.
 
@@ -21,9 +23,10 @@ export interface WidthSample {
 const SAMPLE_STEP_MM = 0.25
 const END_SKIP_MM = 2
 const PROFILE_STEP_PX = 0.25
-// Minimum contrast between the line and the base for a line to be present at all: the darkest
-// profile value must sit at least this far below the profile median, else the sample is a gap.
-const MIN_LINE_CONTRAST = 30
+// Minimum contrast between the line and the base for a line to be present at all: the profile
+// extremum must deviate at least this far from the profile median (in either direction), else the
+// sample is a gap.
+export const MIN_LINE_CONTRAST = 30
 // Noise floor for a genuine edge, matching the card measurer's gradient gate.
 const MIN_EDGE_GRADIENT = 8
 
@@ -72,8 +75,51 @@ export function measureLineWidthProfile(
   return samples
 }
 
-// Width in px of the dark line crossing the profile centred at (cx, cy), or NaN when no line or no
-// edge pair is found there.
+// Estimates the brightness contrast between the test lines and the base, in gray levels. Base
+// tone is the median of samples taken half a line pitch off each line's centreline (between the
+// lines, always on the base); line tone samples sit on the line centrelines. Both medians are
+// robust order statistics, so a few gap or transition samples cannot bias them. The result is the
+// median absolute deviation of the line samples from the base median, which is polarity-free.
+export function estimateLineContrast(
+  cv: OpenCv,
+  gray: Mat,
+  alignment: PaAlignment,
+  spec: PaTestSpec,
+): number {
+  if (!gray || gray.empty()) throw new Error('Image is null or empty.')
+  if (gray.type() !== cv.CV_8UC1) {
+    throw new Error('estimateLineContrast expects a CV_8UC1 (single-channel 8-bit) image.')
+  }
+  if (!alignment.success) throw new Error('Cannot estimate contrast without a successful alignment.')
+
+  const data = gray.data as Uint8Array
+  const cols = gray.cols
+  const rows = gray.rows
+  const g = couponGeometry(spec)
+  const lineLenMm = 2 * spec.slowSegmentMm + spec.fastSegmentMm
+
+  const lineSamples: number[] = []
+  const baseSamples: number[] = []
+  for (let i = 0; i < spec.lineCount; i++) {
+    const yMm = g.lineStartYMm(i)
+    // A 1 mm step (coarser than the width profiler's 0.25 mm) suffices here: the medians only
+    // need a representative tone sample, not sub-pixel coverage.
+    for (let xMm = END_SKIP_MM; xMm <= lineLenMm - END_SKIP_MM + 1e-9; xMm += 1) {
+      const onLine = mmToPx(alignment, g.lineStartXMm + xMm, yMm)
+      const offLine = mmToPx(alignment, g.lineStartXMm + xMm, yMm + spec.linePitchMm / 2)
+      const vLine = bilinear(data, cols, rows, onLine.x, onLine.y)
+      const vBase = bilinear(data, cols, rows, offLine.x, offLine.y)
+      if (Number.isFinite(vLine)) lineSamples.push(vLine)
+      if (Number.isFinite(vBase)) baseSamples.push(vBase)
+    }
+  }
+  if (lineSamples.length === 0 || baseSamples.length === 0) return 0
+  const baseMedian = median(baseSamples)
+  return median(lineSamples.map((v) => Math.abs(v - baseMedian)))
+}
+
+// Width in px of the line crossing the profile centred at (cx, cy), or NaN when no line or no
+// edge pair is found there. The line may be darker or brighter than the base.
 function measureAt(
   data: Uint8Array,
   cols: number,
@@ -93,17 +139,20 @@ function measureAt(
     profile[k] = v
   }
 
-  // The line is dark on the light base: locate the darkest profile point.
-  let minIdx = 0
-  for (let k = 1; k < profileLen; k++) if (profile[k] < profile[minIdx]) minIdx = k
+  // The profile median is the base tone (the line occupies a minority of the profile); the line
+  // centre is the point deviating most from it, in either direction, so both polarities work.
   const med = median(Array.from(profile))
-  if (profile[minIdx] > med - MIN_LINE_CONTRAST) return NaN // no line here: a gap
+  let extIdx = 0
+  for (let k = 1; k < profileLen; k++) {
+    if (Math.abs(profile[k] - med) > Math.abs(profile[extIdx] - med)) extIdx = k
+  }
+  if (Math.abs(profile[extIdx] - med) < MIN_LINE_CONTRAST) return NaN // no line here: a gap
 
-  // Gradient magnitude (central difference); the strongest peak on each flank of the minimum is
+  // Gradient magnitude (central difference); the strongest peak on each flank of the extremum is
   // the edge, refined with parabolic interpolation of the gradient.
   const grad = (k: number) => Math.abs(profile[k + 1] - profile[k - 1])
-  const left = subPixEdge(grad, 1, minIdx - 1)
-  const right = subPixEdge(grad, minIdx + 1, profileLen - 2)
+  const left = subPixEdge(grad, 1, extIdx - 1)
+  const right = subPixEdge(grad, extIdx + 1, profileLen - 2)
   if (Number.isNaN(left) || Number.isNaN(right)) return NaN
   return (right - left) * PROFILE_STEP_PX
 }

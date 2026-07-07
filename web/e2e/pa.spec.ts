@@ -5,6 +5,10 @@ import { fileURLToPath } from 'node:url'
 // tests/fixtures/make-pa-fixture.ts: ground truth PA 0.03, rotated 3 degrees, default noise.
 // The default test range (0 to 0.06, 16 lines) puts the truth mid-sweep.
 const paScan = fileURLToPath(new URL('./fixtures/pa_synthetic.png', import.meta.url))
+// Same ground truth with the palette inverted: white lines on a black base, white scanner lid.
+const paScanInverted = fileURLToPath(
+  new URL('./fixtures/pa_synthetic_inverted.png', import.meta.url),
+)
 
 test.beforeEach(async ({ page }) => {
   page.on('console', (msg) => console.log(`[browser:${msg.type()}]`, msg.text()))
@@ -42,4 +46,19 @@ test('pressure advance flow: profile, G-code download, scan analysis', async ({ 
   // The Klipper command for the recovered value is shown.
   await expect(page.getByTestId('pa-code')).toContainText('SET_PRESSURE_ADVANCE')
   await expect(page.getByTestId('pa-code')).toContainText(bestPa.toFixed(4))
+})
+
+test('pressure advance scan analysis: white lines on a black base', async ({ page }) => {
+  await page.goto('/')
+  await page.getByTestId('nav-pa').click()
+  await expect(page.getByRole('heading', { name: 'Pressure advance calibration' })).toBeVisible()
+
+  await page.getByTestId('pa-scan-input').setInputFiles(paScanInverted)
+  await expect(page.getByTestId('pa-best')).toBeVisible({ timeout: 120000 })
+  await expect(page.getByTestId('scan-error')).toHaveCount(0)
+
+  const bestPa = parseFloat(await page.getByTestId('pa-best').innerText())
+  console.log('best PA (inverted palette) =', bestPa)
+  expect(bestPa).toBeGreaterThan(0.026)
+  expect(bestPa).toBeLessThan(0.034)
 })

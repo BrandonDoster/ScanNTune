@@ -50,6 +50,33 @@ describe('alignPaCoupon', () => {
   )
 
   it(
+    'aligns light lines on a dark base with a light scanner lid',
+    async () => {
+      const cv = await getCv()
+      const img = rgbaToBgrMat(
+        cv,
+        renderPaScan({ truePa: 0.03, baseGray: 40, lineGray: 220, backgroundGray: 245 }),
+      )
+      try {
+        const al = alignPaCoupon(cv, img, spec)
+        expect(al.success).toBe(true)
+        const p0 = mmToPx(al, g.fiducials[0].xMm, g.fiducials[0].yMm)
+        const p1 = mmToPx(al, g.fiducials[1].xMm, g.fiducials[1].yMm)
+        const dNominal = Math.hypot(
+          g.fiducials[0].xMm - g.fiducials[1].xMm,
+          g.fiducials[0].yMm - g.fiducials[1].yMm,
+        )
+        const scale = Math.hypot(p0.x - p1.x, p0.y - p1.y) / dNominal
+        expect(scale).toBeGreaterThan(11)
+        expect(scale).toBeLessThan(13)
+      } finally {
+        img.delete()
+      }
+    },
+    120000,
+  )
+
+  it(
     'fails with a reason when no coupon is present',
     async () => {
       const cv = await getCv()
