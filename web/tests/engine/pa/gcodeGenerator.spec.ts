@@ -141,6 +141,55 @@ describe('generatePaGcode', () => {
     }
   })
 
+  it('rasters the base serpentine-style without long travel-backs', () => {
+    const g = generatePaGcode(profile, filament, spec)
+    const pauseAt = g.indexOf('\nPAUSE\n')
+    let x = 0
+    let y = 0
+    let seenExtrude = false
+    const longTravels: number[] = []
+    for (const line of g.slice(0, pauseAt).split('\n')) {
+      const mx = /X(-?\d+\.?\d*)/.exec(line)
+      const my = /Y(-?\d+\.?\d*)/.exec(line)
+      if (!mx && !my) continue
+      const nx = mx ? Number(mx[1]) : x
+      const ny = my ? Number(my[1]) : y
+      if (line.startsWith('G0') && seenExtrude) {
+        const d = Math.hypot(nx - x, ny - y)
+        if (d > 20) longTravels.push(d)
+      }
+      if (line.startsWith('G1') && /E\d/.test(line)) seenExtrude = true
+      x = nx
+      y = ny
+    }
+    // Only the few perimeter-to-perimeter and perimeter-to-raster hops per layer
+    // may be long; the per-scanline full-width travel-backs must be gone.
+    expect(longTravels.length).toBeLessThanOrEqual(10)
+  })
+
+  it('prints two perimeter loops around the part and each fiducial hole', () => {
+    const g = generatePaGcode(profile, filament, spec)
+    const geo = couponGeometry(spec)
+    const ox = (profile.bedWidthMm - geo.baseWidthMm) / 2
+    const oy = (profile.bedDepthMm - geo.baseHeightMm) / 2
+    const lw = spec.lineWidthMm
+    // Outer part loop corner, centerline inset 0.5 * lineWidth.
+    const cx = (ox + 0.5 * lw).toFixed(3)
+    const cy = (oy + 0.5 * lw).toFixed(3)
+    expect(g).toContain(`G0 X${cx} Y${cy} `)
+    expect(g).toContain(`X${cx} Y${cy} E`)
+    // Second part loop corner at 1.5 * lineWidth.
+    expect(g).toContain(`X${(ox + 1.5 * lw).toFixed(3)} Y${(oy + 1.5 * lw).toFixed(3)} E`)
+    // Loops around each hole, centerline outset 0.5 and 1.5 * lineWidth from the box.
+    for (const f of geo.fiducials) {
+      const hx0 = ox + f.xMm - geo.fiducialSizeMm / 2
+      const hy0 = oy + f.yMm - geo.fiducialSizeMm / 2
+      for (const out of [0.5 * lw, 1.5 * lw]) {
+        expect(g).toContain(`X${(hx0 - out).toFixed(3)} Y${(hy0 - out).toFixed(3)} E`)
+      }
+    }
+  })
+
   it('ends with the end gcode', () => {
     const g = generatePaGcode(profile, filament, spec)
     expect(g.trimEnd().endsWith('M84')).toBe(true)

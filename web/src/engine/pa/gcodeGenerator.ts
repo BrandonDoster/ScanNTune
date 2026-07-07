@@ -98,6 +98,52 @@ const BASE_LAYERS = 2
 const RASTER_STEP_FACTOR = 0.9
 /** Raster fill speed as a fraction of the profile's travel speed. */
 const RASTER_SPEED_FACTOR = 1 / 3
+/** Concentric perimeter loops around the part outline and each fiducial hole. */
+const PERIMETER_LOOPS = 2
+
+/** One closed rectangular loop: travel to a corner, then four extrude moves. */
+function rectLoop(
+  e: Emitter,
+  p: PrinterProfile,
+  f: FilamentProfile,
+  spec: PaTestSpec,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  speedMmS: number,
+): void {
+  travel(e, p, x0, y0)
+  extrude(e, p, f, spec, x1, y0, speedMmS)
+  extrude(e, p, f, spec, x1, y1, speedMmS)
+  extrude(e, p, f, spec, x0, y1, speedMmS)
+  extrude(e, p, f, spec, x0, y0, speedMmS)
+}
+
+/** Perimeter loops inset from the part outline and outset around each fiducial hole. */
+function basePerimeters(
+  e: Emitter,
+  p: PrinterProfile,
+  f: FilamentProfile,
+  spec: PaTestSpec,
+  x0: number,
+  y0: number,
+  w: number,
+  h: number,
+  holes: { x0: number; y0: number; x1: number; y1: number }[],
+): void {
+  const speed = p.travelSpeedMmS * RASTER_SPEED_FACTOR
+  for (let k = 0; k < PERIMETER_LOOPS; k++) {
+    const ins = (k + 0.5) * spec.lineWidthMm
+    rectLoop(e, p, f, spec, x0 + ins, y0 + ins, x0 + w - ins, y0 + h - ins, speed)
+  }
+  for (const hole of holes) {
+    for (let k = 0; k < PERIMETER_LOOPS; k++) {
+      const out = (k + 0.5) * spec.lineWidthMm
+      rectLoop(e, p, f, spec, hole.x0 - out, hole.y0 - out, hole.x1 + out, hole.y1 + out, speed)
+    }
+  }
+}
 
 /** Raster-fill a rectangle at a 45 or 135 degree angle, skipping fiducial holes. */
 function rasterBase(
@@ -121,6 +167,7 @@ function rasterBase(
   const uy = dir.dy * norm
   // Perpendicular offsets covering the rectangle's diagonal extent.
   const diag = w + h
+  let scanIndex = 0
   for (let c = -diag; c <= diag; c += step / norm) {
     // Line: points q with (q - corner) . perpendicular = c. Parameterize and
     // clip to the rectangle by intersecting with its four edges.
@@ -154,11 +201,15 @@ function rasterBase(
       }
       ranges = next
     }
-    for (const [a, b] of ranges) {
-      if (b - a < spec.lineWidthMm) continue
+    // Serpentine: odd scanlines print back toward the previous scanline's end.
+    const ordered: [number, number][] =
+      scanIndex % 2 === 1 ? [...ranges].reverse().map(([a, b]) => [b, a]) : ranges
+    for (const [a, b] of ordered) {
+      if (Math.abs(b - a) < spec.lineWidthMm) continue
       travel(e, p, bx + a * ux, by + a * uy)
       extrude(e, p, f, spec, bx + b * ux, by + b * uy, p.travelSpeedMmS * RASTER_SPEED_FACTOR)
     }
+    scanIndex++
   }
 }
 
@@ -255,11 +306,30 @@ function emitPaGcode(profile: PrinterProfile, filament: FilamentProfile, spec: P
   L.push('G90')
   L.push(...motionLimitCommands(profile))
 
-  // Base layers.
+  // Base layers: perimeter loops first, then serpentine infill inset behind them.
+  const infillInset = PERIMETER_LOOPS * spec.lineWidthMm
+  const infillHoles = holes.map((h) => ({
+    x0: h.x0 - infillInset,
+    y0: h.y0 - infillInset,
+    x1: h.x1 + infillInset,
+    y1: h.y1 + infillInset,
+  }))
   for (let layer = 0; layer < BASE_LAYERS; layer++) {
     const z = profile.layerHeightMm * (layer + 1)
     L.push(`G1 Z${z.toFixed(3)} F600`)
-    rasterBase(e, profile, filament, spec, ox, oy, g.baseWidthMm, g.baseHeightMm, layer === 0, holes)
+    basePerimeters(e, profile, filament, spec, ox, oy, g.baseWidthMm, g.baseHeightMm, holes)
+    rasterBase(
+      e,
+      profile,
+      filament,
+      spec,
+      ox + infillInset,
+      oy + infillInset,
+      g.baseWidthMm - 2 * infillInset,
+      g.baseHeightMm - 2 * infillInset,
+      layer === 0,
+      infillHoles,
+    )
   }
 
   // Filament change to the contrasting color.
@@ -306,7 +376,13 @@ export function estimatePaPrintSeconds(profile: PrinterProfile, spec: PaTestSpec
   const rasterStep = spec.lineWidthMm * RASTER_STEP_FACTOR
   const rasterSpeedMmS = profile.travelSpeedMmS * RASTER_SPEED_FACTOR
   const baseDist = (BASE_LAYERS * (g.baseWidthMm * g.baseHeightMm)) / rasterStep
-  const baseSeconds = baseDist / rasterSpeedMmS
+  let perimeterDist = 0
+  for (let k = 0; k < PERIMETER_LOOPS; k++) {
+    const ins = (k + 0.5) * spec.lineWidthMm
+    perimeterDist += 2 * (g.baseWidthMm - 2 * ins + (g.baseHeightMm - 2 * ins))
+    perimeterDist += g.fiducials.length * 4 * (g.fiducialSizeMm + 2 * ins)
+  }
+  const baseSeconds = (baseDist + BASE_LAYERS * perimeterDist) / rasterSpeedMmS
   const lineSeconds =
     spec.lineCount *
     ((2 * spec.slowSegmentMm) / spec.slowSpeedMmS +
