@@ -272,8 +272,17 @@ function tryParseOrca(content: string): Record<string, unknown> | null {
     return null
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null
-  if (typeof (parsed as Record<string, unknown>).type !== 'string') return null
-  return parsed as Record<string, unknown>
+  const obj = parsed as Record<string, unknown>
+  // Preset JSON exported from the Orca UI carries "type"; presets copied straight out of the
+  // user config folder (as the app's own docs point users to) often don't. Accept any of the
+  // other markers that are unique to an Orca preset file instead.
+  if (typeof obj.type === 'string') return obj
+  if (typeof obj.printer_settings_id === 'string') return obj
+  if (typeof obj.print_settings_id === 'string') return obj
+  if (typeof obj.filament_settings_id !== 'undefined') return obj
+  if (typeof obj.from === 'string' && typeof obj.version === 'string') return obj
+  if (typeof obj.inherits !== 'undefined') return obj
+  return null
 }
 
 /** Orca values are strings or arrays of strings; element 0 counts and "nil" means absent. */

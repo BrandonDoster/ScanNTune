@@ -1,0 +1,40 @@
+{
+    "compatible_printers": [
+        "Voron Trident 300 0.4 nozzle"
+    ],
+    "fan_max_speed": [
+        "50"
+    ],
+    "fan_min_speed": [
+        "20"
+    ],
+    "filament_flow_ratio": [
+        "0.87"
+    ],
+    "filament_max_volumetric_speed": [
+        "60"
+    ],
+    "filament_settings_id": [
+        "T - Extruder PLA"
+    ],
+    "filament_vendor": [
+        "Extruder"
+    ],
+    "from": "User",
+    "hot_plate_temp": [
+        "60"
+    ],
+    "hot_plate_temp_initial_layer": [
+        "60"
+    ],
+    "inherits": "Generic PLA @System",
+    "is_custom_defined": "0",
+    "name": "T - Extruder PLA",
+    "overhang_fan_speed": [
+        "70"
+    ],
+    "slow_down_layer_time": [
+        "1"
+    ],
+    "version": "2.3.0.3"
+}
