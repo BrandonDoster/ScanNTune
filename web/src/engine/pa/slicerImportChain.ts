@@ -11,6 +11,15 @@ export interface SlicerFile {
   content: string
 }
 
+/** One unresolved "inherits" parent, structured for the UI instead of parsed out of a prose
+ *  warning string. pathHint is null when the vendor guess failed (non-alphabetic or empty first
+ *  word of the preset name): the UI shows that case as plain guidance text with no copy button. */
+export interface UnresolvedParent {
+  presetName: string
+  pathHint: string | null
+  fileName: string
+}
+
 /** One uploaded file, classified for chain resolution. */
 interface ParsedFile {
   fileName: string
@@ -81,7 +90,9 @@ function findParentNames(
  *  multi-file upload doesn't discard the rest. */
 function importSingleFile(file: ParsedFile): SlicerImportResult {
   try {
-    return importSlicerConfig(file.fileName, file.content)
+    const result = importSlicerConfig(file.fileName, file.content)
+    result.unresolvedParents = []
+    return result
   } catch (e) {
     return {
       fields: { printer: {}, filament: {} },
@@ -89,6 +100,7 @@ function importSingleFile(file: ParsedFile): SlicerImportResult {
       imported: [],
       missing: [],
       warnings: [e instanceof Error ? e.message : String(e)],
+      unresolvedParents: [],
     }
   }
 }
@@ -116,14 +128,32 @@ function importOrcaChain(
   const preset = file.orca as Record<string, unknown>
   const chain = resolveChain(preset, orcaByName)
   const result = importOrcaMerged(chain.merged)
+  result.unresolvedParents = []
   if (chain.cycle) {
     result.warnings.push(
       `"${file.fileName}" has an "inherits" cycle; stopped resolving to avoid a hang.`,
     )
   } else if (chain.unresolvedParent !== undefined) {
     result.warnings.push(unresolvedInheritsWarning(chain.unresolvedParent))
+    result.unresolvedParents.push({
+      presetName: chain.unresolvedParent,
+      pathHint: parentPathHint(chain.unresolvedParent),
+      fileName: file.fileName,
+    })
   }
   return result
+}
+
+/**
+ * Guesses the OrcaSlicer vendor profile folder from a missing parent preset's name: the first
+ * whitespace-separated word, if it looks like a vendor name (alphabetic). Presets that start with
+ * a number or symbol (e.g. a nozzle-size prefix) don't identify a vendor, so callers show the
+ * placeholder "<vendor>" hint as plain text instead of a copyable path.
+ */
+function parentPathHint(presetName: string): string | null {
+  const firstWord = presetName.trim().split(/\s+/)[0] ?? ''
+  if (firstWord === '' || !/^[A-Za-z]+$/.test(firstWord)) return null
+  return `OrcaSlicer\\resources\\profiles\\${firstWord}\\machine\\`
 }
 
 interface ChainResolution {
@@ -187,6 +217,7 @@ function mergeResults(imports: SlicerImportResult[]): SlicerImportResult {
   const filaments: SlicerImportResult['filaments'] = []
   const importedFields = new Set<string>()
   const warnings: string[] = []
+  const unresolvedParents: NonNullable<SlicerImportResult['unresolvedParents']> = []
   let missing: string[] = []
   for (const result of imports) {
     Object.assign(fields.printer, result.fields.printer)
@@ -195,6 +226,7 @@ function mergeResults(imports: SlicerImportResult[]): SlicerImportResult {
     for (const f of result.imported) importedFields.add(f)
     missing = result.missing.filter((f) => !importedFields.has(f))
     warnings.push(...result.warnings)
+    unresolvedParents.push(...(result.unresolvedParents ?? []))
   }
-  return { fields, filaments, imported: [...importedFields], missing, warnings }
+  return { fields, filaments, imported: [...importedFields], missing, warnings, unresolvedParents }
 }

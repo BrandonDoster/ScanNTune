@@ -3,6 +3,7 @@ import type { FilamentProfile, Firmware, PrinterProfile } from '../engine/pa/typ
 import { defaultFilamentProfile, defaultPrinterProfile } from '../engine/pa/types'
 import { FIELD_KINDS, importSlicerConfigs } from '../engine/pa/slicerImport'
 import type { ImportedFilamentFields, ImportedPrinterFields } from '../engine/pa/slicerImport'
+import type { UnresolvedParent } from '../engine/pa/slicerImportChain'
 
 export type ImportKind = 'printer' | 'filament'
 
@@ -20,9 +21,14 @@ export interface EditableFilament {
 export interface ImportSummary {
   kind: ImportKind
   importedCount: number
+  /** Names (raw camelCase) of the fields this import actually filled, for the filled-field chips. */
+  filled: string[]
   missing: string[]
   warnings: string[]
   wrongKind: string | null
+  /** Source file names, for the headline and single-file warning-prefix suppression. */
+  fileNames: string[]
+  unresolvedParents: UnresolvedParent[]
 }
 
 const WRONG_KIND_MESSAGES: Record<ImportKind, string> = {
@@ -161,9 +167,7 @@ export function useProfileForm() {
   }
 
   /** Appends one new filament per named bundle section and selects the first of them. */
-  function addBundleFilaments(
-    sections: { name: string; fields: ImportedFilamentFields }[],
-  ): number {
+  function addBundleFilaments(sections: { name: string; fields: ImportedFilamentFields }[]): void {
     const firstNewIndex = filaments.value.length
     const added = sections.map((section) => {
       const filament: EditableFilament = {
@@ -176,7 +180,6 @@ export function useProfileForm() {
     })
     filaments.value = [...filaments.value, ...added]
     filamentIndex.value = firstNewIndex
-    return added.reduce((count, _f, i) => count + Object.keys(sections[i].fields).length, 0)
   }
 
   /** Kind of a missing-field name reported by the importer, for kind-scoped summaries. */
@@ -208,23 +211,34 @@ export function useProfileForm() {
         : null
 
     let importedCount = 0
+    let filled: string[] = []
     if (wrongKind === null) {
       if (kind === 'printer') {
         applyPrinterFields(result.fields.printer)
         importedCount = printerCount
+        filled = Object.keys(result.fields.printer)
       } else if (result.filaments.length > 0) {
-        importedCount = addBundleFilaments(result.filaments)
+        addBundleFilaments(result.filaments)
+        // Distinct field names filled across all bundle sections: the summary reports "what kinds
+        // of settings did we fill" (matching the filled-field chip list below), not a raw sum
+        // across sections, which would double-count a field two filaments both set.
+        filled = [...new Set(result.filaments.flatMap((f) => Object.keys(f.fields)))]
+        importedCount = filled.length
       } else if (currentFilament.value) {
         applyFilamentFields(currentFilament.value, result.fields.filament)
         importedCount = filamentCount
+        filled = Object.keys(result.fields.filament)
       }
     }
     importSummary.value = {
       kind,
       importedCount,
+      filled,
       missing: result.missing.filter((f) => kindOfMissing(f) === kind),
       warnings,
       wrongKind,
+      fileNames: slicerFiles.map((f) => f.fileName),
+      unresolvedParents: result.unresolvedParents ?? [],
     }
   }
 

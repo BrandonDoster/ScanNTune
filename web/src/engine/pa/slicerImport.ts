@@ -21,6 +21,10 @@ export interface SlicerImportResult {
   imported: string[]
   missing: string[]
   warnings: string[]
+  /** Unresolved-inherits parents, structured for the UI; absent (undefined) for single-file
+   *  imports that never go through chain resolution. Chain resolution always sets it (possibly
+   *  to an empty array), so callers that go through importSlicerConfigs can rely on it. */
+  unresolvedParents?: { presetName: string; pathHint: string | null; fileName: string }[]
 }
 
 /** Profile fields the importer knows how to fill; anything not found lands in missing[]. */
@@ -430,7 +434,7 @@ function importOrca(preset: Record<string, unknown>): SlicerImportResult {
     startGcode: 'machine_start_gcode',
     endGcode: 'machine_end_gcode',
     pauseGcode: ['machine_pause_gcode', 'change_filament_gcode'],
-    chamberTemp: ['chamber_temperatures'],
+    chamberTemp: ['chamber_temperatures', 'chamber_temperature'],
     gcodeTransform: (raw) => raw,
   })
   setNum(ctx, 'bedTempC', orcaBedTemp(ctx))

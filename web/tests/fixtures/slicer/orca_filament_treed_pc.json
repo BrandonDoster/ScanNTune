@@ -1,0 +1,67 @@
+{
+    "chamber_temperature": [
+        "90"
+    ],
+    "compatible_printers": [
+        "Voron Trident 300 0.4 nozzle"
+    ],
+    "fan_max_speed": [
+        "0"
+    ],
+    "fan_min_speed": [
+        "0"
+    ],
+    "filament_cost": [
+        "100"
+    ],
+    "filament_flow_ratio": [
+        "1"
+    ],
+    "filament_max_volumetric_speed": [
+        "7"
+    ],
+    "filament_retract_when_changing_layer": [
+        "0"
+    ],
+    "filament_retraction_length": [
+        "0.6"
+    ],
+    "filament_settings_id": [
+        "T - TreeD PC BPT GF"
+    ],
+    "filament_shrink": [
+        "99.97%"
+    ],
+    "filament_shrinkage_compensation_z": [
+        "99.97%"
+    ],
+    "filament_wipe": [
+        "0"
+    ],
+    "filament_z_hop": [
+        "0"
+    ],
+    "from": "User",
+    "inherits": "Generic PC @System",
+    "is_custom_defined": "0",
+    "name": "T - TreeD PC BPT GF",
+    "nozzle_temperature": [
+        "285"
+    ],
+    "nozzle_temperature_initial_layer": [
+        "285"
+    ],
+    "overhang_fan_speed": [
+        "40"
+    ],
+    "overhang_fan_threshold": [
+        "50%"
+    ],
+    "pressure_advance": [
+        "0.035"
+    ],
+    "slow_down_layer_time": [
+        "5"
+    ],
+    "version": "2.3.0.3"
+}
