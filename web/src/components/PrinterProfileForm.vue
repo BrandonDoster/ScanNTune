@@ -1,0 +1,232 @@
+<script setup lang="ts">
+import { computed, ref, watch } from 'vue'
+import type { Firmware, PrinterProfile } from '../engine/pa/types'
+import { defaultPrinterProfile } from '../engine/pa/types'
+import NumericField from './NumericField.vue'
+
+const props = defineProps<{
+  modelValue: boolean
+  /** Profile to edit, or null to create a new one. */
+  profile: PrinterProfile | null
+}>()
+const emit = defineEmits<{
+  'update:modelValue': [boolean]
+  save: [PrinterProfile]
+}>()
+
+const firmwares: Firmware[] = ['Klipper', 'Marlin', 'RepRapFirmware']
+
+// Local editable copy. Numeric fields are nullable while editing (the stepper allows clearing);
+// Save stays disabled until every one holds a number again.
+const id = ref('')
+const name = ref('')
+const firmware = ref<Firmware>('Klipper')
+const bedWidthMm = ref<number | null>(null)
+const bedDepthMm = ref<number | null>(null)
+const nozzleDiameterMm = ref<number | null>(null)
+const filamentDiameterMm = ref<number | null>(null)
+const nozzleTempC = ref<number | null>(null)
+const bedTempC = ref<number | null>(null)
+const travelSpeedMmS = ref<number | null>(null)
+const layerHeightMm = ref<number | null>(null)
+const retractMm = ref<number | null>(null)
+const retractSpeedMmS = ref<number | null>(null)
+const startGcode = ref('')
+const pauseGcode = ref('')
+const endGcode = ref('')
+
+function loadFrom(p: PrinterProfile): void {
+  id.value = p.id
+  name.value = p.name
+  firmware.value = p.firmware
+  bedWidthMm.value = p.bedWidthMm
+  bedDepthMm.value = p.bedDepthMm
+  nozzleDiameterMm.value = p.nozzleDiameterMm
+  filamentDiameterMm.value = p.filamentDiameterMm
+  nozzleTempC.value = p.nozzleTempC
+  bedTempC.value = p.bedTempC
+  travelSpeedMmS.value = p.travelSpeedMmS
+  layerHeightMm.value = p.layerHeightMm
+  retractMm.value = p.retractMm
+  retractSpeedMmS.value = p.retractSpeedMmS
+  startGcode.value = p.startGcode
+  pauseGcode.value = p.pauseGcode
+  endGcode.value = p.endGcode
+}
+
+watch(
+  () => props.modelValue,
+  (open) => {
+    if (open) loadFrom(props.profile ?? defaultPrinterProfile())
+  },
+)
+
+const numbers = computed(() => [
+  bedWidthMm.value,
+  bedDepthMm.value,
+  nozzleDiameterMm.value,
+  filamentDiameterMm.value,
+  nozzleTempC.value,
+  bedTempC.value,
+  travelSpeedMmS.value,
+  layerHeightMm.value,
+  retractMm.value,
+  retractSpeedMmS.value,
+])
+const canSave = computed(
+  () => name.value.trim() !== '' && numbers.value.every((n) => n !== null && Number.isFinite(n)),
+)
+
+function close(): void {
+  emit('update:modelValue', false)
+}
+
+function save(): void {
+  if (!canSave.value) return
+  emit('save', {
+    id: id.value,
+    name: name.value.trim(),
+    firmware: firmware.value,
+    bedWidthMm: bedWidthMm.value!,
+    bedDepthMm: bedDepthMm.value!,
+    nozzleDiameterMm: nozzleDiameterMm.value!,
+    filamentDiameterMm: filamentDiameterMm.value!,
+    nozzleTempC: nozzleTempC.value!,
+    bedTempC: bedTempC.value!,
+    travelSpeedMmS: travelSpeedMmS.value!,
+    layerHeightMm: layerHeightMm.value!,
+    retractMm: retractMm.value!,
+    retractSpeedMmS: retractSpeedMmS.value!,
+    startGcode: startGcode.value,
+    pauseGcode: pauseGcode.value,
+    endGcode: endGcode.value,
+  })
+  close()
+}
+</script>
+
+<template>
+  <v-dialog
+    :model-value="modelValue"
+    max-width="640"
+    scrollable
+    @update:model-value="emit('update:modelValue', $event)"
+  >
+    <v-card :title="profile ? 'Edit printer profile' : 'New printer profile'">
+      <v-card-text>
+        <div class="fields mb-2">
+          <v-text-field
+            v-model="name"
+            label="Profile name"
+            density="comfortable"
+            data-testid="profile-name"
+            class="wide"
+          />
+          <v-select
+            v-model="firmware"
+            :items="firmwares"
+            label="Firmware"
+            density="comfortable"
+            data-testid="profile-firmware"
+          />
+        </div>
+        <div class="fields mb-2">
+          <NumericField v-model="bedWidthMm" label="Bed width (mm)" :step="10" :min="10" />
+          <NumericField v-model="bedDepthMm" label="Bed depth (mm)" :step="10" :min="10" />
+          <NumericField v-model="nozzleTempC" label="Nozzle temp (°C)" :step="5" :min="0" />
+          <NumericField v-model="bedTempC" label="Bed temp (°C)" :step="5" :min="0" />
+        </div>
+        <div class="fields mb-2">
+          <NumericField
+            v-model="nozzleDiameterMm"
+            label="Nozzle diameter (mm)"
+            :step="0.1"
+            :min="0.1"
+            :precision="2"
+          />
+          <NumericField
+            v-model="filamentDiameterMm"
+            label="Filament diameter (mm)"
+            :step="0.05"
+            :min="0.5"
+            :precision="2"
+          />
+          <NumericField
+            v-model="layerHeightMm"
+            label="Layer height (mm)"
+            :step="0.05"
+            :min="0.05"
+            :precision="2"
+          />
+        </div>
+        <div class="fields mb-2">
+          <NumericField
+            v-model="retractMm"
+            label="Retraction (mm)"
+            :step="0.1"
+            :min="0"
+            :precision="2"
+          />
+          <NumericField
+            v-model="retractSpeedMmS"
+            label="Retract speed (mm/s)"
+            :step="5"
+            :min="1"
+          />
+          <NumericField
+            v-model="travelSpeedMmS"
+            label="Travel speed (mm/s)"
+            :step="10"
+            :min="10"
+          />
+        </div>
+        <v-textarea
+          v-model="startGcode"
+          label="Start G-code"
+          rows="3"
+          density="comfortable"
+          class="mono mb-2"
+        />
+        <v-textarea
+          v-model="pauseGcode"
+          label="Pause G-code (filament change)"
+          rows="2"
+          density="comfortable"
+          class="mono mb-2"
+        />
+        <v-textarea v-model="endGcode" label="End G-code" rows="3" density="comfortable" class="mono" />
+      </v-card-text>
+      <v-card-actions>
+        <v-spacer />
+        <v-btn variant="text" @click="close">Cancel</v-btn>
+        <v-btn
+          color="primary"
+          variant="flat"
+          :disabled="!canSave"
+          data-testid="profile-save"
+          @click="save"
+        >
+          Save
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+</template>
+
+<style scoped>
+.fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.fields > * {
+  flex: 1 1 140px;
+}
+.fields > .wide {
+  flex: 2 1 220px;
+}
+.mono :deep(textarea) {
+  font-family: 'Roboto Mono', ui-monospace, monospace;
+  font-size: 0.85rem;
+}
+</style>
