@@ -58,7 +58,7 @@ describe('importSlicerConfigs: multi-file Orca inherits resolution', () => {
     const warning = result.warnings.find((w) => w.toLowerCase().includes('inherit'))
     expect(warning).toBeDefined()
     expect(warning).toContain('Voron 2.4 300 0.4 nozzle')
-    expect(warning).toContain('resources\\profiles\\<vendor>\\machine\\')
+    expect(warning).toContain('resources\\profiles\\<vendor>\\machine\\Voron 2.4 300 0.4 nozzle.json')
   })
 
   it('exposes the unresolved parent structurally with a real vendor guess', () => {
@@ -68,7 +68,7 @@ describe('importSlicerConfigs: multi-file Orca inherits resolution', () => {
     expect(result.unresolvedParents).toEqual([
       {
         presetName: 'Voron 2.4 300 0.4 nozzle',
-        pathHint: 'OrcaSlicer\\resources\\profiles\\Voron\\machine\\',
+        pathHint: 'OrcaSlicer\\resources\\profiles\\Voron\\machine\\Voron 2.4 300 0.4 nozzle.json',
         fileName: 'orca_machine_chubechanger.json',
       },
     ])
@@ -142,7 +142,7 @@ describe('importSlicerConfigs: multi-file Orca inherits resolution', () => {
     expect(result.unresolvedParents).toEqual([
       {
         presetName: 'Generic PC @System',
-        pathHint: 'OrcaSlicer\\resources\\profiles\\Generic\\filament\\',
+        pathHint: 'OrcaSlicer\\resources\\profiles\\Generic\\filament\\Generic PC @System.json',
         fileName: 'orca_filament_treed_pc.json',
       },
     ])
@@ -213,7 +213,8 @@ describe('importSlicerConfigs: multi-file Orca inherits resolution', () => {
     expect(result.unresolvedParents).toEqual([
       {
         presetName: 'Voron 2.4 300 0.4 nozzle',
-        pathHint: 'C:\\Program Files\\OrcaSlicer\\resources\\profiles\\Voron\\machine\\',
+        pathHint:
+          'C:\\Program Files\\OrcaSlicer\\resources\\profiles\\Voron\\machine\\Voron 2.4 300 0.4 nozzle.json',
         fileName: 'orca_machine_chubechanger.json',
       },
     ])

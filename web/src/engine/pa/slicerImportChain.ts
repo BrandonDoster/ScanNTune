@@ -195,6 +195,7 @@ function importOrcaChain(
  * a number or symbol (e.g. a nozzle-size prefix) don't identify a vendor, so callers show the
  * placeholder "<vendor>" hint as plain text instead of a copyable path. The subfolder matches the
  * child preset's own kind (filament/process/machine), since that's what the missing parent is too.
+ * Orca stores each preset as "<preset name>.json" in that folder, so the hint names the exact file.
  */
 function parentPathHint(
   presetName: string,
@@ -207,7 +208,7 @@ function parentPathHint(
     installPath !== null && installPath.trim() !== ''
       ? installPath.trim().replace(/[\\/]+$/, '')
       : 'OrcaSlicer'
-  return `${base}\\resources\\profiles\\${firstWord}\\${kind}\\`
+  return `${base}\\resources\\profiles\\${firstWord}\\${kind}\\${presetName}.json`
 }
 
 interface ChainResolution {
@@ -251,7 +252,7 @@ function resolveChain(
 }
 
 function unresolvedInheritsWarning(parentName: string, kind: OrcaPresetKind): string {
-  const placeholderHint = `resources\\profiles\\<vendor>\\${kind}\\`
+  const placeholderHint = `resources\\profiles\\<vendor>\\${kind}\\${parentName}.json`
   return (
     `This preset inherits from '${parentName}' which was not uploaded. ` +
     `Find it under the OrcaSlicer installation: ${placeholderHint}`
