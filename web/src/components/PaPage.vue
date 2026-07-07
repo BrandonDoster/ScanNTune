@@ -185,7 +185,8 @@ async function onPick(e: Event): Promise<void> {
   const file = input.files?.[0]
   // Clear the input so picking the same file again still fires change.
   input.value = ''
-  if (!file) return
+  // A disabled input still receives drops in some browsers; never start a second analysis.
+  if (!file || analyzing.value) return
   analyzing.value = true
   progressText.value = 'Reading the scan'
   scanError.value = ''
@@ -223,7 +224,7 @@ const edgeShift = computed<{ start: number; end: number } | null>(() => {
   return edgeShiftRange(s, r.bestLineIndex)
 })
 function applyShift(): void {
-  if (!edgeShift.value) return
+  if (!edgeShift.value || analyzing.value) return
   paStart.value = Number(edgeShift.value.start.toFixed(4))
   paEnd.value = Number(edgeShift.value.end.toFixed(4))
   resetProcessing()
@@ -442,7 +443,7 @@ function applyShift(): void {
             <strong class="warn-lead">The optimum sits at the edge of the sweep,</strong>
             so the true value may lie outside the tested range. Rerun with a shifted range:
             {{ edgeShift.start.toFixed(4) }} to {{ edgeShift.end.toFixed(4) }}.
-            <v-btn size="x-small" variant="tonal" color="warning" class="ml-1" @click="applyShift">
+            <v-btn size="x-small" variant="tonal" color="warning" class="ml-1" :disabled="analyzing" @click="applyShift">
               Use shifted range
             </v-btn>
           </span>
@@ -485,7 +486,7 @@ function applyShift(): void {
       <v-card-actions>
         <v-spacer />
         <v-btn variant="text" @click="deleteOpen = false">Cancel</v-btn>
-        <v-btn color="error" variant="flat" data-testid="profile-delete-confirm" @click="confirmDelete">
+        <v-btn color="error" variant="flat" :disabled="analyzing" data-testid="profile-delete-confirm" @click="confirmDelete">
           Delete
         </v-btn>
       </v-card-actions>

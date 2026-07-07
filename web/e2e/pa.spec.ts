@@ -80,6 +80,8 @@ test('pressure advance scan analysis: real flatbed scan', async ({ page }) => {
   await page.getByTestId('pa-scan-input').setInputFiles(paScanReal)
   // The 35 MP scan takes a few seconds in the worker, so the progress line must appear.
   await expect(page.getByTestId('pa-progress')).toBeVisible({ timeout: 60000 })
+  // While the analysis runs, the page controls are locked.
+  await expect(page.getByTestId('generate-btn')).toBeDisabled()
   await expect(page.getByTestId('pa-best')).toBeVisible({ timeout: 180000 })
   await expect(page.getByTestId('scan-error')).toHaveCount(0)
   await expect(page.getByTestId('pa-failure')).toHaveCount(0)
