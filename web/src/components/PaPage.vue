@@ -415,8 +415,7 @@ const stCorrection = computed(() => {
           :items="extruderItems"
           label="Extruder"
           placeholder="Prefill range..."
-          density="compact"
-          hide-details
+          density="comfortable"
           :disabled="analyzing"
           data-testid="pa-extruder-preset"
           @update:model-value="onExtruderPreset"

@@ -36,6 +36,7 @@ const version = __APP_VERSION__
           @click="app.goPa()"
         >
           Pressure advance
+          <v-chip size="x-small" color="primary" variant="tonal" class="ml-1">Beta</v-chip>
         </v-btn>
       </nav>
       <v-spacer />
