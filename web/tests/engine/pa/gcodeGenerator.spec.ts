@@ -226,6 +226,18 @@ describe('generatePaGcodeWithReport', () => {
     expect(r.warnings.some((w) => /sets no temperatures/i.test(w))).toBe(true)
   })
 
+  it('does not warn for a Klipper print-start macro that heats via temperature params', () => {
+    const p = { ...defaultPrinterProfile(), startGcode: 'PRINT_START TOOL_TEMP=230 BED_TEMP=60 TOOL=0' }
+    const r = generatePaGcodeWithReport(p, defaultFilamentProfile(), defaultPaTestSpec())
+    expect(r.warnings.some((w) => /sets no temperatures/i.test(w))).toBe(false)
+  })
+
+  it('warns for a print-start macro carrying no temperature parameter', () => {
+    const p = { ...defaultPrinterProfile(), startGcode: 'PRINT_START\nG28' }
+    const r = generatePaGcodeWithReport(p, defaultFilamentProfile(), defaultPaTestSpec())
+    expect(r.warnings.some((w) => /sets no temperatures/i.test(w))).toBe(true)
+  })
+
   it('does not warn for the default profile, whose start gcode heats via placeholders', () => {
     const p = defaultPrinterProfile()
     const r = generatePaGcodeWithReport(p, defaultFilamentProfile(), defaultPaTestSpec())

@@ -189,10 +189,19 @@ const COLD_PRINT_WARNING =
 
 /** Temperature-setting commands the printer understands: set/wait for nozzle or bed, or wait. */
 const TEMP_COMMAND = /\b(M104|M109|M140|M190|M116)\b/i
+/** Print-start macros that heat internally (Klipper-style PRINT_START/START_PRINT). */
+const START_MACRO = /(PRINT_START|START_PRINT)/i
+/** A temperature-ish parameter token accompanying a print-start macro. No word boundaries: real
+ *  params are compound tokens like BED_TEMP, TOOL_TEMP, HOTEND, BED=. */
+const TEMP_PARAM = /(BED|HOTEND|EXTRUDER|CHAMBER|TEMP)/i
 
-/** True when the (already substituted) start G-code contains no temperature-setting command. */
-function startGcodeSetsNoTemperature(startGcode: string): boolean {
-  return !TEMP_COMMAND.test(startGcode)
+/**
+ * True when the (already substituted) start G-code heats the printer: either via an explicit
+ * temperature command, or via a print-start macro carrying a temperature parameter.
+ */
+function startGcodeHeats(gcode: string): boolean {
+  if (TEMP_COMMAND.test(gcode)) return true
+  return START_MACRO.test(gcode) && TEMP_PARAM.test(gcode)
 }
 
 /**
@@ -218,7 +227,7 @@ export function generatePaGcodeWithReport(
   }
   const unknownVariables = [...new Set([...start.unknown, ...pause.unknown, ...end.unknown])]
   const warnings = [...new Set([...start.warnings, ...pause.warnings, ...end.warnings])]
-  if (startGcodeSetsNoTemperature(start.gcode)) warnings.push(COLD_PRINT_WARNING)
+  if (!startGcodeHeats(start.gcode)) warnings.push(COLD_PRINT_WARNING)
   return { gcode: emitPaGcode(substituted, filament, spec), unknownVariables, warnings }
 }
 
