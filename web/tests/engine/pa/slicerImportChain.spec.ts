@@ -288,6 +288,60 @@ describe('importSlicerConfigs: multi-file Orca inherits resolution', () => {
       'C:\\Program Files\\OrcaSlicer\\resources\\profiles\\Voron\\machine\\fdm_klipper_common.json',
     )
   })
+
+  it('prefers an intermediate system preset over the user root when both carry a vendor-shaped word', () => {
+    // 4-level chain: user root ("Mybox custom", vendor-shaped but not a real vendor) inherits a
+    // system preset ("Voron X 0.4 nozzle", the real vendor) inherits fdm_klipper_common inherits
+    // the unresolved fdm_machine_common. The correct vendor sits in the middle of the chain, not
+    // at the root, so the candidate list must walk the whole ancestry, nearest first.
+    const grandparent = JSON.stringify({
+      type: 'machine',
+      name: 'fdm_klipper_common',
+      inherits: 'fdm_machine_common',
+      gcode_flavor: 'klipper',
+    })
+    const parentPreset = JSON.stringify({
+      type: 'machine',
+      name: 'Voron X 0.4 nozzle',
+      inherits: 'fdm_klipper_common',
+      printable_area: ['0x0', '300x0', '300x300', '0x300'],
+      gcode_flavor: 'klipper',
+    })
+    const child = JSON.stringify({
+      type: 'machine',
+      name: 'Mybox custom',
+      inherits: 'Voron X 0.4 nozzle',
+      printable_area: ['0x0', '300x0', '300x300', '0x300'],
+      gcode_flavor: 'klipper',
+    })
+    const result = importSlicerConfigs([
+      { fileName: 'mybox.json', content: child },
+      { fileName: 'voron_x.json', content: parentPreset },
+      { fileName: 'klipper_common.json', content: grandparent },
+    ])
+    const parent = result.unresolvedParents?.find((p) => p.presetName === 'fdm_machine_common')
+    expect(parent?.pathHint).toBe(
+      'OrcaSlicer\\resources\\profiles\\Voron\\machine\\fdm_machine_common.json',
+    )
+  })
+
+  it('falls back to the root vendor word when a 2-level chain has no intermediate preset', () => {
+    // With no system preset in between, the only candidate left after the missing parent's own
+    // name is the uploaded root itself; its vendor-shaped first word is used even though it is a
+    // user preset name, since there is nothing nearer to prefer.
+    const child = JSON.stringify({
+      type: 'machine',
+      name: 'Mybox custom',
+      inherits: 'fdm_machine_common',
+      printable_area: ['0x0', '300x0', '300x300', '0x300'],
+      gcode_flavor: 'klipper',
+    })
+    const result = importSlicerConfigs([{ fileName: 'mybox.json', content: child }])
+    const parent = result.unresolvedParents?.find((p) => p.presetName === 'fdm_machine_common')
+    expect(parent?.pathHint).toBe(
+      'OrcaSlicer\\resources\\profiles\\Mybox\\machine\\fdm_machine_common.json',
+    )
+  })
 })
 
 describe('isVendorWord', () => {

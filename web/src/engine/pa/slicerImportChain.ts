@@ -180,10 +180,7 @@ function importOrcaChain(
   } else if (chain.unresolvedParent !== undefined) {
     const kind = orcaPresetKind(preset)
     result.warnings.push(unresolvedInheritsWarning(chain.unresolvedParent, kind))
-    const rootName = orcaPresetName(preset)
-    const vendorCandidates = [chain.unresolvedParent, chain.lastResolvedChild, rootName].filter(
-      (name): name is string => name !== undefined,
-    )
+    const vendorCandidates = [chain.unresolvedParent, ...chain.ancestryToRoot]
     result.unresolvedParents.push({
       presetName: chain.unresolvedParent,
       pathHint: parentPathHint(chain.unresolvedParent, kind, installPath, vendorCandidates),
@@ -205,13 +202,14 @@ export function isVendorWord(name: string): boolean {
 /**
  * Guesses the OrcaSlicer vendor profile folder for a missing parent preset, from the first
  * candidate name (in priority order) whose first whitespace-separated word plausibly identifies a
- * vendor, per {@link isVendorWord}. Callers pass candidates most-specific first: typically the
- * missing parent's own name, then the uploaded preset that inherits from it directly (whose name
- * usually does carry the vendor, e.g. "Voron 2.4 300 0.4 nozzle" for a missing "fdm_klipper_common"
- * base), then the chain root. When none qualify, the caller shows the placeholder "<vendor>" hint
- * as plain text instead of a copyable path. The subfolder matches the child preset's own kind
- * (filament/process/machine), since that's what the missing parent is too. Orca stores each preset
- * as "<preset name>.json" in that folder, so the hint names the exact file.
+ * vendor, per {@link isVendorWord}. Callers pass candidates most-specific first: the missing
+ * parent's own name, then every preset between the parent and the uploaded chain root, nearest
+ * child first (an intermediate system preset like "Voron 2.4 300 0.4 nozzle" usually carries the
+ * vendor even when it sits deep in the chain), then finally the root itself. When none qualify,
+ * the caller shows the placeholder "<vendor>" hint as plain text instead of a copyable path. The
+ * subfolder matches the child preset's own kind (filament/process/machine), since that's what the
+ * missing parent is too. Orca stores each preset as "<preset name>.json" in that folder, so the
+ * hint names the exact file.
  */
 function parentPathHint(
   presetName: string,
@@ -238,11 +236,13 @@ interface ChainResolution {
   /** Names of uploaded presets consumed as a parent while walking this chain (excludes the
    *  starting preset itself), for {@link findParentNames} to read instead of re-walking. */
   parentNamesVisited: string[]
-  /** Name of the last successfully resolved preset in the chain before the unresolved parent was
-   *  hit, i.e. the preset whose own "inherits" names it. Undefined when the chain's starting
-   *  preset itself is the one with the unresolved parent. Used as a vendor-name fallback in
-   *  {@link parentPathHint} when the missing parent's own name doesn't carry one. */
-  lastResolvedChild: string | undefined
+  /** Names of every successfully resolved preset in the chain from (and including) the one whose
+   *  own "inherits" names the unresolved parent, up through the uploaded chain root, ordered
+   *  nearest-child first. Empty when the chain's starting preset itself is the one with the
+   *  unresolved parent. Used as vendor-name fallback candidates in {@link parentPathHint} when the
+   *  missing parent's own name doesn't carry one: an intermediate system preset partway up the
+   *  chain is tried before the root. */
+  ancestryToRoot: string[]
 }
 
 /** Walks "inherits" parent-to-parent across the uploaded set, merging child-over-parent. */
@@ -252,6 +252,9 @@ function resolveChain(
 ): ChainResolution {
   const visited = new Set<string>()
   const parentNamesVisited: string[] = []
+  // Names resolved so far, nearest-to-the-root-being-walked first: prepended each step so that
+  // when an unresolved parent is hit, this is already in nearest-child-to-root order.
+  const namesToRoot: string[] = []
   let merged: Record<string, unknown> = preset
   let current = preset
   for (;;) {
@@ -262,18 +265,21 @@ function resolveChain(
         unresolvedParent: undefined,
         cycle: false,
         parentNamesVisited,
-        lastResolvedChild: undefined,
+        ancestryToRoot: [],
       }
     }
     const name = orcaPresetName(current)
-    if (name !== undefined) visited.add(name)
+    if (name !== undefined) {
+      visited.add(name)
+      namesToRoot.unshift(name)
+    }
     if (visited.has(inherits)) {
       return {
         merged,
         unresolvedParent: undefined,
         cycle: true,
         parentNamesVisited,
-        lastResolvedChild: undefined,
+        ancestryToRoot: [],
       }
     }
     const parent = orcaByName.get(inherits)
@@ -283,7 +289,7 @@ function resolveChain(
         unresolvedParent: inherits,
         cycle: false,
         parentNamesVisited,
-        lastResolvedChild: name,
+        ancestryToRoot: namesToRoot,
       }
     }
     parentNamesVisited.push(inherits)
