@@ -99,7 +99,7 @@ function save(): void {
     nozzleTempC: nozzleTempC.value!,
     bedTempC: bedTempC.value!,
     chamberTempC: chamberTempC.value!,
-    filamentType: filamentType.value.trim() || 'PLA',
+    filamentType: filamentType.value.trim() || defaultPrinterProfile().filamentType,
     travelSpeedMmS: travelSpeedMmS.value!,
     layerHeightMm: layerHeightMm.value!,
     retractMm: retractMm.value!,

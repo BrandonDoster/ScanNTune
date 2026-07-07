@@ -40,7 +40,9 @@ export function substituteSlicerVariables(
   const out = gcode.replace(PLACEHOLDER, (match, square: string | undefined, curly: string | undefined) => {
     const name = square ?? curly
     if (name === undefined) return match
-    const resolve = VARIABLE_MAP[name]
+    // Object.hasOwn guards against inherited Object.prototype keys ({constructor}, {toString})
+    // being resolved as variables.
+    const resolve = Object.hasOwn(VARIABLE_MAP, name) ? VARIABLE_MAP[name] : undefined
     if (resolve === undefined) {
       unknown.add(name)
       return match

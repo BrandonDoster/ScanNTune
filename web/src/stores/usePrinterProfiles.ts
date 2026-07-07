@@ -34,7 +34,11 @@ const STRING_FIELDS = [
 const OPTIONAL_NUMERIC_FIELDS: readonly (typeof NUMERIC_FIELDS)[number][] = ['chamberTempC']
 const OPTIONAL_STRING_FIELDS: readonly (typeof STRING_FIELDS)[number][] = ['filamentType']
 
-function isValidProfile(value: unknown): value is PrinterProfile {
+/** A stored profile from an older release: fields added later may be absent. */
+type StoredProfile = Omit<PrinterProfile, 'chamberTempC' | 'filamentType'> &
+  Partial<Pick<PrinterProfile, 'chamberTempC' | 'filamentType'>>
+
+function isValidProfile(value: unknown): value is StoredProfile {
   if (typeof value !== 'object' || value === null) return false
   const record = value as Record<string, unknown>
   const numbersOk = NUMERIC_FIELDS.every(
@@ -50,12 +54,12 @@ function isValidProfile(value: unknown): value is PrinterProfile {
   return numbersOk && stringsOk
 }
 
-function withDefaults(profile: PrinterProfile): PrinterProfile {
+function withDefaults(profile: StoredProfile): PrinterProfile {
   const defaults = defaultPrinterProfile()
   return {
+    chamberTempC: defaults.chamberTempC,
+    filamentType: defaults.filamentType,
     ...profile,
-    chamberTempC: profile.chamberTempC ?? defaults.chamberTempC,
-    filamentType: profile.filamentType ?? defaults.filamentType,
   }
 }
 

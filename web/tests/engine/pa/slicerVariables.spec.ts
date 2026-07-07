@@ -99,6 +99,12 @@ describe('substituteSlicerVariables', () => {
     expect(r.unknown).toEqual(['_ok_though'])
   })
 
+  it('treats Object.prototype property names as unknown, not as variables', () => {
+    const r = substituteSlicerVariables('{constructor} [toString] {hasOwnProperty}', profile())
+    expect(r.gcode).toBe('{constructor} [toString] {hasOwnProperty}')
+    expect(r.unknown).toEqual(['constructor', 'toString', 'hasOwnProperty'])
+  })
+
   it('is case-sensitive', () => {
     const r = substituteSlicerVariables('[Temperature]', profile())
     expect(r.gcode).toBe('[Temperature]')
