@@ -172,23 +172,20 @@ shipped source, comments, or UI text: they are guidance for how to work, not doc
    issue/PR comments, tags, or release notes. Keep commit messages to a single short sentence (a concise
    subject line, no body).
 
-5. **Self-review before handoff: multi-file changes only.** Before presenting a multi-file change for commit
-   approval, run a medium-effort `/code-review` scoped to the change. Every finding it surfaces requires a
-   logged disposition: paste the finder list verbatim and mark each one **Fixed** (name the commit that
-   resolves it), **False positive** (the finding is factually wrong, proven with the quoted line that
-   refutes it), or **Owner-waived** (you flagged it to the owner and they chose not to fix it).
-   "Pre-existing," "out of scope," "low value," or "cosmetic" are not valid reasons to silently drop a
-   finding: skipping a correct finding is the owner's decision, never yours.
+5. **Get owner approval before committing or pushing.** Never run `git commit` or `git push` (or open a PR)
+   until the owner has approved. Approval can be **per-change** (present the diff summary, ask, proceed only
+   after a clear "yes") or a **standing grant for a named branch** (once the owner blanket-approves work on a
+   branch, commits to that branch need no further prompt). Pushes, and any commit to `master`, always require
+   explicit approval regardless of a branch grant.
 
-6. **Get owner approval before committing or pushing.** Never run `git commit` or `git push` (or open a PR)
-   until the owner has explicitly approved the change in chat: present the diff summary and ask, and proceed
-   only after a clear "yes". Committing straight to `master` is fine (Pages auto-deploys on push, so there
-   is no PR or release ceremony required), but the approval gate applies to every commit and push without
-   exception.
-
-7. **Never use the em-dash character `—`, and never use a hyphen `-` as a substitute for it.** The em-dash
+6. **Never use the em-dash character `—`, and never use a hyphen `-` as a substitute for it.** The em-dash
    is banned everywhere you write: source, comments, docs, UI text, commit messages, PR titles and bodies,
    issue/PR comments, and chat replies. Do not swap in a hyphen `-` to get the same dash-like pause either.
    Rewrite the sentence: use a colon, parentheses, a comma, or two separate sentences. A hyphen is allowed
    ONLY where grammar genuinely requires one, such as a compound modifier ("sub-pixel", "user-facing") or a
    hyphenated name.
+
+**Verification bar.** The standard for "verified" is `npm run build` plus `npm test` plus `npm run e2e` all
+green (and, for any change to the measurement pipeline, the synthetic-fixture validation of rule 1). That
+automated gate is sufficient: do not additionally launch a dev server for manual browser verification unless
+the owner asks for it.
