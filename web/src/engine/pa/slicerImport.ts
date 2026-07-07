@@ -24,7 +24,12 @@ export interface SlicerImportResult {
   /** Unresolved-inherits parents, structured for the UI; absent (undefined) for single-file
    *  imports that never go through chain resolution. Chain resolution always sets it (possibly
    *  to an empty array), so callers that go through importSlicerConfigs can rely on it. */
-  unresolvedParents?: { presetName: string; pathHint: string | null; fileName: string }[]
+  unresolvedParents?: {
+    presetName: string
+    pathHint: string | null
+    fileToFind: string
+    fileName: string
+  }[]
   /** Per-uploaded-file breakdown of which fields each file's import filled (cached or
    *  consumed-as-parent presets excluded); only set by multi-file chain resolution. */
   sources?: { fileName: string; imported: string[] }[]

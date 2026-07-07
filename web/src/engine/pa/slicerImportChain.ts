@@ -6,6 +6,7 @@ import {
   orcaPresetName,
   tryParseOrcaPreset,
 } from './slicerImport'
+import { matchOrcaVendor } from './orcaVendors'
 
 export interface SlicerFile {
   fileName: string
@@ -13,11 +14,14 @@ export interface SlicerFile {
 }
 
 /** One unresolved "inherits" parent, structured for the UI instead of parsed out of a prose
- *  warning string. pathHint is null when the vendor guess failed (non-alphabetic or empty first
- *  word of the preset name): the UI shows that case as plain guidance text with no copy button. */
+ *  warning string. pathHint is a concrete copyable path ONLY when the missing parent is a machine
+ *  preset that resolves to a real Orca vendor folder; otherwise it is null and the UI shows an
+ *  honest filename-to-search fallback (fileToFind) rather than a fabricated folder. */
 export interface UnresolvedParent {
   presetName: string
   pathHint: string | null
+  /** The exact on-disk filename ('<parentName>.json') to search the Orca install for. */
+  fileToFind: string
   fileName: string
 }
 
@@ -184,6 +188,7 @@ function importOrcaChain(
     result.unresolvedParents.push({
       presetName: chain.unresolvedParent,
       pathHint: parentPathHint(chain.unresolvedParent, kind, installPath, vendorCandidates),
+      fileToFind: `${chain.unresolvedParent}.json`,
       fileName: file.fileName,
     })
   }
@@ -200,16 +205,15 @@ export function isVendorWord(name: string): boolean {
 }
 
 /**
- * Guesses the OrcaSlicer vendor profile folder for a missing parent preset, from the first
- * candidate name (in priority order) whose first whitespace-separated word plausibly identifies a
- * vendor, per {@link isVendorWord}. Callers pass candidates most-specific first: the missing
- * parent's own name, then every preset between the parent and the uploaded chain root, nearest
- * child first (an intermediate system preset like "Voron 2.4 300 0.4 nozzle" usually carries the
- * vendor even when it sits deep in the chain), then finally the root itself. When none qualify,
- * the caller shows the placeholder "<vendor>" hint as plain text instead of a copyable path. The
- * subfolder matches the child preset's own kind (filament/process/machine), since that's what the
- * missing parent is too. Orca stores each preset as "<preset name>.json" in that folder, so the
- * hint names the exact file.
+ * A concrete copyable path is emitted ONLY when we are certain the file exists: the missing parent
+ * must be a machine preset (Orca machine presets are regular, always
+ * "<Vendor>/machine/<name>.json"), AND one of the candidate names must resolve to a real Orca
+ * vendor folder via {@link matchOrcaVendor}. Filament preset locations are irregular (flat files
+ * and subfolders under several vendor roots), so no path is ever derived for them. Candidates come
+ * most-specific first: the missing parent's own name, then every preset between it and the uploaded
+ * chain root, nearest child first (an intermediate system preset like "Voron 2.4 300 0.4 nozzle"
+ * carries the vendor even when it sits deep in the chain), then the root. When nothing qualifies we
+ * return null and the UI shows the honest filename-search fallback instead of guessing a folder.
  */
 function parentPathHint(
   presetName: string,
@@ -217,9 +221,13 @@ function parentPathHint(
   installPath: string | null,
   vendorCandidates: string[],
 ): string | null {
-  const vendorSource = vendorCandidates.find(isVendorWord)
-  if (vendorSource === undefined) return null
-  const vendor = vendorSource.trim().split(/\s+/)[0]
+  if (kind !== 'machine') return null
+  let vendor: string | null = null
+  for (const candidate of vendorCandidates) {
+    vendor = matchOrcaVendor(candidate)
+    if (vendor !== null) break
+  }
+  if (vendor === null) return null
   const base =
     installPath !== null && installPath.trim() !== ''
       ? installPath.trim().replace(/[\\/]+$/, '')

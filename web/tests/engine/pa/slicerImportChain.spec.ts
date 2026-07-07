@@ -70,6 +70,7 @@ describe('importSlicerConfigs: multi-file Orca inherits resolution', () => {
       {
         presetName: 'Voron 2.4 300 0.4 nozzle',
         pathHint: 'OrcaSlicer\\resources\\profiles\\Voron\\machine\\Voron 2.4 300 0.4 nozzle.json',
+        fileToFind: 'Voron 2.4 300 0.4 nozzle.json',
         fileName: 'orca_machine_chubechanger.json',
       },
     ])
@@ -83,7 +84,7 @@ describe('importSlicerConfigs: multi-file Orca inherits resolution', () => {
     expect(result.unresolvedParents).toEqual([])
   })
 
-  it('falls back to the referencing child name when the missing parent name starts non-alphabetically', () => {
+  it('emits a null pathHint (and a filename to search) when no candidate name is a known vendor', () => {
     const preset = JSON.stringify({
       type: 'machine',
       name: 'Weird Child',
@@ -95,13 +96,14 @@ describe('importSlicerConfigs: multi-file Orca inherits resolution', () => {
     expect(result.unresolvedParents).toEqual([
       {
         presetName: '0.4 Generic Nozzle',
-        pathHint: 'OrcaSlicer\\resources\\profiles\\Weird\\machine\\0.4 Generic Nozzle.json',
+        pathHint: null,
+        fileToFind: '0.4 Generic Nozzle.json',
         fileName: 'weird_name.json',
       },
     ])
   })
 
-  it('renders a placeholder pathHint when neither the parent nor any candidate name has a vendor word', () => {
+  it('emits a null pathHint when neither the parent nor any candidate name is a known vendor', () => {
     const preset = JSON.stringify({
       type: 'machine',
       name: '0.4 nozzle child',
@@ -114,6 +116,7 @@ describe('importSlicerConfigs: multi-file Orca inherits resolution', () => {
       {
         presetName: '0.4 Generic Nozzle',
         pathHint: null,
+        fileToFind: '0.4 Generic Nozzle.json',
         fileName: 'weird_name.json',
       },
     ])
@@ -158,10 +161,13 @@ describe('importSlicerConfigs: multi-file Orca inherits resolution', () => {
     expect(result.missing).toContain('bedTempC')
     expect(result.missing).toContain('filamentType')
     expect(result.warnings.some((w) => w.toLowerCase().includes('generic pc @system'))).toBe(true)
+    // Filament preset locations are irregular, so no folder is fabricated: pathHint is null and the
+    // UI shows the exact filename to search for instead.
     expect(result.unresolvedParents).toEqual([
       {
         presetName: 'Generic PC @System',
-        pathHint: 'OrcaSlicer\\resources\\profiles\\Generic\\filament\\Generic PC @System.json',
+        pathHint: null,
+        fileToFind: 'Generic PC @System.json',
         fileName: 'orca_filament_treed_pc.json',
       },
     ])
@@ -234,6 +240,7 @@ describe('importSlicerConfigs: multi-file Orca inherits resolution', () => {
         presetName: 'Voron 2.4 300 0.4 nozzle',
         pathHint:
           'C:\\Program Files\\OrcaSlicer\\resources\\profiles\\Voron\\machine\\Voron 2.4 300 0.4 nozzle.json',
+        fileToFind: 'Voron 2.4 300 0.4 nozzle.json',
         fileName: 'orca_machine_chubechanger.json',
       },
     ])
@@ -325,10 +332,9 @@ describe('importSlicerConfigs: multi-file Orca inherits resolution', () => {
     )
   })
 
-  it('falls back to the root vendor word when a 2-level chain has no intermediate preset', () => {
-    // With no system preset in between, the only candidate left after the missing parent's own
-    // name is the uploaded root itself; its vendor-shaped first word is used even though it is a
-    // user preset name, since there is nothing nearer to prefer.
+  it('emits a null pathHint for a machine base whose only candidate is a non-vendor name', () => {
+    // "Mybox custom" is vendor-shaped but not a real Orca vendor folder, and nothing nearer carries
+    // one, so no path is fabricated; the UI shows the filename to search for instead.
     const child = JSON.stringify({
       type: 'machine',
       name: 'Mybox custom',
@@ -338,9 +344,8 @@ describe('importSlicerConfigs: multi-file Orca inherits resolution', () => {
     })
     const result = importSlicerConfigs([{ fileName: 'mybox.json', content: child }])
     const parent = result.unresolvedParents?.find((p) => p.presetName === 'fdm_machine_common')
-    expect(parent?.pathHint).toBe(
-      'OrcaSlicer\\resources\\profiles\\Mybox\\machine\\fdm_machine_common.json',
-    )
+    expect(parent?.pathHint).toBe(null)
+    expect(parent?.fileToFind).toBe('fdm_machine_common.json')
   })
 })
 

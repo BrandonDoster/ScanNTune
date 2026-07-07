@@ -26,6 +26,7 @@ function baseSummary(overrides: Partial<ImportSummary> = {}): ImportSummary {
 const unresolvedVoron = {
   presetName: 'Voron 2.4 300 0.4 nozzle',
   pathHint: 'OrcaSlicer\\resources\\profiles\\Voron\\machine\\',
+  fileToFind: 'Voron 2.4 300 0.4 nozzle.json',
   fileName: 'a.json',
 }
 
@@ -69,6 +70,7 @@ describe('plainWarnings', () => {
           {
             presetName: 'Voron 2.4 300 0.4 nozzle',
             pathHint: 'OrcaSlicer\\resources\\profiles\\Voron\\machine\\',
+            fileToFind: 'Voron 2.4 300 0.4 nozzle.json',
             fileName: 'a.json',
           },
         ],

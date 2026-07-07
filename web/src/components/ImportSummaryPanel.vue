@@ -109,7 +109,7 @@ function onParentPicked(event: Event): void {
         <div class="d-flex align-center ga-2">
           <v-icon icon="mdi-check-circle" color="success" size="18" />
           <span>
-            <code class="preset-chip">{{ cached.presetName }}</code>, from your remembered presets
+            <code class="preset-chip">{{ cached.presetName }}</code>
           </span>
         </div>
         <div class="mt-1">
@@ -160,8 +160,25 @@ function onParentPicked(event: Event): void {
             <span v-if="copiedPath === parent.pathHint" class="text-success">copied</span>
           </template>
         </div>
-        <div v-if="parent.pathHint === null" class="text-caption text-medium-emphasis mt-1">
-          Find it under your OrcaSlicer installation's resources\profiles folder.
+        <div v-if="parent.pathHint === null" class="mt-2">
+          <div class="text-caption text-medium-emphasis">
+            Search your OrcaSlicer install (resources\profiles) for this file:
+          </div>
+          <div class="d-flex align-center ga-2 mt-1 flex-wrap">
+            <code class="copy-path">{{ parent.fileToFind }}</code>
+            <v-btn
+              icon="mdi-content-copy"
+              size="x-small"
+              variant="text"
+              title="Copy"
+              @click="copyPath(parent.fileToFind)"
+            />
+            <span v-if="copiedPath === parent.fileToFind" class="text-success">copied</span>
+          </div>
+          <div class="text-caption text-medium-emphasis mt-1">
+            Or in OrcaSlicer, right-click the preset and Export to get one flat file with every
+            value filled.
+          </div>
         </div>
       </div>
 
