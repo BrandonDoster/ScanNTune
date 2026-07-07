@@ -283,7 +283,7 @@ function lex(source: string): Lexeme[] | null {
 function parseIndex(s: string, i: number): { index: number; next: number } | null {
   let k = i
   while (k < s.length && /\s/.test(s[k])) k++
-  if (s[k] !== '[') return null
+  if (k >= s.length || s[k] !== '[') return null
   k++
   while (k < s.length && /\s/.test(s[k])) k++
   let j = k
@@ -293,7 +293,7 @@ function parseIndex(s: string, i: number): { index: number; next: number } | nul
   if (index === null) return null
   k = j
   while (k < s.length && /\s/.test(s[k])) k++
-  if (s[k] !== ']') return null
+  if (k >= s.length || s[k] !== ']') return null
   return { index, next: k + 1 }
 }
 
