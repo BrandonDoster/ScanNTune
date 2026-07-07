@@ -7,14 +7,19 @@ import { couponGeometry } from './types'
 // Draws the PA analysis over a copy of the scan: each measured test line gets a rectangle tinted by
 // its normalized score (green = low deviation, red = high), the best line is highlighted in green,
 // and the three fiducial holes are outlined. Rectangles are placed in coupon-frame millimetres and
-// mapped to scan pixels through the alignment affine, so they follow any rotation or flip. Uses only
-// OpenCV drawing (no image codec). Colours are BGR. The caller deletes the result.
+// mapped to scan pixels through the alignment affine, so they follow any rotation or flip. The
+// finished overlay is cropped to the coupon's outline (plus a small margin) so the UI shows the
+// coupon, not the whole scan page. Uses only OpenCV drawing (no image codec). Colours are BGR. The
+// caller deletes the result.
 
 const FIDUCIAL_COLOR = [0, 255, 255, 255] // yellow
 const BEST_COLOR = [0, 255, 0, 255] // green
 
 const SHIFT = 3
 const SCALE = 1 << SHIFT
+
+// Margin around the coupon's pixel bounding box, as a fraction of the box's larger side.
+const CROP_MARGIN_FRACTION = 0.05
 
 export function renderPaOverlayMat(
   cv: OpenCv,
@@ -72,7 +77,38 @@ export function renderPaOverlayMat(
     )
   }
 
-  return canvas
+  return cropToCoupon(cv, canvas, alignment, g.baseWidthMm, g.baseHeightMm)
+}
+
+// Crops the canvas to the axis-aligned bounding box of the coupon's four outline corners mapped
+// into scan pixels, expanded by CROP_MARGIN_FRACTION and clamped to the image. Presentation only:
+// no measurement depends on this. Consumes the input canvas and returns a new Mat.
+function cropToCoupon(
+  cv: OpenCv,
+  canvas: Mat,
+  alignment: PaAlignment,
+  baseWidthMm: number,
+  baseHeightMm: number,
+): Mat {
+  const corners = [
+    mmToPx(alignment, 0, 0),
+    mmToPx(alignment, baseWidthMm, 0),
+    mmToPx(alignment, baseWidthMm, baseHeightMm),
+    mmToPx(alignment, 0, baseHeightMm),
+  ]
+  const xs = corners.map((p) => p.x)
+  const ys = corners.map((p) => p.y)
+  const margin = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) * CROP_MARGIN_FRACTION
+  const x0 = Math.max(0, Math.floor(Math.min(...xs) - margin))
+  const y0 = Math.max(0, Math.floor(Math.min(...ys) - margin))
+  const x1 = Math.min(canvas.cols, Math.ceil(Math.max(...xs) + margin))
+  const y1 = Math.min(canvas.rows, Math.ceil(Math.max(...ys) + margin))
+  if (x1 <= x0 || y1 <= y0) return canvas
+  const roi = canvas.roi(new cv.Rect(x0, y0, x1 - x0, y1 - y0))
+  const cropped = roi.clone()
+  roi.delete()
+  canvas.delete()
+  return cropped
 }
 
 // An axis-aligned coupon-frame rectangle, drawn as four lines because the affine may rotate it in

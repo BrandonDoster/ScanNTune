@@ -5,7 +5,7 @@ import { renderPaScan } from '../../helpers/paRender'
 import { rgbaToBgrMat } from '../../../src/engine/imageData'
 import { alignPaCoupon } from '../../../src/engine/pa/fiducialAligner'
 import { renderPaOverlayMat } from '../../../src/engine/pa/paOverlayRenderer'
-import { defaultPaTestSpec, paValueForLine } from '../../../src/engine/pa/types'
+import { couponGeometry, defaultPaTestSpec, paValueForLine } from '../../../src/engine/pa/types'
 import type { PaLineScore, PaResult } from '../../../src/engine/pa/types'
 
 describe('renderPaOverlayMat', () => {
@@ -33,7 +33,7 @@ describe('renderPaOverlayMat', () => {
     }
   }
 
-  it('renders line rectangles and fiducial outlines without altering the frame size', async () => {
+  it('renders the overlay cropped to the coupon outline plus a small margin', async () => {
     const cv = await getCv()
     const bgr = rgbaToBgrMat(cv, renderPaScan({ truePa: 0.02 }))
     let overlay = null
@@ -41,8 +41,14 @@ describe('renderPaOverlayMat', () => {
       const alignment = alignPaCoupon(cv, bgr, spec)
       expect(alignment.success).toBe(true)
       overlay = renderPaOverlayMat(cv, bgr, alignment, spec, syntheticResult())
-      expect(overlay.cols).toBe(bgr.cols)
-      expect(overlay.rows).toBe(bgr.rows)
+      // The synthetic scan has a 6 mm border around the coupon, so the crop must shrink the frame
+      // but still cover the coupon itself.
+      expect(overlay.cols).toBeLessThan(bgr.cols)
+      expect(overlay.rows).toBeLessThan(bgr.rows)
+      const g = couponGeometry(spec)
+      const scale = Math.hypot(alignment.a, alignment.c)
+      expect(overlay.cols).toBeGreaterThanOrEqual(Math.floor(g.baseWidthMm * scale))
+      expect(overlay.rows).toBeGreaterThanOrEqual(Math.floor(g.baseHeightMm * scale))
       expect(overlay.channels()).toBe(3)
     } finally {
       overlay?.delete()
