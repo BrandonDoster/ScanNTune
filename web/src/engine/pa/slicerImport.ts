@@ -25,6 +25,9 @@ export interface SlicerImportResult {
    *  imports that never go through chain resolution. Chain resolution always sets it (possibly
    *  to an empty array), so callers that go through importSlicerConfigs can rely on it. */
   unresolvedParents?: { presetName: string; pathHint: string | null; fileName: string }[]
+  /** Per-uploaded-file breakdown of which fields each file's import filled (cached or
+   *  consumed-as-parent presets excluded); only set by multi-file chain resolution. */
+  sources?: { fileName: string; imported: string[] }[]
 }
 
 /** Profile fields the importer knows how to fill; anything not found lands in missing[]. */
@@ -96,6 +99,14 @@ export const FIELD_KINDS: Record<(typeof MAPPED_FIELDS_LIST)[number], 'printer' 
   bedTempC: 'filament',
   chamberTempC: 'filament',
 }
+
+/** Printer-kind fields OrcaSlicer stores in process presets, never in machine presets: a machine
+ *  preset chain cannot fill these, so the UI tells the user to set them manually instead of
+ *  pointing at the base preset. */
+export const ORCA_PROCESS_FIELDS = [
+  'layerHeightMm',
+  'travelSpeedMmS',
+] as const satisfies readonly (keyof ImportedFields)[]
 
 interface Ctx {
   fields: ImportedFields

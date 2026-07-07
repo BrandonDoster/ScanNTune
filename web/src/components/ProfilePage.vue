@@ -40,6 +40,10 @@ function onImportFiles(event: Event, kind: ImportKind): void {
   void form.importFiles(files, kind)
 }
 
+function onUploadParent(file: File): void {
+  void form.importParentFile(file)
+}
+
 function back(): void {
   if (form.isDirty.value && !window.confirm('Discard the unsaved profile changes?')) return
   app.goPa()
@@ -113,6 +117,7 @@ function save(): void {
           v-if="form.importSummary.value?.kind === 'printer'"
           :summary="form.importSummary.value"
           class="mt-2"
+          @upload-parent="onUploadParent"
         />
 
         <div class="column mt-4">
@@ -275,6 +280,7 @@ function save(): void {
           v-if="form.importSummary.value?.kind === 'filament'"
           :summary="form.importSummary.value"
           class="mt-2"
+          @upload-parent="onUploadParent"
         />
 
         <div v-if="form.currentFilament.value" class="column mt-4">

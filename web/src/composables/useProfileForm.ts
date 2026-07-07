@@ -1,9 +1,17 @@
 import { computed, ref } from 'vue'
 import type { FilamentProfile, Firmware, PrinterProfile } from '../engine/pa/types'
 import { defaultFilamentProfile, defaultPrinterProfile } from '../engine/pa/types'
-import { FIELD_KINDS, importSlicerConfigs } from '../engine/pa/slicerImport'
+import {
+  FIELD_KINDS,
+  importSlicerConfigs,
+  orcaPresetKind,
+  orcaPresetName,
+  tryParseOrcaPreset,
+} from '../engine/pa/slicerImport'
 import type { ImportedFilamentFields, ImportedPrinterFields } from '../engine/pa/slicerImport'
-import type { UnresolvedParent } from '../engine/pa/slicerImportChain'
+import { orcaPresetInherits } from '../engine/pa/slicerImportChain'
+import type { SlicerFile, UnresolvedParent } from '../engine/pa/slicerImportChain'
+import { useSlicerPresets } from '../stores/useSlicerPresets'
 
 export type ImportKind = 'printer' | 'filament'
 
@@ -29,6 +37,11 @@ export interface ImportSummary {
   /** Source file names, for the headline and single-file warning-prefix suppression. */
   fileNames: string[]
   unresolvedParents: UnresolvedParent[]
+  /** Per-file success cards: which of this kind's fields each uploaded file filled. */
+  sources: { fileName: string; filled: string[] }[]
+  /** True when the upload contained an OrcaSlicer machine preset, enabling the missing-field
+   *  split between "in the base preset" and "machine presets never carry this". */
+  orcaMachine: boolean
 }
 
 const WRONG_KIND_MESSAGES: Record<ImportKind, string> = {
@@ -187,10 +200,34 @@ export function useProfileForm() {
     return FIELD_KINDS[field as keyof typeof FIELD_KINDS]
   }
 
+  const presetStore = useSlicerPresets()
+
+  /** The last upload, kept so resolving a missing base preset can re-run the whole import;
+   *  readWarnings preserves any file-read failures from the original pick across re-runs. */
+  let lastImport: { files: SlicerFile[]; kind: ImportKind; readWarnings: string[] } | null = null
+
+  /** Remembers every uploaded preset that is part of an inherits chain (a parent another upload
+   *  inherits from, or a child that inherits something), so later imports resolve from the cache. */
+  function cacheChainMembers(uploads: { file: SlicerFile; orca: Record<string, unknown> | null }[]) {
+    const inheritedNames = new Set(
+      uploads
+        .map((u) => (u.orca === null ? undefined : orcaPresetInherits(u.orca)))
+        .filter((name): name is string => name !== undefined),
+    )
+    for (const upload of uploads) {
+      if (upload.orca === null) continue
+      const name = orcaPresetName(upload.orca)
+      if (name === undefined) continue
+      const isChainMember =
+        orcaPresetInherits(upload.orca) !== undefined || inheritedNames.has(name)
+      if (isChainMember) presetStore.add(upload.file.content)
+    }
+  }
+
   async function importFiles(files: File[], kind: ImportKind): Promise<void> {
     if (files.length === 0) return
     const warnings: string[] = []
-    const slicerFiles: { fileName: string; content: string }[] = []
+    const slicerFiles: SlicerFile[] = []
     for (const file of files) {
       try {
         slicerFiles.push({ fileName: file.name, content: await file.text() })
@@ -198,8 +235,42 @@ export function useProfileForm() {
         warnings.push(e instanceof Error ? e.message : String(e))
       }
     }
-    const result = importSlicerConfigs(slicerFiles)
+    lastImport = { files: slicerFiles, kind, readWarnings: warnings }
+    runImport(slicerFiles, kind, warnings)
+  }
+
+  /** Adds a user-picked base preset file to the cache and re-runs the last import so the chain
+   *  resolves against it; a file the cache rejects surfaces as a warning on the summary. */
+  async function importParentFile(file: File): Promise<void> {
+    if (lastImport === null) return
+    try {
+      presetStore.add(await file.text())
+    } catch (e) {
+      const summary = importSummary.value
+      if (summary !== null) {
+        importSummary.value = {
+          ...summary,
+          warnings: [...summary.warnings, e instanceof Error ? e.message : String(e)],
+        }
+      }
+      return
+    }
+    runImport(lastImport.files, lastImport.kind, lastImport.readWarnings)
+  }
+
+  function runImport(slicerFiles: SlicerFile[], kind: ImportKind, readWarnings: string[]): void {
+    const warnings = [...readWarnings]
+    const uploads = slicerFiles.map((file) => ({ file, orca: tryParseOrcaPreset(file.content) }))
+    cacheChainMembers(uploads)
+    const cached = presetStore.presets.map((p) => ({
+      fileName: `${p.name}.json`,
+      content: p.content,
+    }))
+    const result = importSlicerConfigs(slicerFiles, cached, presetStore.installPath)
     warnings.push(...result.warnings)
+    const orcaMachine = uploads.some(
+      (u) => u.orca !== null && orcaPresetKind(u.orca) === 'machine',
+    )
 
     const printerCount = Object.keys(result.fields.printer).length
     const filamentCount = Object.keys(result.fields.filament).length
@@ -239,6 +310,11 @@ export function useProfileForm() {
       wrongKind,
       fileNames: slicerFiles.map((f) => f.fileName),
       unresolvedParents: result.unresolvedParents ?? [],
+      sources: (result.sources ?? []).map((s) => ({
+        fileName: s.fileName,
+        filled: s.imported.filter((f) => kindOfMissing(f) === kind),
+      })),
+      orcaMachine,
     }
   }
 
@@ -335,6 +411,7 @@ export function useProfileForm() {
     removeFilament,
     importSummary,
     importFiles,
+    importParentFile,
     isDirty,
     canSave,
     load,

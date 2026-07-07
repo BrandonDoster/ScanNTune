@@ -32,16 +32,28 @@ interface ParsedFile {
  * Parses an Orca preset's raw "inherits" value, resolving multi-level parent chains against the
  * other uploaded files by preset "name", order-independently. Non-Orca files, and Orca files
  * that are not part of a resolvable chain, keep the original later-file-wins single-file import.
+ *
+ * `cachedPresets` are previously remembered base presets: they take part in chain resolution as
+ * parents (an uploaded preset of the same name wins) but are never imported standalone, so the
+ * cache can only fill fields an uploaded chain asks for. `installPath` is the OrcaSlicer install
+ * folder used to make unresolved-parent path hints absolute; null keeps the generic relative hint.
  */
-export function importSlicerConfigs(files: SlicerFile[]): SlicerImportResult {
+export function importSlicerConfigs(
+  files: SlicerFile[],
+  cachedPresets: SlicerFile[] = [],
+  installPath: string | null = null,
+): SlicerImportResult {
   const parsed = files.map(parseFile)
-  const orcaByName = buildOrcaNameMap(parsed)
+  const orcaByName = buildOrcaNameMap([...cachedPresets.map(parseFile), ...parsed])
   const consumedAsParent = findParentNames(parsed, orcaByName)
 
-  const imports: SlicerImportResult[] = []
+  const imports: { fileName: string; result: SlicerImportResult }[] = []
   for (const file of parsed) {
     if (file.orca === null) {
-      imports.push(prefixWarnings(file.fileName, importSingleFile(file)))
+      imports.push({
+        fileName: file.fileName,
+        result: prefixWarnings(file.fileName, importSingleFile(file)),
+      })
       continue
     }
     // A file that only exists in this upload to serve as another file's chain parent is folded
@@ -49,9 +61,14 @@ export function importSlicerConfigs(files: SlicerFile[]): SlicerImportResult {
     // clobber the child's own values, making the result depend on upload order.
     const name = orcaPresetName(file.orca)
     if (name !== undefined && consumedAsParent.has(name)) continue
-    imports.push(prefixWarnings(file.fileName, importOrcaChain(file, orcaByName)))
+    imports.push({
+      fileName: file.fileName,
+      result: prefixWarnings(file.fileName, importOrcaChain(file, orcaByName, installPath)),
+    })
   }
-  return mergeResults(imports)
+  const merged = mergeResults(imports.map((i) => i.result))
+  merged.sources = imports.map((i) => ({ fileName: i.fileName, imported: i.result.imported }))
+  return merged
 }
 
 /**
@@ -121,10 +138,19 @@ function buildOrcaNameMap(files: ParsedFile[]): Map<string, Record<string, unkno
   return map
 }
 
+/** The raw non-empty "inherits" value of a preset, or undefined when it inherits nothing.
+ *  Exported so the UI layer can decide which uploads are chain members worth caching. */
+export function orcaPresetInherits(preset: Record<string, unknown>): string | undefined {
+  const raw = preset.inherits
+  if (typeof raw !== 'string' || raw.trim() === '') return undefined
+  return raw
+}
+
 /** Chain-resolves one Orca file's inherits parents (if any were uploaded) and imports the merge. */
 function importOrcaChain(
   file: ParsedFile,
   orcaByName: Map<string, Record<string, unknown>>,
+  installPath: string | null,
 ): SlicerImportResult {
   const preset = file.orca as Record<string, unknown>
   const chain = resolveChain(preset, orcaByName)
@@ -139,7 +165,7 @@ function importOrcaChain(
     result.warnings.push(unresolvedInheritsWarning(chain.unresolvedParent, kind))
     result.unresolvedParents.push({
       presetName: chain.unresolvedParent,
-      pathHint: parentPathHint(chain.unresolvedParent, kind),
+      pathHint: parentPathHint(chain.unresolvedParent, kind, installPath),
       fileName: file.fileName,
     })
   }
@@ -153,10 +179,18 @@ function importOrcaChain(
  * placeholder "<vendor>" hint as plain text instead of a copyable path. The subfolder matches the
  * child preset's own kind (filament/process/machine), since that's what the missing parent is too.
  */
-function parentPathHint(presetName: string, kind: OrcaPresetKind): string | null {
+function parentPathHint(
+  presetName: string,
+  kind: OrcaPresetKind,
+  installPath: string | null,
+): string | null {
   const firstWord = presetName.trim().split(/\s+/)[0] ?? ''
   if (firstWord === '' || !/^[A-Za-z]+$/.test(firstWord)) return null
-  return `OrcaSlicer\\resources\\profiles\\${firstWord}\\${kind}\\`
+  const base =
+    installPath !== null && installPath.trim() !== ''
+      ? installPath.trim().replace(/[\\/]+$/, '')
+      : 'OrcaSlicer'
+  return `${base}\\resources\\profiles\\${firstWord}\\${kind}\\`
 }
 
 interface ChainResolution {
@@ -197,12 +231,6 @@ function resolveChain(
     merged = { ...parent, ...merged }
     current = parent
   }
-}
-
-function orcaPresetInherits(preset: Record<string, unknown>): string | undefined {
-  const raw = preset.inherits
-  if (typeof raw !== 'string' || raw.trim() === '') return undefined
-  return raw
 }
 
 function unresolvedInheritsWarning(parentName: string, kind: OrcaPresetKind): string {

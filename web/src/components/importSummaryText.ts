@@ -1,3 +1,4 @@
+import { ORCA_PROCESS_FIELDS } from '../engine/pa/slicerImport'
 import type { ImportSummary } from '../composables/useProfileForm'
 
 /**
@@ -29,6 +30,27 @@ export function plainWarnings(summary: ImportSummary): string[] {
   return summary.warnings
     .filter((w) => ![...resolvedPresetNames].some((name) => w.includes(`'${name}'`)))
     .map((w) => (singleFile && fileName !== undefined ? stripFilePrefix(w, fileName) : w))
+}
+
+/**
+ * Splits the still-missing fields into the ones the unresolved base preset could still fill
+ * ("in base preset") and the ones that must be set manually. Only an Orca machine import with an
+ * unresolved parent gets the split: OrcaSlicer machine presets never carry the process-preset
+ * fields, so pointing the user at the base preset for those would be wrong. Prusa imports (and
+ * fully resolved chains) keep the single set-manually list.
+ */
+export function splitMissing(summary: ImportSummary): {
+  inBasePreset: string[]
+  setManually: string[]
+} {
+  const splitApplies =
+    summary.kind === 'printer' && summary.orcaMachine && summary.unresolvedParents.length > 0
+  if (!splitApplies) return { inBasePreset: [], setManually: summary.missing }
+  const processFields = new Set<string>(ORCA_PROCESS_FIELDS)
+  return {
+    inBasePreset: summary.missing.filter((f) => !processFields.has(f)),
+    setManually: summary.missing.filter((f) => processFields.has(f)),
+  }
 }
 
 function stripFilePrefix(warning: string, fileName: string): string {

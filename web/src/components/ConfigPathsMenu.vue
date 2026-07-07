@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useCopyPath } from '../composables/useCopyPath'
+import { useSlicerPresets } from '../stores/useSlicerPresets'
 
 const props = defineProps<{
   /** Which preset folders to show: printer/machine presets or filament presets. */
@@ -52,6 +53,12 @@ const PRUSA_PATHS: Record<'printer' | 'filament', Record<Os, string>> = {
 
 const orcaPath = computed(() => ORCA_PATHS[props.kind][os.value])
 const prusaPath = computed(() => PRUSA_PATHS[props.kind][os.value])
+
+const presetStore = useSlicerPresets()
+
+function onInstallPathInput(value: string): void {
+  presetStore.setInstallPath(value)
+}
 </script>
 
 <template>
@@ -98,6 +105,19 @@ const prusaPath = computed(() => PRUSA_PATHS[props.kind][os.value])
           />
           <span v-if="copiedPath === prusaPath" class="text-success text-caption">copied</span>
         </div>
+        <div class="slicer-name mt-3">OrcaSlicer install folder (optional)</div>
+        <div class="text-caption text-medium-emphasis">
+          Used to show full paths to base presets a preset builds on.
+        </div>
+        <v-text-field
+          :model-value="presetStore.installPath ?? ''"
+          density="compact"
+          hide-details
+          placeholder="C:\Program Files\OrcaSlicer"
+          class="mt-1 install-path-field"
+          data-testid="install-path-input"
+          @update:model-value="onInstallPathInput"
+        />
       </v-card>
     </v-menu>
   </div>
@@ -124,6 +144,10 @@ const prusaPath = computed(() => PRUSA_PATHS[props.kind][os.value])
   align-items: center;
   gap: 4px;
   margin-top: 2px;
+}
+.install-path-field :deep(input) {
+  font-family: 'Roboto Mono', ui-monospace, monospace;
+  font-size: 11.5px;
 }
 .copy-path {
   font-family: 'Roboto Mono', ui-monospace, monospace;

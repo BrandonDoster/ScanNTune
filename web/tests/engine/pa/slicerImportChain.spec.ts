@@ -148,6 +148,70 @@ describe('importSlicerConfigs: multi-file Orca inherits resolution', () => {
     ])
   })
 
+  it('resolves the chain from a cached parent preset without re-upload', () => {
+    const result = importSlicerConfigs(
+      [{ fileName: 'orca_machine_chubechanger.json', content: chubechanger }],
+      [{ fileName: 'Voron 2.4 300 0.4 nozzle.json', content: voron24Parent }],
+    )
+    expect(result.unresolvedParents).toEqual([])
+    expect(result.warnings.some((w) => w.toLowerCase().includes('inherit'))).toBe(false)
+    expect(result.fields.printer.bedWidthMm).toBe(300)
+    expect(result.fields.printer.bedDepthMm).toBe(300)
+    // Child's own retraction_length (0.8) wins over the cached parent's (0.6).
+    expect(result.fields.printer.retractMm).toBe(0.8)
+  })
+
+  it('never imports a cached preset standalone: cache alone with no upload fills nothing', () => {
+    const result = importSlicerConfigs(
+      [],
+      [{ fileName: 'Voron 2.4 300 0.4 nozzle.json', content: voron24Parent }],
+    )
+    expect(result.imported).toEqual([])
+    expect(result.fields.printer).toEqual({})
+  })
+
+  it('an uploaded preset wins over a cached preset of the same name', () => {
+    const staleCached = JSON.stringify({
+      type: 'machine',
+      name: 'Voron 2.4 300 0.4 nozzle',
+      printable_area: ['0x0', '250x0', '250x250', '0x250'],
+      gcode_flavor: 'klipper',
+    })
+    const result = importSlicerConfigs(
+      [
+        { fileName: 'orca_machine_chubechanger.json', content: chubechanger },
+        { fileName: 'voron24_parent.json', content: voron24Parent },
+      ],
+      [{ fileName: 'stale.json', content: staleCached }],
+    )
+    expect(result.fields.printer.bedWidthMm).toBe(300)
+  })
+
+  it('makes the parent path hint absolute when an install path is given', () => {
+    const result = importSlicerConfigs(
+      [{ fileName: 'orca_machine_chubechanger.json', content: chubechanger }],
+      [],
+      'C:\\Program Files\\OrcaSlicer\\',
+    )
+    expect(result.unresolvedParents).toEqual([
+      {
+        presetName: 'Voron 2.4 300 0.4 nozzle',
+        pathHint: 'C:\\Program Files\\OrcaSlicer\\resources\\profiles\\Voron\\machine\\',
+        fileName: 'orca_machine_chubechanger.json',
+      },
+    ])
+  })
+
+  it('reports a per-file sources breakdown of imported fields', () => {
+    const result = importSlicerConfigs([
+      { fileName: 'orca_machine_chubechanger.json', content: chubechanger },
+      { fileName: 'voron24_parent.json', content: voron24Parent },
+    ])
+    // The parent is consumed by the chain, so only the child appears as a source.
+    expect(result.sources?.map((s) => s.fileName)).toEqual(['orca_machine_chubechanger.json'])
+    expect(result.sources?.[0].imported).toContain('bedWidthMm')
+  })
+
   it('prefixes generic per-file warnings with the source file name', () => {
     const percentIni = 'retract_length = 75%\nbed_shape = 0x0,10x0,10x10,0x10\n'
     const result = importSlicerConfigs([{ fileName: 'weird.ini', content: percentIni }])

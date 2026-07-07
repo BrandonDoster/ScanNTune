@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { importHeadline, plainWarnings } from '../../src/components/importSummaryText'
+import { importHeadline, plainWarnings, splitMissing } from '../../src/components/importSummaryText'
 import type { ImportSummary } from '../../src/composables/useProfileForm'
 
 function baseSummary(overrides: Partial<ImportSummary> = {}): ImportSummary {
@@ -12,8 +12,16 @@ function baseSummary(overrides: Partial<ImportSummary> = {}): ImportSummary {
     wrongKind: null,
     fileNames: ['config.ini'],
     unresolvedParents: [],
+    sources: [],
+    orcaMachine: false,
     ...overrides,
   }
+}
+
+const unresolvedVoron = {
+  presetName: 'Voron 2.4 300 0.4 nozzle',
+  pathHint: 'OrcaSlicer\\resources\\profiles\\Voron\\machine\\',
+  fileName: 'a.json',
 }
 
 describe('importHeadline', () => {
@@ -79,5 +87,42 @@ describe('plainWarnings', () => {
       }),
     )
     expect(result).toEqual(['a.ini: something odd'])
+  })
+})
+
+describe('splitMissing', () => {
+  const missing = ['bedWidthMm', 'layerHeightMm', 'travelSpeedMmS', 'printAccelMmS2']
+
+  it('splits Orca machine imports with an unresolved parent into base-preset vs manual fields', () => {
+    const result = splitMissing(
+      baseSummary({ missing, orcaMachine: true, unresolvedParents: [unresolvedVoron] }),
+    )
+    expect(result.inBasePreset).toEqual(['bedWidthMm', 'printAccelMmS2'])
+    expect(result.setManually).toEqual(['layerHeightMm', 'travelSpeedMmS'])
+  })
+
+  it('keeps a single manual list for non-Orca imports', () => {
+    const result = splitMissing(baseSummary({ missing, orcaMachine: false }))
+    expect(result.inBasePreset).toEqual([])
+    expect(result.setManually).toEqual(missing)
+  })
+
+  it('keeps a single manual list once the chain is fully resolved', () => {
+    const result = splitMissing(baseSummary({ missing, orcaMachine: true, unresolvedParents: [] }))
+    expect(result.inBasePreset).toEqual([])
+    expect(result.setManually).toEqual(missing)
+  })
+
+  it('keeps a single manual list for the filament kind', () => {
+    const result = splitMissing(
+      baseSummary({
+        kind: 'filament',
+        missing: ['bedTempC'],
+        orcaMachine: true,
+        unresolvedParents: [unresolvedVoron],
+      }),
+    )
+    expect(result.inBasePreset).toEqual([])
+    expect(result.setManually).toEqual(['bedTempC'])
   })
 })
