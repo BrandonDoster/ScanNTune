@@ -192,7 +192,7 @@ export function generatePaGcodeWithReport(
   profile: PrinterProfile,
   filament: FilamentProfile,
   spec: PaTestSpec,
-): { gcode: string; unknownVariables: string[] } {
+): { gcode: string; unknownVariables: string[]; warnings: string[] } {
   if (spec.fastSpeedMmS <= spec.slowSpeedMmS) {
     throw new Error('Fast speed must exceed slow speed')
   }
@@ -206,7 +206,8 @@ export function generatePaGcodeWithReport(
     endGcode: end.gcode,
   }
   const unknownVariables = [...new Set([...start.unknown, ...pause.unknown, ...end.unknown])]
-  return { gcode: emitPaGcode(substituted, filament, spec), unknownVariables }
+  const warnings = [...new Set([...start.warnings, ...pause.warnings, ...end.warnings])]
+  return { gcode: emitPaGcode(substituted, filament, spec), unknownVariables, warnings }
 }
 
 function emitPaGcode(profile: PrinterProfile, filament: FilamentProfile, spec: PaTestSpec): string {

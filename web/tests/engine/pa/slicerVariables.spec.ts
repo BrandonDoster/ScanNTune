@@ -15,7 +15,7 @@ function substitute(
   gcode: string,
   p: Partial<PrinterProfile> = {},
   f: Partial<FilamentProfile> = {},
-): { gcode: string; unknown: string[] } {
+): { gcode: string; unknown: string[]; warnings: string[] } {
   return substituteSlicerVariables(gcode, printer(p), filament(f))
 }
 
@@ -118,5 +118,67 @@ describe('substituteSlicerVariables', () => {
     const r = substitute('[Temperature]')
     expect(r.gcode).toBe('[Temperature]')
     expect(r.unknown).toEqual(['Temperature'])
+  })
+
+  it('evaluates the Klipper tool-changer PRINT_START macro for the single tool', () => {
+    const macro =
+      'PRINT_START TOOL_TEMP={first_layer_temperature[initial_tool]} {if is_extruder_used[0]}T0_TEMP={first_layer_temperature[0]}{endif} {if is_extruder_used[1]}T1_TEMP={first_layer_temperature[1]}{endif} {if is_extruder_used[2]}T2_TEMP={first_layer_temperature[2]}{endif} {if is_extruder_used[3]}T3_TEMP={first_layer_temperature[3]}{endif} {if is_extruder_used[4]}T4_TEMP={first_layer_temperature[4]}{endif} {if is_extruder_used[5]}T5_TEMP={first_layer_temperature[5]}{endif} BED_TEMP=[first_layer_bed_temperature] TOOL=[initial_tool]'
+    const r = substitute(macro, {}, { nozzleTempC: 210, bedTempC: 60 })
+    expect(r.gcode.replace(/\s+/g, ' ').trim()).toBe(
+      'PRINT_START TOOL_TEMP=210 T0_TEMP=210 BED_TEMP=60 TOOL=0',
+    )
+    expect(r.unknown).toEqual([])
+    expect(r.warnings).toEqual([])
+  })
+
+  it('evaluates nested conditionals', () => {
+    const src = '{if is_extruder_used[0]}A{if initial_tool == 0}B{endif}C{endif}D'
+    const r = substitute(src)
+    expect(r.gcode).toBe('ABCD')
+    expect(r.unknown).toEqual([])
+  })
+
+  it('keeps the else branch when the condition is false', () => {
+    const src = '{if is_extruder_used[1]}NO{else}YES{endif}'
+    const r = substitute(src)
+    expect(r.gcode).toBe('YES')
+    expect(r.unknown).toEqual([])
+  })
+
+  it('takes an elif branch', () => {
+    const src = '{if is_extruder_used[1]}A{elif is_extruder_used[0]}B{else}C{endif}'
+    const r = substitute(src)
+    expect(r.gcode).toBe('B')
+  })
+
+  it('leaves an unresolvable conditional literal with a single warning', () => {
+    const src = 'X {if some_unknown_flag > 3}Y{endif} Z'
+    const r = substitute(src)
+    expect(r.gcode).toBe(src)
+    expect(r.unknown).toEqual([])
+    expect(r.warnings).toEqual([
+      'A conditional block could not be evaluated; review it.',
+    ])
+  })
+
+  it('reports a genuinely unknown setting even inside a kept branch', () => {
+    const src = '{if is_extruder_used[0]}[some_unmapped_setting]{endif}'
+    const r = substitute(src)
+    expect(r.gcode).toBe('[some_unmapped_setting]')
+    expect(r.unknown).toEqual(['some_unmapped_setting'])
+  })
+
+  it('never reports if/elif/else/endif as unknown variables', () => {
+    const src = '{if is_extruder_used[1]}A{elif is_extruder_used[2]}B{else}C{endif}'
+    const r = substitute(src)
+    expect(r.unknown).toEqual([])
+  })
+
+  it('leaves jinja conditionals untouched and unreported', () => {
+    const src = '{% if x %}\nM104 S{printer.extruder.target}\n{% endif %}'
+    const r = substitute(src)
+    expect(r.gcode).toBe(src)
+    expect(r.unknown).toEqual([])
+    expect(r.warnings).toEqual([])
   })
 })

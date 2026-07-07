@@ -1,4 +1,5 @@
 import type { FilamentProfile, PrinterProfile } from './types'
+import { evaluateTemplate } from './orcaTemplate'
 
 // PrusaSlicer and OrcaSlicer placeholder names mapped onto profile fields. Case-sensitive,
 // matching the slicers' own variable names. The optional [n] index suffix (multi-extruder
@@ -24,35 +25,25 @@ const VARIABLE_MAP: Record<
   travel_speed: (p) => p.travelSpeedMmS,
 }
 
-// A placeholder is a simple identifier with an optional numeric index, wrapped in [] or {}.
-// Anything else in brackets or braces (Klipper jinja {% ... %}, dotted object refs like
-// {printer.extruder.target}, plain comment text) is firmware-side syntax or prose: it is left
-// verbatim and never reported.
-const PLACEHOLDER = /\[([A-Za-z_][A-Za-z0-9_]*)(?:\[\d+\])?\]|\{([A-Za-z_][A-Za-z0-9_]*)(?:\[\d+\])?\}/g
-
 /**
  * Substitute PrusaSlicer/OrcaSlicer placeholder variables in user start/pause/end G-code with
- * values from the printer profile and the filament being printed. Recognized placeholders are
- * replaced; identifier-shaped placeholders that are not in the map stay verbatim and are
- * returned in `unknown` (deduplicated).
+ * values from the printer profile and the filament being printed, evaluating single-tool template
+ * syntax (indexed settings and {if}/{elif}/{else}/{endif} conditionals) via the OrcaSlicer template
+ * engine. Recognized placeholders are replaced; identifier-shaped placeholders that are not in the
+ * map stay verbatim and are returned in `unknown` (deduplicated). A conditional block that cannot be
+ * evaluated is left verbatim and surfaced in `warnings`.
  */
 export function substituteSlicerVariables(
   gcode: string,
   profile: PrinterProfile,
   filament: FilamentProfile,
-): { gcode: string; unknown: string[] } {
-  const unknown = new Set<string>()
-  const out = gcode.replace(PLACEHOLDER, (match, square: string | undefined, curly: string | undefined) => {
-    const name = square ?? curly
-    if (name === undefined) return match
+): { gcode: string; unknown: string[]; warnings: string[] } {
+  const resolveSetting = (name: string): string | null => {
     // Object.hasOwn guards against inherited Object.prototype keys ({constructor}, {toString})
     // being resolved as variables.
-    const resolve = Object.hasOwn(VARIABLE_MAP, name) ? VARIABLE_MAP[name] : undefined
-    if (resolve === undefined) {
-      unknown.add(name)
-      return match
-    }
-    return String(resolve(profile, filament))
-  })
-  return { gcode: out, unknown: [...unknown] }
+    if (!Object.hasOwn(VARIABLE_MAP, name)) return null
+    return String(VARIABLE_MAP[name](profile, filament))
+  }
+  const result = evaluateTemplate(gcode, resolveSetting)
+  return { gcode: result.text, unknown: result.unknown, warnings: result.warnings }
 }

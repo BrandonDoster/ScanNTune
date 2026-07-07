@@ -108,6 +108,7 @@ const maxLinesForA4 = computed(() => maxLineCountForHeight(spec.value, A4_LONG_M
 
 const generateError = ref('')
 const unknownVariables = ref<string[]>([])
+const templateWarnings = ref<string[]>([])
 const canGenerate = computed(() => store.selected !== null && store.selectedFilament !== null)
 
 function sanitizeName(name: string): string {
@@ -132,11 +133,13 @@ function generate(): void {
   if (!profile || !filament) return
   generateError.value = ''
   unknownVariables.value = []
+  templateWarnings.value = []
   let gcode: string
   try {
     const report = generatePaGcodeWithReport(profile, filament, spec.value)
     gcode = report.gcode
     unknownVariables.value = report.unknownVariables
+    templateWarnings.value = report.warnings
   } catch (e) {
     generateError.value = e instanceof Error ? e.message : String(e)
     console.error('G-code generation failed', e)
@@ -339,6 +342,14 @@ function applyShift(): void {
         class="mt-3"
         :text="`Unknown slicer variables left as-is: ${unknownVariables.join(', ')}. Replace them with real values if your firmware does not resolve them.`"
         data-testid="unknown-variables-warning"
+      />
+      <v-alert
+        v-if="templateWarnings.length > 0"
+        type="warning"
+        variant="tonal"
+        class="mt-3"
+        :text="templateWarnings.join(' ')"
+        data-testid="template-warnings"
       />
       <div class="warn-box mt-3">
         <v-icon color="warning" size="16" class="warn-icon">mdi-alert-outline</v-icon>
