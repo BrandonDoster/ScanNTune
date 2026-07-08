@@ -7,6 +7,8 @@ import { defaultPrinterProfile } from '../engine/pa/types'
 const app = useApp()
 const store = usePrinterProfiles()
 
+const props = withDefaults(defineProps<{ disabled?: boolean }>(), { disabled: false })
+
 // Profile card state.
 const deleteOpen = ref(false)
 
@@ -71,6 +73,7 @@ const summaryChips = computed(() => {
         hide-details
         placeholder="Choose or create a printer"
         class="profile-select"
+        :disabled="props.disabled"
         data-testid="profile-select"
         @update:model-value="onSelect"
       />
@@ -82,13 +85,14 @@ const summaryChips = computed(() => {
         density="comfortable"
         hide-details
         class="filament-select"
+        :disabled="props.disabled"
         data-testid="pa-filament-select"
         @update:model-value="onSelectFilament"
       />
       <v-btn
         variant="tonal"
         size="small"
-        :disabled="!store.selected"
+        :disabled="!store.selected || props.disabled"
         data-testid="profile-edit"
         @click="openEdit"
       >
@@ -97,7 +101,7 @@ const summaryChips = computed(() => {
       <v-btn
         variant="text"
         size="small"
-        :disabled="!store.selected"
+        :disabled="!store.selected || props.disabled"
         data-testid="profile-delete"
         @click="deleteOpen = true"
       >

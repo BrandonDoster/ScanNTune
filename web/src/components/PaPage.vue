@@ -296,7 +296,7 @@ const stCorrection = computed(() => {
     </header>
 
     <!-- 1. Printer profile -->
-    <PrinterProfileCard />
+    <PrinterProfileCard :disabled="analyzing" />
 
     <!-- 2. Test range -->
     <section class="step mb-3">
