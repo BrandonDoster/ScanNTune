@@ -18,13 +18,16 @@ The whole coupon prints at the printer's current flow. Each block of parallel si
 lines is commanded at a different, exactly known line PITCH (spacing). The printer's
 unknown deposited line width `w` decides each block's fate:
 
-- pitch < w: adjacent beads fuse, block scans as solid plastic.
-- pitch > w: a groove of bare bed opens between beads, gap = pitch - w.
-
-Measuring the gap per block and regressing gap against pitch (ordinary least squares
-over open blocks) gives `w` as the x-intercept. The fit slope must be ~1, a free
-sanity check on scan scale. Two mirrored block rows give two independent crossovers;
-their midpoint cancels direction-dependent bias. Correction is a ratio:
+every gap satisfies gap = pitch - w, so each block yields an independent estimate
+w = pitch - measured gap, averaged over all blocks (the fit slope of gap vs pitch is
+known to be exactly 1). All default pitches sit well ABOVE the bead width: a real
+scanner cannot read a slit much narrower than ~0.25 mm through the coupon's depth
+(angled illumination never reaches the lid and back; measured on a real 600 DPI scan),
+so the original merge-point vernier was revised to open-gap-only geometry. The 2 mm
+block separators are known-width gaps in the same image and calibrate the scanner's
+edge-blur bias b (a standard reference-artifact correction): w = pitch -
+(gap_measured - b). Two mirrored block rows cancel direction-dependent bias.
+Correction is a ratio:
 
     new_flow = current_flow * (nominal_width / w)
 
@@ -49,15 +52,17 @@ One printed part, one color, no pause, no mid-print M221.
   left-to-right, bottom row descends (mirror). Each block: `linesPerBlock` (default
   ~10) straight single-bead lines at that block's fixed pitch, anchored to frame and
   rail at both ends (no free-standing ends).
-- Line cross-section, 4 layers tall (side view):
-  - Layers 1-2: pedestal, commanded width ~0.72 x nominal (inset). Absorbs
-    first-layer squish so z-offset error cannot reach the measured edge.
-  - Layers 3-4: measured layers at nominal width. These define the scanned edge.
+- Line cross-section, 3 layers tall (side view; shallower slits scan brighter):
+  - Layer 1: pedestal, commanded width ~0.72 x nominal (inset). Absorbs first-layer
+    squish so z-offset error cannot reach the measured edge. (0.30 mm beads on a 0.4
+    nozzle print fine; confirmed on a real print.)
+  - Layers 2-3: measured layers at nominal width. These define the scanned edge.
   - The part is scanned TOP-FACE DOWN on the glass, so the scanner focuses on the
     measured layers and the pedestal hides behind them.
 - All widths derive from `nozzleDiameterMm`: nominal width = 1.05 x nozzle
-  (0.42 mm at 0.4). Default pitch range 0.34-0.58 mm at 0.4 nozzle, step 0.02 mm,
-  scaled proportionally for other nozzles.
+  (0.42 mm at 0.4). Default pitch range 0.70-1.10 mm at 0.4 nozzle (gaps ~0.28-0.68
+  mm, always open), scaled proportionally for other nozzles. Default 7 lines per
+  block.
 - Spec fields (`EmTestSpec`): `pitchMinMm`, `pitchMaxMm`, `blockCount`,
   `linesPerBlock`, `printSpeedMmS`, all defaulted from the profile and
   user-editable. Coupon size is
