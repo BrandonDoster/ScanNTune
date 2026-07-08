@@ -26,6 +26,8 @@ import {
 } from './types'
 
 export const HIGH_FLOW_WARNING_THRESHOLD_MM3_S = 12
+/** How far each comb line runs past its row boundary onto the band/rail perimeters. */
+export const ANCHOR_OVERLAP_MM = 1
 export function generateEmGcode(
   profile: PrinterProfile,
   filament: FilamentProfile,
@@ -174,11 +176,16 @@ function emitEmGcode(profile: PrinterProfile, filament: FilamentProfile, spec: E
     rasterBase(e, profile, filament, nominal, railX0 + infillInset, railY0 + infillInset,
       railW - 2 * infillInset, g.railWidthMm - 2 * infillInset, true, [])
 
-    // Comb lines: pedestal width below, nominal width on the measured layers.
+    // Comb lines: pedestal width below, nominal width on the measured layers. Each line
+    // runs ANCHOR_OVERLAP_MM past the row boundary on both ends so its tip prints on top
+    // of the band/rail perimeters laid earlier in the same layer: an overlap weld. A line
+    // ending exactly at the boundary only kisses the perimeter bead's side and snaps off.
     const combWidth = layer < PEDESTAL_LAYERS ? PEDESTAL_WIDTH_FACTOR * nominal : nominal
     const rows: { blocks: typeof g.topRow; y0: number; y1: number }[] = [
-      { blocks: g.topRow, y0: oy + g.topRowY0Mm, y1: oy + g.topRowY1Mm },
-      { blocks: g.bottomRow, y0: oy + g.bottomRowY0Mm, y1: oy + g.bottomRowY1Mm },
+      { blocks: g.topRow, y0: oy + g.topRowY0Mm - ANCHOR_OVERLAP_MM,
+        y1: oy + g.topRowY1Mm + ANCHOR_OVERLAP_MM },
+      { blocks: g.bottomRow, y0: oy + g.bottomRowY0Mm - ANCHOR_OVERLAP_MM,
+        y1: oy + g.bottomRowY1Mm + ANCHOR_OVERLAP_MM },
     ]
     for (const row of rows) {
       for (const block of row.blocks) {

@@ -3,6 +3,7 @@ import { defaultFilamentProfile, defaultPrinterProfile } from '../../../src/engi
 import { defaultEmTestSpec, emCouponGeometry, PEDESTAL_WIDTH_FACTOR } from '../../../src/engine/em/types'
 import { extrusionMm } from '../../../src/engine/gcode/emitter'
 import {
+  ANCHOR_OVERLAP_MM,
   generateEmGcodeWithReport,
 } from '../../../src/engine/em/gcodeGenerator'
 
@@ -67,10 +68,12 @@ describe('generateEmGcodeWithReport', () => {
     }
   })
 
-  it('uses the pedestal width on layer 1 and the nominal width on layer 4 for comb lines', () => {
-    // A full-length vertical comb line's E value identifies its commanded width.
+  it('uses the pedestal width on layer 1 and the nominal width on the top layer for comb lines', () => {
+    // A full-length vertical comb line's E value identifies its commanded width; each line
+    // overruns its row by the anchor overlap on both ends.
+    const combLen = spec.lineLengthMm + 2 * ANCHOR_OVERLAP_MM
     const eFor = (w: number) =>
-      extrusionMm(spec.lineLengthMm, w, profile.layerHeightMm, filament.filamentDiameterMm)
+      extrusionMm(combLen, w, profile.layerHeightMm, filament.filamentDiameterMm)
     const pedestalE = eFor(PEDESTAL_WIDTH_FACTOR * spec.nominalLineWidthMm).toFixed(5)
     const nominalE = eFor(spec.nominalLineWidthMm).toFixed(5)
     expect(report.gcode).toContain(`E${pedestalE}`)
@@ -80,7 +83,8 @@ describe('generateEmGcodeWithReport', () => {
   it('emits one comb move per line per layer', () => {
     const g = emCouponGeometry(spec)
     const eFor = (w: number) =>
-      extrusionMm(spec.lineLengthMm, w, profile.layerHeightMm, filament.filamentDiameterMm)
+      extrusionMm(spec.lineLengthMm + 2 * ANCHOR_OVERLAP_MM, w, profile.layerHeightMm,
+        filament.filamentDiameterMm)
     const nominalE = `E${eFor(spec.nominalLineWidthMm).toFixed(5)}`
     const combMoves = lines.filter((l) => l.includes(nominalE))
     // 2 measured layers x 2 rows x blockCount x linesPerBlock
