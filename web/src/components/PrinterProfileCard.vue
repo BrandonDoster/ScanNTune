@@ -109,7 +109,7 @@ const summaryChips = computed(() => {
       </v-btn>
     </div>
     <div v-if="!store.profiles.length" class="mt-3">
-      <v-btn color="primary" size="small" prepend-icon="mdi-plus" data-testid="profile-new" @click="openNew">
+      <v-btn color="primary" size="small" prepend-icon="mdi-plus" :disabled="props.disabled" data-testid="profile-new" @click="openNew">
         New printer profile
       </v-btn>
     </div>
@@ -126,7 +126,7 @@ const summaryChips = computed(() => {
       <v-card-actions>
         <v-spacer />
         <v-btn variant="text" @click="deleteOpen = false">Cancel</v-btn>
-        <v-btn color="error" variant="flat" data-testid="profile-delete-confirm" @click="confirmDelete">
+        <v-btn color="error" variant="flat" :disabled="props.disabled" data-testid="profile-delete-confirm" @click="confirmDelete">
           Delete
         </v-btn>
       </v-card-actions>
