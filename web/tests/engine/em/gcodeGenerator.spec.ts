@@ -102,9 +102,12 @@ describe('generateEmGcodeWithReport', () => {
     const totalLayers = 4 // PEDESTAL_LAYERS + MEASURED_LAYERS from defaultEmTestSpec's profile
     const perLayerCombRetracts = 2 * spec.blockCount // 2 rows x blockCount blocks
     const perLayerStripRetracts = 4 // one per band raster strip
+    const perLayerRailRetracts = 1 // approach travel to the rail crosses the window
     const layerTransitions = totalLayers - 1
     const expected =
-      totalLayers * (perLayerCombRetracts + perLayerStripRetracts) + layerTransitions + 1
+      totalLayers * (perLayerCombRetracts + perLayerStripRetracts + perLayerRailRetracts) +
+      layerTransitions +
+      1
     expect(retractLines.length).toBe(expected)
   })
 

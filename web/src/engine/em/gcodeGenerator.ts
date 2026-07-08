@@ -7,7 +7,9 @@ import {
   extrude,
   motionLimitCommands,
   PERIMETER_LOOPS,
+  RASTER_SPEED_FACTOR,
   rasterBase,
+  rectLoop,
   retract,
   startGcodeHeats,
   travel,
@@ -151,9 +153,26 @@ function emitEmGcode(profile: PrinterProfile, filament: FilamentProfile, spec: E
       rasterBase(e, profile, filament, nominal, s.x0, s.y0, s.w, s.h, layer % 2 === 0, s.holes)
     }
 
-    // Center rail.
-    rasterBase(e, profile, filament, nominal, ox + g.frameBandMm, oy + g.railY0Mm,
-      g.couponWidthMm - 2 * g.frameBandMm, g.railWidthMm, layer % 2 === 0, [])
+    // Center rail: perimeter loops flush with its edges give the comb line ends a continuous
+    // bead to anchor into (a bare raster edge is a sawtooth the thin lines pull out of), with
+    // the raster inset behind them like the band. The approach travel crosses the window.
+    const railX0 = ox + g.frameBandMm
+    const railY0 = oy + g.railY0Mm
+    const railW = g.couponWidthMm - 2 * g.frameBandMm
+    retract(e, profile, 1)
+    travel(e, profile, railX0 + railW - 0.5 * nominal, railY0 + 0.5 * nominal)
+    retract(e, profile, -1)
+    // The loops wind from the rail's right corner because the raster below starts at the
+    // right end; ending the perimeters there keeps the hop between them short and wet.
+    for (let k = 0; k < PERIMETER_LOOPS; k++) {
+      const ins = (k + 0.5) * nominal
+      rectLoop(e, profile, filament, nominal, railX0 + railW - ins, railY0 + ins,
+        railX0 + ins, railY0 + g.railWidthMm - ins, profile.travelSpeedMmS * RASTER_SPEED_FACTOR)
+    }
+    // Fixed 45 degrees: on a long thin strip the 135 degree raster starts at the far end,
+    // which would mean a long dry travel from the perimeter corner.
+    rasterBase(e, profile, filament, nominal, railX0 + infillInset, railY0 + infillInset,
+      railW - 2 * infillInset, g.railWidthMm - 2 * infillInset, true, [])
 
     // Comb lines: pedestal width below, nominal width on the measured layers.
     const combWidth = layer < PEDESTAL_LAYERS ? PEDESTAL_WIDTH_FACTOR * nominal : nominal
