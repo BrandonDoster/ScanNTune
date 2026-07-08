@@ -1,7 +1,7 @@
 import type { PrinterProfile } from '../pa/types'
 
 export const PEDESTAL_WIDTH_FACTOR = 0.72
-export const PEDESTAL_LAYERS = 2
+export const PEDESTAL_LAYERS = 1
 export const MEASURED_LAYERS = 2
 export const FRAME_BAND_MM = 12
 export const RAIL_WIDTH_MM = 4
@@ -9,9 +9,14 @@ export const BLOCK_GAP_MM = 2
 export const INNER_MARGIN_MM = 3
 /** Nominal single-bead width as a fraction of the nozzle diameter (standard slicer default). */
 const NOMINAL_WIDTH_FACTOR = 1.05
-/** Default pitch sweep as fractions of the nominal width (~ -20% to +38% deposited width). */
-const PITCH_MIN_FACTOR = 0.81
-const PITCH_MAX_FACTOR = 1.38
+/**
+ * Default pitch sweep as fractions of the nominal width. All pitches sit well above the
+ * bead width, so every gap stays open and wide enough for a flatbed scanner to read
+ * through the coupon's depth (deep slits under ~0.25 mm scan black); the deposited width
+ * is recovered per block as pitch minus measured gap, not from a merge point.
+ */
+const PITCH_MIN_FACTOR = 1.67
+const PITCH_MAX_FACTOR = 2.62
 /** Conservative default volumetric flow cap used to derive the default speed. */
 const DEFAULT_MAX_FLOW_MM3_S = 8
 
@@ -33,7 +38,7 @@ export function defaultEmTestSpec(profile: PrinterProfile): EmTestSpec {
     pitchMinMm: round2(nominal * PITCH_MIN_FACTOR),
     pitchMaxMm: round2(nominal * PITCH_MAX_FACTOR),
     blockCount: 13,
-    linesPerBlock: 10,
+    linesPerBlock: 7,
     lineLengthMm: 25,
     printSpeedMmS: Math.min(profile.travelSpeedMmS / 2, Math.floor(speedCap)),
     nominalLineWidthMm: nominal,

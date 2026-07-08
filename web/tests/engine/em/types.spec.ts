@@ -12,10 +12,10 @@ describe('defaultEmTestSpec', () => {
   it('derives widths and pitch range from the nozzle', () => {
     const spec = defaultEmTestSpec(defaultPrinterProfile()) // 0.4 nozzle
     expect(spec.nominalLineWidthMm).toBeCloseTo(0.42, 5)
-    expect(spec.pitchMinMm).toBeCloseTo(0.34, 2)
-    expect(spec.pitchMaxMm).toBeCloseTo(0.58, 2)
+    expect(spec.pitchMinMm).toBeCloseTo(0.7, 2)
+    expect(spec.pitchMaxMm).toBeCloseTo(1.1, 2)
     expect(spec.blockCount).toBe(13)
-    expect(spec.linesPerBlock).toBe(10)
+    expect(spec.linesPerBlock).toBe(7)
     expect(spec.lineLengthMm).toBe(25)
     expect(spec.printSpeedMmS).toBeGreaterThan(0)
   })
@@ -23,8 +23,9 @@ describe('defaultEmTestSpec', () => {
     const p = { ...defaultPrinterProfile(), nozzleDiameterMm: 0.6 }
     const spec = defaultEmTestSpec(p)
     expect(spec.nominalLineWidthMm).toBeCloseTo(0.63, 5)
-    expect(spec.pitchMinMm).toBeLessThan(spec.nominalLineWidthMm)
-    expect(spec.pitchMaxMm).toBeGreaterThan(spec.nominalLineWidthMm)
+    // All pitches sit above the bead width so every gap stays open and scanner-readable.
+    expect(spec.pitchMinMm).toBeGreaterThan(spec.nominalLineWidthMm)
+    expect(spec.pitchMaxMm).toBeGreaterThan(spec.pitchMinMm)
   })
 })
 

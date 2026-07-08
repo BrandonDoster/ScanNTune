@@ -24,7 +24,7 @@ describe('generateEmGcodeWithReport', () => {
   it('prints four layers', () => {
     const zMoves = lines.filter((l) => l.startsWith('G1 Z'))
     const zs = [...new Set(zMoves.map((l) => l.match(/Z([\d.]+)/)![1]))]
-    expect(zs).toEqual(['0.200', '0.400', '0.600', '0.800', '10'])
+    expect(zs).toEqual(['0.200', '0.400', '0.600', '10'])
   })
 
   it('contains no pause and no flow commands', () => {
@@ -99,7 +99,7 @@ describe('generateEmGcodeWithReport', () => {
     // lines... only the retract half is negative) at each of the 3 layer transitions, plus the
     // final retract before the end gcode.
     const retractLines = lines.filter((l) => /^G1 E-/.test(l))
-    const totalLayers = 4 // PEDESTAL_LAYERS + MEASURED_LAYERS from defaultEmTestSpec's profile
+    const totalLayers = 3 // PEDESTAL_LAYERS + MEASURED_LAYERS from defaultEmTestSpec's profile
     const perLayerCombRetracts = 2 * spec.blockCount // 2 rows x blockCount blocks
     const perLayerStripRetracts = 4 // one per band raster strip
     const perLayerRailRetracts = 1 // approach travel to the rail crosses the window
@@ -113,12 +113,12 @@ describe('generateEmGcodeWithReport', () => {
 
   it('does not travel directly from the last comb of one layer to the first frame move of the next', () => {
     // Every G1 Z line for layer > 0 must be immediately preceded by a retract.
-    const layerZs = ['0.200', '0.400', '0.600', '0.800']
+    const layerZs = ['0.200', '0.400', '0.600']
     const zIndexes = lines
       .map((l, i) => ({ l, i }))
       .filter(({ l }) => layerZs.some((z) => l === `G1 Z${z} F600`))
       .map(({ i }) => i)
-    expect(zIndexes.length).toBe(4) // the four layer-loop Z pushes, not the end gcode's lift
+    expect(zIndexes.length).toBe(3) // the three layer-loop Z pushes, not the end gcode's lift
     for (const i of zIndexes.slice(1)) {
       expect(lines[i - 1]).toMatch(/^G1 E-/)
       // Still retracted for the travel to the frame corner; pressure restored only after it.
