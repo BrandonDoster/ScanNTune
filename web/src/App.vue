@@ -3,6 +3,7 @@ import { useApp } from './stores/useApp'
 import ScanPage from './components/ScanPage.vue'
 import CalibrationPage from './components/CalibrationPage.vue'
 import PaPage from './components/PaPage.vue'
+import EmPage from './components/EmPage.vue'
 import ProfilePage from './components/ProfilePage.vue'
 import AppLogo from './components/AppLogo.vue'
 
@@ -38,6 +39,10 @@ const version = __APP_VERSION__
           Pressure advance
           <v-chip size="x-small" color="primary" variant="tonal" class="ml-1">Beta</v-chip>
         </v-btn>
+        <v-btn variant="text" size="small" :active="app.screen === 'em'" data-testid="nav-em" @click="app.goEm()">
+          Flow
+          <v-chip size="x-small" color="primary" variant="tonal" class="ml-1">Beta</v-chip>
+        </v-btn>
       </nav>
       <v-spacer />
       <v-btn
@@ -54,6 +59,7 @@ const version = __APP_VERSION__
     <v-main>
       <ScanPage v-if="app.screen === 'scan'" />
       <PaPage v-else-if="app.screen === 'pa'" />
+      <EmPage v-else-if="app.screen === 'em'" />
       <ProfilePage v-else-if="app.screen === 'profile'" />
       <CalibrationPage v-else />
     </v-main>
