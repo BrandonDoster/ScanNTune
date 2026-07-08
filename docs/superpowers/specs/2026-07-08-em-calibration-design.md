@@ -28,11 +28,14 @@ block separators are known-width gaps in the same image and calibrate the scanne
 edge-blur bias b (a standard reference-artifact correction): w = pitch -
 (gap_measured - b). Two mirrored block rows cancel direction-dependent bias.
 
-Axis-scale and shrinkage immunity: the commanded pitch is only trusted as a fallback.
-With scanner px/mm available (card calibration), the vision stage measures the actual
-pitch from the line centres in the same image (centres are extrusion-immune), so motor
-scale error and material shrinkage move pitch and gap together and cancel; trusting
-the commanded pitch instead couples axis error into flow at roughly pitch/w (~2x).
+Axis-scale and shrinkage immunity: scanner card calibration (the existing
+`useCalibration` store) is a HARD requirement for the flow analysis; there is no
+commanded-pitch fallback. The vision stage measures the actual pitch from the line
+centres in the same image (centres are extrusion-immune), so motor scale error and
+material shrinkage move pitch and gap together and cancel; trusting the commanded
+pitch would couple axis error into flow at roughly pitch/w (~2x). The Flow page
+surfaces the requirement as step 1 (reusing the ScanPage calibration step), and the
+stage-2 analysis refuses a scan without a stored calibration.
 Measured-vs-commanded pitch doubles as a per-axis scale diagnostic. Correction is a
 ratio:
 
