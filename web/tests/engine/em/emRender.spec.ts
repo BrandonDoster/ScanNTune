@@ -64,8 +64,9 @@ describe('renderEmScan', () => {
       if (isPlastic !== wasPlastic) transitions++
       wasPlastic = isPlastic
     }
-    // blockCount * linesPerBlock lines, each a rising+falling edge.
-    expect(transitions).toBeGreaterThanOrEqual(spec.blockCount * 2)
+    // Each of blockCount blocks has linesPerBlock lines, so (linesPerBlock - 1) internal
+    // gaps between plastic lines, each contributing a rising + falling edge.
+    expect(transitions).toBeGreaterThanOrEqual(spec.blockCount * (spec.linesPerBlock - 1) * 2)
   })
 
   it('swaps histogram dominance when polarity is inverted', () => {
@@ -89,17 +90,27 @@ describe('renderEmScan', () => {
       backgroundGray: 40,
       blurSigmaMm: 0,
     })
-    // A point inside the frame band (definitely plastic) and one deep in the window
-    // interior away from any comb line (definitely background) must swap tone together.
+    // A point inside the frame band (definitely plastic) and one at the rail center
+    // (also plastic) must swap tone together with polarity.
     const bandPx = Math.round((g.frameBandMm / 2 + marginMm) * pxPerMm)
-    const windowYMm = g.railY0Mm + g.railWidthMm / 2
-    const windowPy = Math.round((windowYMm + marginMm) * pxPerMm)
-    const windowPx = Math.round((g.couponWidthMm / 2 + marginMm) * pxPerMm)
+    const railYMm = g.railY0Mm + g.railWidthMm / 2
+    const railPy = Math.round((railYMm + marginMm) * pxPerMm)
+    const railPx = Math.round((g.couponWidthMm / 2 + marginMm) * pxPerMm)
     const bandI = (bandPx * normal.width + bandPx) * 4
-    const windowI = (windowPy * normal.width + windowPx) * 4
+    const railI = (railPy * normal.width + railPx) * 4
     expect(normal.data[bandI]).toBeCloseTo(40, 0)
     expect(inverted.data[bandI]).toBeCloseTo(245, 0)
-    expect(normal.data[windowI]).toBeCloseTo(40, 0)
-    expect(inverted.data[windowI]).toBeCloseTo(245, 0)
+    expect(normal.data[railI]).toBeCloseTo(40, 0)
+    expect(inverted.data[railI]).toBeCloseTo(245, 0)
+
+    // A point in the 2mm separator gap between block 0 and block 1 of the top row is
+    // genuinely background (not plastic): it must swap the opposite way.
+    const gapXMm = g.topRow[0].x0Mm + g.topRow[0].widthMm + 1
+    const gapYMm = (g.topRowY0Mm + g.topRowY1Mm) / 2
+    const gapPx = Math.round((gapXMm + marginMm) * pxPerMm)
+    const gapPy = Math.round((gapYMm + marginMm) * pxPerMm)
+    const gapI = (gapPy * normal.width + gapPx) * 4
+    expect(normal.data[gapI]).toBeCloseTo(245, 0)
+    expect(inverted.data[gapI]).toBeCloseTo(40, 0)
   })
 })

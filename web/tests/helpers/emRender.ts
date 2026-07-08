@@ -98,8 +98,8 @@ function couponCoverage(
 
   const bandTop = boxCoverage(x, y, 0, 0, Wc, band, sigma)
   const bandBottom = boxCoverage(x, y, 0, Hc - band, Wc, Hc, sigma)
-  const bandLeft = boxCoverage(x, y, 0, 0, band, Hc, sigma)
-  const bandRight = boxCoverage(x, y, Wc - band, 0, Wc, Hc, sigma)
+  const bandLeft = boxCoverage(x, y, 0, 0, scaleX(band), Hc, sigma)
+  const bandRight = boxCoverage(x, y, Wc - scaleX(band), 0, Wc, Hc, sigma)
   let coverage = Math.max(bandTop, bandBottom, bandLeft, bandRight)
 
   const railCoverage = boxCoverage(x, y, scaleX(band), g.railY0Mm, Wc - scaleX(band), g.railY1Mm, sigma)
