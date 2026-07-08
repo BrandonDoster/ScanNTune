@@ -257,7 +257,7 @@ function measureBlock(
 }
 
 // Finds the plastic runs of a combined profile as mid-level threshold crossings, refines each
-// run's two edges by parabolic interpolation of the gradient peak, and returns them left to right.
+// run's two edges by gradient centroid, and returns them left to right.
 function detectLines(
   profile: Float64Array,
   mid: number,
@@ -292,11 +292,11 @@ function detectLines(
       // Runs touching the profile ends are incomplete (the profile spans half a separator beyond
       // the block, so every real line lies strictly inside).
       if (runStart > 0 && runEnd < n - 1 && runEnd - runStart + 1 >= minRunSamples) {
-        // The mid-level crossing, sub-sampled by linear interpolation, is the base estimate; a
-        // parabolic gradient-peak refinement replaces it only when the gradient has a genuine
-        // (strict) peak. Bilinear sampling makes the profile piecewise-linear between pixel
-        // centres, so the gradient can be flat across a cell; the interpolated crossing stays
-        // exact there while a parabola over a flat plateau would quantize to whole pixels.
+        // The mid-level crossing, sub-sampled by linear interpolation, seeds the estimate; a
+        // gradient-centroid refinement (the first moment of gradient magnitude in a window around
+        // the crossing) replaces it whenever that window carries nonzero gradient weight, and the
+        // linear-interpolated crossing is kept as the fallback when it does not (e.g. a flat
+        // plateau from bilinear resampling).
         const left = refineEdge(profile, mid, grad, runStart, windowSamples, n)
         const right = refineEdge(profile, mid, grad, runEnd + 1, windowSamples, n)
         if (Number.isFinite(left) && Number.isFinite(right)) {
@@ -316,7 +316,7 @@ function detectLines(
 // Sub-sample edge position near a threshold crossing. `crossK` is the first sample index on the
 // far side of the crossing (profile[crossK - 1] and profile[crossK] straddle `mid`). The estimate
 // is the gradient centroid over a window around the crossing: the first moment of the gradient
-// magnitude, the moment-preserving edge localizer (Tabatabai-Mitchell lineage). For any symmetric
+// magnitude, a gradient centroid (center-of-gravity) edge estimator. For any symmetric
 // edge-spread function the gradient's centroid is the true edge position, and unlike a parabolic
 // fit of the gradient peak it needs no locally-quadratic peak: bilinear resampling makes the
 // gradient piecewise constant (flat plateaus), where a parabola quantizes to whole pixels but the

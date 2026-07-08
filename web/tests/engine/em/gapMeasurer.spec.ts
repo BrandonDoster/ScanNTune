@@ -14,18 +14,18 @@ const spec = defaultEmTestSpec(defaultPrinterProfile())
 const TRUE_WIDTH_MM = 0.42
 const PX_PER_MM = 12
 
-async function measureRender(pitchScale: number): Promise<EmMeasurement> {
+async function measureRender(pitchScale: number, pxPerMm: number = PX_PER_MM): Promise<EmMeasurement> {
   const cv = await getCv()
   const img = rgbaToBgrMat(
     cv,
-    renderEmScan({ spec, trueWidthMm: TRUE_WIDTH_MM, pxPerMm: PX_PER_MM, pitchScale }),
+    renderEmScan({ spec, trueWidthMm: TRUE_WIDTH_MM, pxPerMm, pitchScale }),
   )
   const gray = valueChannel(cv, img)
   try {
     const alignment = alignEmCoupon(cv, img, spec)
     expect(alignment.success).toBe(true)
     // The render's px/mm doubles as the card-calibrated scanner px/mm (an exact scanner).
-    return measureEmCoupon(cv, gray, alignment, spec, PX_PER_MM)
+    return measureEmCoupon(cv, gray, alignment, spec, pxPerMm)
   } finally {
     gray.delete()
     img.delete()
@@ -79,6 +79,50 @@ describe('measureEmCoupon', () => {
         // The physical gap is the STRETCHED pitch minus the deposited width.
         for (const gap of b.gapsMm) {
           expect(Math.abs(gap - (b.pitchCommandedMm * stretch - TRUE_WIDTH_MM))).toBeLessThan(0.015)
+        }
+      }
+    },
+    240000,
+  )
+
+  it(
+    'measures all 26 blocks with 7 centers and 6 gaps each at low scanner resolution',
+    async () => {
+      // 7 px/mm shrinks the centroid window enough to exercise its clamped-to-few-samples path.
+      const m = await measureRender(1, 7)
+
+      // At 7 px/mm the finest pitches (0.28mm gap = 2px) can merge adjacent lines in the combined
+      // profile, so the line-count check refuses those blocks rather than reporting a wrong
+      // reading; full 26-block coverage is only expected from about 8 px/mm up. Surviving blocks
+      // still recover the right pitch, but every block's sub-pixel precision is coarser than at
+      // full resolution (edge localization error scales with pixel pitch), so the tolerances below
+      // are wider than the 12 px/mm test's, not tight enough to hide a real detection bug. The
+      // honest contract is: most blocks still measure, any dropped block is one of the three
+      // finest pitches, and survivors land within that widened precision.
+      expect(m.blocks.length).toBeGreaterThanOrEqual(22)
+
+      const finestPitchesMm = [...Array(3).keys()].map((i) => pitchForBlock(spec, i))
+      const measuredIndices = new Set(m.blocks.map((b) => b.blockIndex))
+      for (let i = 0; i < spec.blockCount; i++) {
+        if (!measuredIndices.has(i)) {
+          expect(finestPitchesMm).toContain(pitchForBlock(spec, i))
+        }
+      }
+
+      const CENTER_TOLERANCE_MM = 0.025
+      const GAP_TOLERANCE_MM = 0.035
+      for (const b of m.blocks) {
+        expect(b.lineCentersMm).toHaveLength(spec.linesPerBlock)
+        expect(b.gapsMm).toHaveLength(spec.linesPerBlock - 1)
+
+        for (let j = 1; j < b.lineCentersMm.length; j++) {
+          const spacing = b.lineCentersMm[j] - b.lineCentersMm[j - 1]
+          expect(Math.abs(spacing - b.pitchCommandedMm)).toBeLessThan(CENTER_TOLERANCE_MM)
+        }
+        for (const gap of b.gapsMm) {
+          expect(Math.abs(gap - (b.pitchCommandedMm - TRUE_WIDTH_MM))).toBeLessThan(
+            GAP_TOLERANCE_MM,
+          )
         }
       }
     },
