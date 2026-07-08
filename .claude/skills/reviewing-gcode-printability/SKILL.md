@@ -24,7 +24,7 @@ answer; silence is not.
 | 1 | Does every region boundary that other geometry anchors into have continuous perimeter loops (not a raster sawtooth edge)? | Comb lines pulled out of the rail; print failed |
 | 2 | Is every raster inset behind its perimeter loops (outer boundary AND hole/window boundaries)? | Infill printed over the perimeters to the part edge |
 | 3 | Do adjacent fill regions share exact boundaries (butt joints), with no unfilled sliver and no double-fill overlap? | 0.84 mm slit gaps at the band corner seams |
-| 4 | Is every commanded bead width printable: >= ~0.85 x nozzle diameter on bare bed, and is anything thinner printed only on top of existing plastic? | 0.30 mm first-layer beads shredded and ripped loose |
+| 4 | For a bead width well below the nozzle diameter, was printability confirmed on a real print rather than assumed either way? (0.30 mm on a 0.4 nozzle prints fine on layer 1; it was once misdiagnosed as a failure cause when ooze travels were the real culprit.) | Wrong diagnosis wastes a redesign; the real defect ships |
 | 5 | Does anything on layer 1 have enough contact area and low enough speed to stick? | First-layer threads dragged by the nozzle |
 | 6 | Where does the nozzle END this region and START the next: is every travel longer than ~5 mm that crosses open (unprinted) area retract-bracketed, including the hop after a layer change and the hop from perimeters to raster start? | Ooze strings across the measured combs; 87-106 mm dry drags |
 
