@@ -22,7 +22,7 @@ describe('generateEmGcodeWithReport', () => {
   it('prints four layers', () => {
     const zMoves = lines.filter((l) => l.startsWith('G1 Z'))
     const zs = [...new Set(zMoves.map((l) => l.match(/Z([\d.]+)/)![1]))]
-    expect(zs.slice(0, 4)).toHaveLength(4)
+    expect(zs).toEqual(['0.200', '0.400', '0.600', '0.800', '10'])
   })
 
   it('contains no pause and no flow commands', () => {
