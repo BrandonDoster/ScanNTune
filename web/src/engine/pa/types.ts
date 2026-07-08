@@ -204,16 +204,7 @@ export function edgeShiftRange(
   return { start, end }
 }
 
-const A4_SHORT_MM = 210
-const A4_LONG_MM = 297
-
-/** True if a widthMm x heightMm footprint fits an A4 sheet in either orientation. */
-export function fitsA4(widthMm: number, heightMm: number): boolean {
-  return (
-    (widthMm <= A4_SHORT_MM && heightMm <= A4_LONG_MM) ||
-    (widthMm <= A4_LONG_MM && heightMm <= A4_SHORT_MM)
-  )
-}
+export { fitsA4 } from '../gcode/emitter'
 
 /**
  * The largest line count whose baseHeightMm stays within maxHeightMm, inverting
