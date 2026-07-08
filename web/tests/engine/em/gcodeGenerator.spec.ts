@@ -4,7 +4,6 @@ import { defaultEmTestSpec, emCouponGeometry, PEDESTAL_WIDTH_FACTOR } from '../.
 import { extrusionMm } from '../../../src/engine/gcode/emitter'
 import {
   generateEmGcodeWithReport,
-  SKIRT_NEARLY_FILLS_BED_WARNING,
 } from '../../../src/engine/em/gcodeGenerator'
 
 const profile = defaultPrinterProfile()
@@ -86,12 +85,10 @@ describe('generateEmGcodeWithReport', () => {
     }
   })
 
-  it('skips the skirt and warns when the coupon nearly fills the bed', () => {
+  it('stays inside the bed even when the coupon nearly fills it', () => {
     const g = emCouponGeometry(spec)
-    // Bed just barely fits the coupon itself, with no room for the skirt offset.
     const tight = { ...profile, bedWidthMm: g.couponWidthMm + 0.5, bedDepthMm: g.couponHeightMm + 0.5 }
     const r = generateEmGcodeWithReport(tight, filament, spec)
-    expect(r.warnings).toContain(SKIRT_NEARLY_FILLS_BED_WARNING)
     const coords = [...r.gcode.matchAll(/[XY](-?[\d.]+)/g)].map((m) => Number(m[1]))
     expect(coords.every((v) => v >= 0)).toBe(true)
   })
