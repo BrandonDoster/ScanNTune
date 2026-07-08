@@ -27,6 +27,22 @@ import {
 export const HIGH_FLOW_WARNING_THRESHOLD_MM3_S = 12
 const SKIRT_OFFSET_MM = 3
 const SKIRT_LOOPS = 2
+export const SKIRT_NEARLY_FILLS_BED_WARNING =
+  'Coupon nearly fills the bed; the skirt prime is skipped.'
+
+/** Max outward offset the skirt loops reach past the coupon outline. */
+function skirtMaxOffsetMm(nominal: number): number {
+  return SKIRT_OFFSET_MM + (SKIRT_LOOPS - 1) * nominal
+}
+
+/** True when the bed margin around the coupon is too tight to fit the skirt loops. */
+function skirtFitsBed(profile: PrinterProfile, spec: EmTestSpec): boolean {
+  const g = emCouponGeometry(spec)
+  const ox = (profile.bedWidthMm - g.couponWidthMm) / 2
+  const oy = (profile.bedDepthMm - g.couponHeightMm) / 2
+  const maxOffset = skirtMaxOffsetMm(spec.nominalLineWidthMm)
+  return ox >= maxOffset && oy >= maxOffset
+}
 
 export function generateEmGcode(
   profile: PrinterProfile,
@@ -45,6 +61,8 @@ export function generateEmGcodeWithReport(
   if (spec.linesPerBlock < 2) throw new Error('Each block needs at least 2 lines')
   if (spec.pitchMaxMm <= spec.pitchMinMm) throw new Error('Max pitch must exceed min pitch')
   if (spec.printSpeedMmS <= 0) throw new Error('Print speed must be positive')
+  if (spec.lineLengthMm <= 0) throw new Error('Line length must be positive')
+  if (spec.nominalLineWidthMm <= 0) throw new Error('Nominal line width must be positive')
 
   const start = substituteSlicerVariables(profile.startGcode, profile, filament)
   const end = substituteSlicerVariables(profile.endGcode, profile, filament)
@@ -68,10 +86,18 @@ export function generateEmGcodeWithReport(
     )
   }
 
-  return { gcode: emitEmGcode(substituted, filament, spec), unknownVariables, warnings }
+  const skirt = skirtFitsBed(profile, spec)
+  if (!skirt) warnings.push(SKIRT_NEARLY_FILLS_BED_WARNING)
+
+  return { gcode: emitEmGcode(substituted, filament, spec, skirt), unknownVariables, warnings }
 }
 
-function emitEmGcode(profile: PrinterProfile, filament: FilamentProfile, spec: EmTestSpec): string {
+function emitEmGcode(
+  profile: PrinterProfile,
+  filament: FilamentProfile,
+  spec: EmTestSpec,
+  emitSkirt: boolean,
+): string {
   const g = emCouponGeometry(spec)
   const ox = (profile.bedWidthMm - g.couponWidthMm) / 2
   const oy = (profile.bedDepthMm - g.couponHeightMm) / 2
@@ -112,9 +138,14 @@ function emitEmGcode(profile: PrinterProfile, filament: FilamentProfile, spec: E
 
   for (let layer = 0; layer < totalLayers; layer++) {
     const z = profile.layerHeightMm * (layer + 1)
+    // Bracket the layer change like the PA generator brackets its pause: retract before the Z
+    // push so no ooze drags across the frame band, unretract right after so pressure is restored
+    // before the next layer's perimeter starts printing.
+    if (layer > 0) retract(e, profile, 1)
     L.push(`G1 Z${z.toFixed(3)} F600`)
+    if (layer > 0) retract(e, profile, -1)
 
-    if (layer === 0) {
+    if (layer === 0 && emitSkirt) {
       // Skirt as the prime, outside the coupon.
       for (let k = 0; k < SKIRT_LOOPS; k++) {
         const off = SKIRT_OFFSET_MM + k * nominal
