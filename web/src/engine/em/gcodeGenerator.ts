@@ -110,20 +110,43 @@ function emitEmGcode(profile: PrinterProfile, filament: FilamentProfile, spec: E
 
   for (let layer = 0; layer < totalLayers; layer++) {
     const z = profile.layerHeightMm * (layer + 1)
-    // Bracket the layer change like the PA generator brackets its pause: retract before the Z
-    // push so no ooze drags across the frame band, unretract right after so pressure is restored
-    // before the next layer's perimeter starts printing.
+    // Bracket the layer change: retract before the Z push, travel to the frame corner where
+    // the next layer's perimeter starts while still retracted (the move crosses the open
+    // window), and only then restore pressure.
     if (layer > 0) retract(e, profile, 1)
     L.push(`G1 Z${z.toFixed(3)} F600`)
-    if (layer > 0) retract(e, profile, -1)
+    if (layer > 0) {
+      travel(e, profile, ox + 0.5 * nominal, oy + 0.5 * nominal)
+      retract(e, profile, -1)
+    }
 
-    // Frame band: solid-base machinery with the window + fiducials as holes. There is no
-    // skirt: the band perimeter is structural, never measured, so it absorbs the prime.
+    // Frame band: perimeters from the solid-base machinery with the window + fiducials as
+    // holes. There is no skirt: the band perimeter is structural, never measured, so it
+    // absorbs the prime.
     basePerimeters(e, profile, filament, nominal, ox, oy, g.couponWidthMm, g.couponHeightMm,
       [windowBox, ...holes])
-    rasterBase(e, profile, filament, nominal, ox + infillInset, oy + infillInset,
-      g.couponWidthMm - 2 * infillInset, g.couponHeightMm - 2 * infillInset,
-      layer % 2 === 0, [expand(windowBox), ...holes.map(expand)])
+    // The band infill rasters as four strips so no scanline (or its connecting travel) ever
+    // crosses the open window; one raster over the whole rectangle would ooze strings across
+    // the measured combs on every scanline. Each strip hop is retract-bracketed.
+    const W = g.couponWidthMm
+    const H = g.couponHeightMm
+    const band = g.frameBandMm
+    const strips: { x0: number; y0: number; w: number; h: number; holes: Box[] }[] = [
+      // Top and bottom strips carry the fiducial holes; left/right span between them.
+      { x0: ox + infillInset, y0: oy + infillInset, w: W - 2 * infillInset, h: band - 2 * infillInset,
+        holes: holes.map(expand) },
+      { x0: ox + infillInset, y0: oy + H - band + infillInset, w: W - 2 * infillInset,
+        h: band - 2 * infillInset, holes: holes.map(expand) },
+      { x0: ox + infillInset, y0: oy + band, w: band - 2 * infillInset, h: H - 2 * band, holes: [] },
+      { x0: ox + W - band + infillInset, y0: oy + band, w: band - 2 * infillInset, h: H - 2 * band,
+        holes: [] },
+    ]
+    for (const s of strips) {
+      retract(e, profile, 1)
+      travel(e, profile, s.x0, s.y0)
+      retract(e, profile, -1)
+      rasterBase(e, profile, filament, nominal, s.x0, s.y0, s.w, s.h, layer % 2 === 0, s.holes)
+    }
 
     // Center rail.
     rasterBase(e, profile, filament, nominal, ox + g.frameBandMm, oy + g.railY0Mm,

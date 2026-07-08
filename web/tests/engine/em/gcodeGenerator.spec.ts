@@ -32,6 +32,41 @@ describe('generateEmGcodeWithReport', () => {
     expect(report.gcode).not.toContain('M221')
   })
 
+  it('never travels far across the open window without retracting first', () => {
+    const g = emCouponGeometry(spec)
+    const ox = (profile.bedWidthMm - g.couponWidthMm) / 2
+    const oy = (profile.bedDepthMm - g.couponHeightMm) / 2
+    // Window interior, shrunk a little so band-edge moves do not count.
+    const win = {
+      x0: ox + g.frameBandMm + 1,
+      y0: oy + g.frameBandMm + 1,
+      x1: ox + g.couponWidthMm - g.frameBandMm - 1,
+      y1: oy + g.couponHeightMm - g.frameBandMm - 1,
+    }
+    const inWindow = (x: number, y: number) =>
+      x > win.x0 && x < win.x1 && y > win.y0 && y < win.y1
+    let x = 0
+    let y = 0
+    let retracted = false
+    for (const l of lines) {
+      if (/^G1 E-/.test(l)) retracted = true
+      else if (/^G1 E[^-]/.test(l)) retracted = false
+      const m = l.match(/^G([01]) X(-?[\d.]+) Y(-?[\d.]+)/)
+      if (!m) continue
+      const nx = Number(m[2])
+      const ny = Number(m[3])
+      if (m[1] === '0') {
+        const len = Math.hypot(nx - x, ny - y)
+        const crossesWindow = inWindow((x + nx) / 2, (y + ny) / 2) || inWindow(nx, ny)
+        if (len > 5 && crossesWindow) {
+          expect(retracted, `unretracted ${len.toFixed(1)}mm travel over the window: ${l}`).toBe(true)
+        }
+      }
+      x = nx
+      y = ny
+    }
+  })
+
   it('uses the pedestal width on layer 1 and the nominal width on layer 4 for comb lines', () => {
     // A full-length vertical comb line's E value identifies its commanded width.
     const eFor = (w: number) =>
@@ -66,8 +101,10 @@ describe('generateEmGcodeWithReport', () => {
     const retractLines = lines.filter((l) => /^G1 E-/.test(l))
     const totalLayers = 4 // PEDESTAL_LAYERS + MEASURED_LAYERS from defaultEmTestSpec's profile
     const perLayerCombRetracts = 2 * spec.blockCount // 2 rows x blockCount blocks
+    const perLayerStripRetracts = 4 // one per band raster strip
     const layerTransitions = totalLayers - 1
-    const expected = totalLayers * perLayerCombRetracts + layerTransitions + 1 // +1 final retract
+    const expected =
+      totalLayers * (perLayerCombRetracts + perLayerStripRetracts) + layerTransitions + 1
     expect(retractLines.length).toBe(expected)
   })
 
@@ -81,7 +118,9 @@ describe('generateEmGcodeWithReport', () => {
     expect(zIndexes.length).toBe(4) // the four layer-loop Z pushes, not the end gcode's lift
     for (const i of zIndexes.slice(1)) {
       expect(lines[i - 1]).toMatch(/^G1 E-/)
-      expect(lines[i + 1]).toMatch(/^G1 E[^-]/)
+      // Still retracted for the travel to the frame corner; pressure restored only after it.
+      expect(lines[i + 1]).toMatch(/^G0 /)
+      expect(lines[i + 2]).toMatch(/^G1 E[^-]/)
     }
   })
 
