@@ -157,7 +157,8 @@ function emitEmGcode(
     // Frame band: solid-base machinery with the window + fiducials as holes.
     basePerimeters(e, profile, filament, nominal, ox, oy, g.couponWidthMm, g.couponHeightMm,
       [windowBox, ...holes])
-    rasterBase(e, profile, filament, nominal, ox, oy, g.couponWidthMm, g.couponHeightMm,
+    rasterBase(e, profile, filament, nominal, ox + infillInset, oy + infillInset,
+      g.couponWidthMm - 2 * infillInset, g.couponHeightMm - 2 * infillInset,
       layer % 2 === 0, [expand(windowBox), ...holes.map(expand)])
 
     // Center rail.
