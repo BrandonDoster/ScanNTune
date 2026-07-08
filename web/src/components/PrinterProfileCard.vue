@@ -7,7 +7,10 @@ import { defaultPrinterProfile } from '../engine/pa/types'
 const app = useApp()
 const store = usePrinterProfiles()
 
-const props = withDefaults(defineProps<{ disabled?: boolean }>(), { disabled: false })
+const props = withDefaults(defineProps<{ disabled?: boolean; step?: number }>(), {
+  disabled: false,
+  step: 1,
+})
 
 // Profile card state.
 const deleteOpen = ref(false)
@@ -62,7 +65,7 @@ const summaryChips = computed(() => {
 <template>
   <section class="step mb-3">
     <div class="step-head mb-2">
-      <span class="num">1</span><span class="step-title">Printer profile</span>
+      <span class="num">{{ props.step }}</span><span class="step-title">Printer profile</span>
     </div>
     <div class="profile-row">
       <v-select

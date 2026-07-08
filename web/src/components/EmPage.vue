@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useApp } from '../stores/useApp'
+import { useCalibration } from '../stores/useCalibration'
 import { usePrinterProfiles } from '../stores/usePrinterProfiles'
 import { generateEmGcodeWithReport, HIGH_FLOW_WARNING_THRESHOLD_MM3_S } from '../engine/em/gcodeGenerator'
 import {
@@ -14,7 +16,18 @@ import { defaultPrinterProfile } from '../engine/pa/types'
 import PrinterProfileCard from './PrinterProfileCard.vue'
 import NumericField from './NumericField.vue'
 
+const app = useApp()
 const store = usePrinterProfiles()
+
+// Scanner calibration is a hard requirement: the analysis measures pitch and gap in true
+// millimetres (axis-scale and shrinkage immune), which needs the card-derived px/mm.
+const calibration = useCalibration()
+const isCalibrated = computed(() => calibration.calibration !== null)
+const calibrationLine = computed(() =>
+  isCalibrated.value
+    ? `${Math.round(calibration.calibration!.dpi)} dpi`
+    : 'Not calibrated',
+)
 
 // Spec defaults follow the selected printer; the fields start prefilled with them and
 // refill whenever another printer is selected (edits between switches are one-shot).
@@ -110,13 +123,42 @@ function generate(): void {
       </p>
     </header>
 
-    <!-- 1. Printer profile -->
-    <PrinterProfileCard />
+    <!-- 1. Calibrate scanner (hard requirement: the analysis measures true pitch and gap in mm) -->
+    <section class="step mb-3">
+      <div class="step-row">
+        <div class="step-head">
+          <span class="num">1</span><span class="step-title">Calibrate scanner</span>
+          <span class="status-inline">
+            <v-icon :color="isCalibrated ? 'success' : 'warning'" size="15">
+              {{ isCalibrated ? 'mdi-check-circle' : 'mdi-alert-circle-outline' }}
+            </v-icon>
+            <span class="text-medium-emphasis">{{ calibrationLine }}</span>
+          </span>
+        </div>
+        <v-btn
+          data-testid="em-calibrate-btn"
+          :variant="isCalibrated ? 'text' : 'flat'"
+          :color="isCalibrated ? undefined : 'primary'"
+          size="small"
+          @click="app.goCalibration()"
+        >
+          {{ isCalibrated ? 'Recalibrate' : 'Calibrate scanner' }}
+        </v-btn>
+      </div>
+      <p v-if="!isCalibrated" class="text-body-2 text-medium-emphasis mt-2 mb-0">
+        Required. The flow analysis measures the printed line pitch and gaps in millimetres,
+        which needs the scanner's true resolution from the card calibration; without it the
+        scan cannot be analyzed.
+      </p>
+    </section>
 
-    <!-- 2. Test settings -->
+    <!-- 2. Printer profile -->
+    <PrinterProfileCard :step="2" />
+
+    <!-- 3. Test settings -->
     <section class="step mb-3">
       <div class="step-head mb-2">
-        <span class="num">2</span><span class="step-title">Test settings</span>
+        <span class="num">3</span><span class="step-title">Test settings</span>
       </div>
       <div class="field-group">
         <span class="group-label">Pitch sweep</span>
@@ -170,7 +212,7 @@ function generate(): void {
     <!-- 3. Generate -->
     <section class="step mb-3">
       <div class="step-head mb-2">
-        <span class="num">3</span><span class="step-title">Generate</span>
+        <span class="num">4</span><span class="step-title">Generate</span>
       </div>
       <div class="gen-row">
         <v-btn
@@ -213,13 +255,26 @@ function generate(): void {
     <p class="tip">
       <v-icon size="14" class="mr-1">mdi-information-outline</v-icon>
       Print with a single filament color (no filament change), then scan the finished part top face
-      down on a flatbed scanner. The result is only valid near the printed speed. Filament diameter
-      variation limits repeatability to about 1%.
+      down, lid closed, at the calibrated resolution. The result is only valid near the printed
+      speed. Filament diameter variation limits repeatability to about 1%.
     </p>
   </v-container>
 </template>
 
 <style scoped>
+.step-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.status-inline {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+}
 .page {
   max-width: 760px;
 }
