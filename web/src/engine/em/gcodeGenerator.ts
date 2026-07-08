@@ -137,9 +137,12 @@ function emitEmGcode(profile: PrinterProfile, filament: FilamentProfile, spec: E
         holes: holes.map(expand) },
       { x0: ox + infillInset, y0: oy + H - band + infillInset, w: W - 2 * infillInset,
         h: band - 2 * infillInset, holes: holes.map(expand) },
-      { x0: ox + infillInset, y0: oy + band, w: band - 2 * infillInset, h: H - 2 * band, holes: [] },
-      { x0: ox + W - band + infillInset, y0: oy + band, w: band - 2 * infillInset, h: H - 2 * band,
-        holes: [] },
+      // The side strips butt exactly against the top/bottom strips (their y ranges share a
+      // boundary at band - infillInset) so the corner seams have no unfilled sliver.
+      { x0: ox + infillInset, y0: oy + band - infillInset, w: band - 2 * infillInset,
+        h: H - 2 * band + 2 * infillInset, holes: [] },
+      { x0: ox + W - band + infillInset, y0: oy + band - infillInset, w: band - 2 * infillInset,
+        h: H - 2 * band + 2 * infillInset, holes: [] },
     ]
     for (const s of strips) {
       retract(e, profile, 1)
