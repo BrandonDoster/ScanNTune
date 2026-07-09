@@ -1,20 +1,28 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, shallowRef, watch } from 'vue'
 import { useApp } from '../stores/useApp'
 import { useCalibration } from '../stores/useCalibration'
 import { usePrinterProfiles } from '../stores/usePrinterProfiles'
+import { readBytes } from '../util/preview'
+import { analyzeEmScan } from '../workerClient'
+import type { EmProcessing } from '../workerClient'
+import { emCorrection } from '../engine/em/emCorrectionFormatter'
 import { generateEmGcodeWithReport, HIGH_FLOW_WARNING_THRESHOLD_MM3_S } from '../engine/em/gcodeGenerator'
 import {
   accelRampMm,
   defaultEmTestSpec,
   emCouponGeometry,
   volumetricFlowMm3S,
+  type EmProgress,
   type EmTestSpec,
 } from '../engine/em/types'
 import { fitsA4 } from '../engine/gcode/emitter'
 import { defaultPrinterProfile } from '../engine/pa/types'
 import PrinterProfileCard from './PrinterProfileCard.vue'
 import NumericField from './NumericField.vue'
+import OverlayCanvas from './OverlayCanvas.vue'
+import CodeBlock from './CodeBlock.vue'
+import MetricTile from './MetricTile.vue'
 
 const app = useApp()
 const store = usePrinterProfiles()
@@ -111,6 +119,85 @@ function generate(): void {
   a.click()
   URL.revokeObjectURL(url)
 }
+
+// Scan card state. While an analysis runs, the upload and flow controls are locked.
+const analyzing = ref(false)
+const progressText = ref('')
+const scanError = ref('')
+const currentFlow = ref<number | null>(100)
+
+function onProgress(p: EmProgress): void {
+  switch (p.stage) {
+    case 'decode':
+      progressText.value = 'Reading the scan'
+      break
+    case 'align':
+      progressText.value = 'Locating the fiducials'
+      break
+    case 'measure':
+      progressText.value = 'Measuring the blocks'
+      break
+    case 'render':
+      progressText.value = 'Rendering the result'
+      break
+  }
+}
+
+const processing = shallowRef<EmProcessing | null>(null)
+// The spec the current `processing` result was actually analyzed against, so the result card
+// stays consistent even if the form fields above change afterwards.
+const analyzedSpec = shallowRef<EmTestSpec | null>(null)
+
+function resetProcessing(): void {
+  processing.value?.overlay.close()
+  processing.value = null
+  analyzedSpec.value = null
+}
+
+async function onPick(e: Event): Promise<void> {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  // Clear the input so picking the same file again still fires change.
+  input.value = ''
+  // A disabled input still receives drops in some browsers; the calibration is a hard
+  // requirement and a running analysis must not be doubled up.
+  if (!file || analyzing.value || !calibration.calibration) return
+  const usedSpec = spec.value
+  const scanPxPerMm = calibration.calibration.pxPerMm
+  analyzing.value = true
+  progressText.value = 'Reading the scan'
+  scanError.value = ''
+  resetProcessing()
+  try {
+    const bytes = await readBytes(file)
+    processing.value = await analyzeEmScan(bytes, usedSpec, scanPxPerMm, onProgress)
+    analyzedSpec.value = usedSpec
+  } catch (err) {
+    console.error('EM scan analysis failed', err)
+    scanError.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    analyzing.value = false
+    progressText.value = ''
+  }
+}
+
+// Result card state, derived from the analyzedSpec snapshot, never the live form state.
+const result = computed(() => processing.value?.result ?? null)
+const correction = computed(() => {
+  const r = result.value
+  const s = analyzedSpec.value
+  if (!r || !r.success || r.wMm === null || !s) return null
+  return emCorrection(
+    store.selected?.firmware ?? 'Klipper',
+    currentFlow.value ?? 100,
+    s.nominalLineWidthMm,
+    r.wMm,
+  )
+})
+const pitchScaleOff = computed(() => {
+  const p = result.value?.pitchScale
+  return p !== null && p !== undefined && Math.abs(p - 1) > 0.003
+})
 </script>
 
 <template>
@@ -252,6 +339,122 @@ function generate(): void {
       />
     </section>
 
+    <!-- 5. Scan the print -->
+    <section class="step mb-3">
+      <div class="step-head mb-1">
+        <span class="num">5</span><span class="step-title">Scan the print</span>
+      </div>
+      <p class="tip mb-3">
+        Scan the finished coupon top face down on a flatbed scanner, lid closed, at the calibrated
+        resolution, and drop the image in.
+      </p>
+      <div class="fields mb-3">
+        <NumericField
+          v-model="currentFlow"
+          label="Current flow %"
+          :step="1"
+          :min="1"
+          :disabled="analyzing"
+          data-testid="em-current-flow"
+        />
+      </div>
+      <label class="dropzone" :class="{ 'dropzone-disabled': !isCalibrated }">
+        <input
+          type="file"
+          accept="image/*"
+          class="file-input"
+          :disabled="!isCalibrated || analyzing"
+          data-testid="em-scan-input"
+          @change="onPick"
+        />
+        <v-icon size="28" :color="isCalibrated ? 'primary' : undefined">mdi-image-plus</v-icon>
+        <span class="dz-label">Choose the scan image</span>
+        <span class="dz-sub">or drop it here</span>
+      </label>
+      <p v-if="!isCalibrated" class="tip" data-testid="em-scan-needs-calibration">
+        Calibrate the scanner first (step 1); the flow analysis needs the scanner's true
+        resolution to measure the coupon in millimetres.
+      </p>
+      <div v-if="analyzing" class="d-flex align-center ga-2 mt-3">
+        <v-progress-circular indeterminate size="20" width="2" color="primary" />
+        <span class="tip mt-0" data-testid="em-progress">{{ progressText || 'Analyzing the scan...' }}</span>
+      </div>
+      <v-alert
+        v-if="scanError"
+        type="error"
+        variant="tonal"
+        class="mt-3"
+        :text="scanError"
+        data-testid="em-scan-error"
+      />
+    </section>
+
+    <!-- 6. Result -->
+    <section v-if="result" class="step mb-3">
+      <div class="step-head mb-3">
+        <span class="num">6</span><span class="step-title">Result</span>
+      </div>
+
+      <template v-if="result.success">
+        <div class="tiles mb-3">
+          <MetricTile
+            label="Measured line width"
+            :value="`${result.wMm!.toFixed(3)} mm`"
+            testid="em-width"
+          />
+          <MetricTile
+            v-if="correction"
+            label="New flow"
+            :value="`${correction.newFlowPercent}%`"
+            testid="em-flow"
+          />
+          <MetricTile
+            label="Blocks measured"
+            :value="`${result.blocksMeasured} of ${analyzedSpec!.blockCount}`"
+            testid="em-blocks"
+          />
+        </div>
+        <div class="facts mb-3">
+          <v-chip size="small" variant="tonal" prepend-icon="mdi-scale-balance" data-testid="em-bias">
+            separator check {{ result.biasMm!.toFixed(3) }} mm
+          </v-chip>
+          <v-chip size="small" variant="tonal" prepend-icon="mdi-arrow-expand-horizontal" data-testid="em-pitch-scale">
+            pitch scale {{ result.pitchScale!.toFixed(4) }}
+          </v-chip>
+          <v-chip
+            v-if="pitchScaleOff"
+            size="small"
+            variant="tonal"
+            color="warning"
+            prepend-icon="mdi-alert-outline"
+            data-testid="em-pitch-warning"
+          >
+            printer scale is off; run the skew and size calibration
+          </v-chip>
+        </div>
+        <template v-if="correction">
+          <CodeBlock :code="correction.command" data-testid="em-code" />
+          <p class="tip mt-0">{{ correction.summary }}</p>
+        </template>
+      </template>
+
+      <v-alert
+        v-else
+        type="error"
+        variant="tonal"
+        class="mb-3"
+        :text="result.failureReason ?? 'The scan could not be analyzed.'"
+        data-testid="em-failure"
+      />
+
+      <OverlayCanvas
+        v-if="processing?.overlay"
+        :bitmap="processing.overlay"
+        label="Detected blocks and measurements"
+        class="mt-3"
+      />
+    </section>
+
     <p class="tip">
       <v-icon size="14" class="mr-1">mdi-information-outline</v-icon>
       Print with a single filament color (no filament change), then scan the finished part top face
@@ -333,5 +536,52 @@ function generate(): void {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+}
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 22px;
+  border: 1.5px dashed rgba(var(--v-theme-primary), 0.5);
+  border-radius: 12px;
+  background: rgb(var(--v-theme-surface-bright));
+  cursor: pointer;
+  position: relative;
+  transition: border-color 0.15s ease;
+}
+.dropzone:hover {
+  border-color: rgb(var(--v-theme-primary));
+}
+.dropzone-disabled {
+  border-color: rgba(var(--v-theme-on-surface), 0.25);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.dropzone-disabled:hover {
+  border-color: rgba(var(--v-theme-on-surface), 0.25);
+}
+.file-input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.file-input:disabled {
+  cursor: not-allowed;
+}
+.dz-label {
+  font-weight: 500;
+  font-size: 14px;
+}
+.dz-sub {
+  font-size: 12px;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+}
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
 }
 </style>
