@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, shallowRef } from 'vue'
 import type { CouponSpec, MultiPlaneResult } from '../engine/types'
 
-export type Screen = 'scan' | 'calibration' | 'pa' | 'profile'
+export type Screen = 'scan' | 'calibration' | 'pa' | 'profile' | 'em'
 
 export interface ResultPayload {
   result: MultiPlaneResult
@@ -20,6 +20,9 @@ export const useApp = defineStore('app', () => {
   // page reuses each scan's annotated overlay straight from the scans store, which owns them.
   const payload = shallowRef<ResultPayload | null>(null)
   const profilePayload = ref<ProfilePayload | null>(null)
+  // The screen the profile editor was opened from, so closing it returns there (the shared
+  // profile card lives on both the PA and the flow page).
+  const profileReturnScreen = ref<Screen>('pa')
 
   function goScan(): void {
     screen.value = 'scan'
@@ -30,9 +33,16 @@ export const useApp = defineStore('app', () => {
   function goPa(): void {
     screen.value = 'pa'
   }
+  function goEm(): void {
+    screen.value = 'em'
+  }
   function goProfile(p: ProfilePayload): void {
     profilePayload.value = p
+    profileReturnScreen.value = screen.value === 'profile' ? profileReturnScreen.value : screen.value
     screen.value = 'profile'
+  }
+  function closeProfile(): void {
+    screen.value = profileReturnScreen.value
   }
   function setResults(p: ResultPayload): void {
     payload.value = p
@@ -48,7 +58,9 @@ export const useApp = defineStore('app', () => {
     goScan,
     goCalibration,
     goPa,
+    goEm,
     goProfile,
+    closeProfile,
     setResults,
     clearResults,
   }

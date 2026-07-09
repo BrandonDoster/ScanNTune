@@ -16,7 +16,12 @@ import type {
 import { analyzePaCoupon } from '../engine/pa/paAnalyzer'
 import { renderPaOverlayMat } from '../engine/pa/paOverlayRenderer'
 import type { PaAlignment } from '../engine/pa/fiducialAligner'
-import type { PaProgress, PaProgressCallback, PaResult, PaTestSpec } from '../engine/pa/types'
+import type { PaProgressCallback, PaResult, PaTestSpec } from '../engine/pa/types'
+import { analyzeEmCoupon } from '../engine/em/emAnalyzer'
+import type { EmResult } from '../engine/em/emAnalyzer'
+import { renderEmOverlayMat } from '../engine/em/emOverlayRenderer'
+import type { EmAlignment } from '../engine/em/fiducialAligner'
+import type { EmProgressCallback, EmTestSpec } from '../engine/em/types'
 import { decodeToBgr, matToImageBitmap, grayMatToImageBitmap } from './decode'
 
 // The CV pipeline runs here, off the main thread, so the UI never freezes during analysis. The worker
@@ -110,14 +115,17 @@ export interface PaProcessing {
 
 // Wraps the caller's (Comlink-proxied, fire-and-forget) progress callback: forwards each stage event
 // without awaiting it, and logs how long each stage took when the next one starts.
-function paStageReporter(onProgress?: PaProgressCallback): {
-  report: PaProgressCallback
+function stageReporter<P extends { stage: string }>(
+  label: string,
+  onProgress?: (progress: P) => void,
+): {
+  report: (progress: P) => void
   finish: () => void
 } {
-  let lastStage: PaProgress['stage'] | null = null
+  let lastStage: string | null = null
   let lastStart = 0
   const logStage = () => {
-    if (lastStage) console.info(`PA analyze: ${lastStage} ${Math.round(performance.now() - lastStart)} ms`)
+    if (lastStage) console.info(`${label} analyze: ${lastStage} ${Math.round(performance.now() - lastStart)} ms`)
   }
   return {
     report: (p) => {
@@ -127,7 +135,7 @@ function paStageReporter(onProgress?: PaProgressCallback): {
         lastStart = performance.now()
       }
       if (onProgress) {
-        void Promise.resolve(onProgress(p)).catch((e) => console.error('PA progress callback failed', e))
+        void Promise.resolve(onProgress(p)).catch((e) => console.error(`${label} progress callback failed`, e))
       }
     },
     finish: logStage,
@@ -139,7 +147,7 @@ async function analyzePaScan(
   spec: PaTestSpec,
   onProgress?: PaProgressCallback,
 ): Promise<PaProcessing> {
-  const { report, finish } = paStageReporter(onProgress)
+  const { report, finish } = stageReporter('PA', onProgress)
   const cv = await loadOpenCv()
   report({ stage: 'decode' })
   const img = await decodeToBgr(cv, bytes)
@@ -172,6 +180,55 @@ async function renderPaOverlayBitmap(
   }
 }
 
+/**
+ * The outcome of analysing one extrusion-multiplier coupon scan: the EmResult plus an overlay
+ * tinting each measured test block by its agreement with the overall estimate. When the coupon
+ * could not be aligned the overlay is the plain decoded scan, so the UI always has an image to show.
+ */
+export interface EmProcessing {
+  result: EmResult
+  overlay: ImageBitmap
+}
+
+async function analyzeEmScan(
+  bytes: ArrayBuffer,
+  spec: EmTestSpec,
+  scanPxPerMm: number,
+  onProgress?: EmProgressCallback,
+): Promise<EmProcessing> {
+  const { report, finish } = stageReporter('EM', onProgress)
+  const cv = await loadOpenCv()
+  report({ stage: 'decode' })
+  const img = await decodeToBgr(cv, bytes)
+  try {
+    const holder: { alignment?: EmAlignment } = {}
+    const result = analyzeEmCoupon(cv, img, spec, scanPxPerMm, holder, report)
+    report({ stage: 'render' })
+    const overlay = holder.alignment?.success
+      ? await renderEmOverlayBitmap(cv, img, holder.alignment, spec, result)
+      : await matToImageBitmap(cv, img)
+    finish()
+    return Comlink.transfer({ result, overlay }, [overlay])
+  } finally {
+    img.delete()
+  }
+}
+
+async function renderEmOverlayBitmap(
+  cv: OpenCv,
+  image: Mat,
+  alignment: EmAlignment,
+  spec: EmTestSpec,
+  result: EmResult,
+): Promise<ImageBitmap> {
+  const mat = renderEmOverlayMat(cv, image, alignment, spec, result)
+  try {
+    return await matToImageBitmap(cv, mat)
+  } finally {
+    mat.delete()
+  }
+}
+
 async function measureCardScan(
   bytes: ArrayBuffer,
   knownLongSideMm: number,
@@ -186,7 +243,7 @@ async function measureCardScan(
   }
 }
 
-const api = { analyzeScan, analyzePaScan, measureCardScan }
+const api = { analyzeScan, analyzePaScan, analyzeEmScan, measureCardScan }
 export type AnalysisApi = typeof api
 
 Comlink.expose(api)

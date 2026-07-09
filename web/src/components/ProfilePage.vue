@@ -40,14 +40,14 @@ function openImport(kind: ImportKind): void {
 
 function back(): void {
   if (form.isDirty.value && !window.confirm('Discard the unsaved profile changes?')) return
-  app.goPa()
+  app.closeProfile()
 }
 
 function save(): void {
   if (!form.canSave.value) return
   const id = store.upsert(form.toProfile())
   store.select(id)
-  app.goPa()
+  app.closeProfile()
 }
 </script>
 

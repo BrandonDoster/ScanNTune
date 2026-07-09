@@ -141,6 +141,30 @@ this pipeline the same way `TestData_2solid.png` is for the XY/XZ/YZ engine. Do 
 measurement math (alignment, width profiling, transition scoring, parabolic refinement) without keeping
 the render-recovery tests green (rule 1).
 
+## Extrusion multiplier (flow) calibration
+
+A third calibration flow lives under `web/src/engine/em/`: it measures the deposited bead width from
+a single scan of a single-color coupon and emits the flow correction (slicer flow % and `M221 S`).
+The coupon (generated in-app, `em/gcodeGenerator.ts` over the shared `web/src/engine/gcode/emitter.ts`
+extracted from the PA generator) is a frame band with the same 3-hole + solid-origin-corner fiducial
+convention, a center rail, and two mirrored rows of 13 blocks of 7 parallel single-bead lines, each
+block at a different known pitch (defaults 0.70-1.10 mm, always above the bead width: a flatbed cannot
+read a slit much narrower than ~0.25 mm through the part's depth, so every gap must stay open). Lines
+are 3 layers tall (1 narrower pedestal layer absorbs z-offset squish, 2 measured layers define the
+scanned edge; scan top face down, lid closed) and overrun the band/rail by 1 mm so their tips weld onto
+perimeters. Measurement (`em/fiducialAligner`, `em/gapMeasurer`, `em/emAnalyzer`): per gap, the bead
+width is the gap complement `w = measured local pitch - measured gap` (line centres are
+extrusion-immune, so printer axis stretch and material shrinkage cancel), edges located by a gradient
+centroid (center-of-gravity) sub-pixel estimator, samples pooled over both rows, MAD-cleaned, and
+summarized by the median. Distances convert to true mm ONLY via the card calibration px/mm
+(`useCalibration`, a hard requirement for this flow); the affine is for locating features. The block
+separators are NOT a width reference (their air is `2 + nominal - w`, w-dependent); they provide the
+`biasMm` cross-check residual. `pitchScale` (measured vs commanded pitch) is a per-axis printer-scale
+diagnostic. Validation contract: `web/tests/helpers/emRender.ts` renders coupons from known ground
+truth; do not change the EM measurement math without keeping its render-recovery tests
+(`emAnalyzer.spec.ts`) green, and `tests/engine/em/realScan.spec.ts` + `e2e/em.spec.ts` pin a real
+600 dpi scan end to end (rule 1).
+
 ## Conventions
 
 The coding rules are strict; each is numbered for unambiguous reference. Do not cite these rule numbers in
@@ -184,6 +208,23 @@ shipped source, comments, or UI text: they are guidance for how to work, not doc
    Rewrite the sentence: use a colon, parentheses, a comma, or two separate sentences. A hyphen is allowed
    ONLY where grammar genuinely requires one, such as a compound modifier ("sub-pixel", "user-facing") or a
    hyphenated name.
+
+7. **UI text is plain technical prose; terminology is the community's, everywhere.** Helper texts, hints,
+   notes, and warnings are complete, grammatical sentences in a neutral register, written the way a good
+   manual states facts. Short but never telegraphic: no clipped fragments, no dropped articles. Brevity
+   comes from cutting information, never from cutting grammar; two to three short sentences is the normal
+   size. Content stays factual: what the option does and what it requires, no persuasion ("pick this
+   when"), no restating the control's label, no setup-specific claims where a general one is true (say
+   "the backing, either the lid or a sheet of paper", not "the scanner lid").
+   Terminology: use the words the 3D printing community already uses, and use them consistently, in UI
+   text AND internally (identifiers, comments, docs), so no one has to translate between code vocabulary
+   and printing vocabulary. Settings are named as the slicers and firmwares name them (extrusion
+   multiplier, flow ratio, pressure advance, z-offset, e-steps, rotation distance); hardware and process
+   terms are the accepted ones (nozzle, bed, build plate, first layer, perimeter, brim, filament swap).
+   Never invent a synonym for an established term; keep one term per concept ("bed" is the printer's
+   surface, "build plate" the removable sheet). Where ecosystems differ, use the term matching the user's
+   selected firmware or slicer, or name both once ("extrusion multiplier / flow ratio"). Existing internal
+   names are renamed opportunistically when the code is touched, not in bulk churn.
 
 **Verification bar.** The standard for "verified" is `npm run build` plus `npm test` plus `npm run e2e` all
 green (and, for any change to the measurement pipeline, the synthetic-fixture validation of rule 1). That
