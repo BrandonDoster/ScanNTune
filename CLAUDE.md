@@ -209,6 +209,13 @@ shipped source, comments, or UI text: they are guidance for how to work, not doc
    ONLY where grammar genuinely requires one, such as a compound modifier ("sub-pixel", "user-facing") or a
    hyphenated name.
 
+7. **UI text is compact, neutral information.** Helper texts, hints, notes, and warnings state facts in as
+   few plain sentences as possible: what happens, what is required, nothing else. No marketing tone, no
+   "pick this when", no motivational framing, no restating what the control already says, no second
+   sentence that only elaborates the first. State requirements generally rather than baking in one setup
+   (say "backing" with the options in parentheses, not "the scanner lid" as if it were the only backing).
+   If a note exceeds two short sentences, cut it.
+
 **Verification bar.** The standard for "verified" is `npm run build` plus `npm test` plus `npm run e2e` all
 green (and, for any change to the measurement pipeline, the synthetic-fixture validation of rule 1). That
 automated gate is sufficient: do not additionally launch a dev server for manual browser verification unless

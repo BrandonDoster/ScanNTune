@@ -66,18 +66,15 @@ const partColorsItems = [
 const scanPlanNote = computed(() => {
   if (scanPlace.value === 'plate') {
     return (
-      'For filament that will not come off the plate (TPU, PETG): the coupon prints at ' +
-      'the front edge, and the whole plate goes onto the scanner with that edge on the ' +
-      'glass and the rest overhanging. Single color; the plate must contrast the filament ' +
-      'and lie flat on the glass.'
+      'For parts that stay on the plate (TPU, PETG). Prints at the front bed edge; scan ' +
+      'with the plate edge on the glass. The plate color must contrast the filament.'
     )
   }
   return partColors.value === 'base'
-    ? 'A solid base prints first, the printer pauses for a filament swap, and the coupon ' +
-        'prints on top in the second color. Pick this when the coupon color would not ' +
-        'stand out against the scanner lid; any two colors that differ in brightness work.'
-    : 'Remove the finished coupon and scan it top face down, lid closed. Works with any ' +
-        'single filament color that differs from the scanner lid.'
+    ? 'Prints a base in a second color under the coupon (filament swap pause). The two ' +
+        'filaments must differ in brightness.'
+    : 'Scan the removed part top face down. The filament must contrast the backing ' +
+        '(lid or a sheet of paper).'
 })
 
 watch(
@@ -288,9 +285,8 @@ const pitchScaleOff = computed(() => {
         </v-btn>
       </div>
       <p v-if="!isCalibrated" class="text-body-2 text-medium-emphasis mt-2 mb-0">
-        Required. The flow analysis measures the printed line pitch and gaps in millimetres,
-        which needs the scanner's true resolution from the card calibration; without it the
-        scan cannot be analyzed.
+        Required. The analysis measures the coupon in millimetres, which needs the card
+        calibration's true resolution.
       </p>
     </section>
 
@@ -423,8 +419,7 @@ const pitchScaleOff = computed(() => {
         <span class="num">5</span><span class="step-title">Scan the print</span>
       </div>
       <p class="tip mb-3">
-        Scan the finished coupon top face down on a flatbed scanner, lid closed, at the calibrated
-        resolution, and drop the image in.
+        Scan the coupon top face down, lid closed, at the calibrated resolution.
       </p>
       <div class="fields mb-3">
         <NumericField
@@ -438,9 +433,8 @@ const pitchScaleOff = computed(() => {
         />
       </div>
       <p class="tip mb-3">
-        Enter your slicer's current value: the extrusion multiplier from PrusaSlicer or the
-        flow ratio from OrcaSlicer (e.g. 0.96), or a Cura-style percentage (e.g. 96). The
-        result shows the corrected value to put back in the same place.
+        The slicer's current value: extrusion multiplier / flow ratio (0.96) or percentage
+        (96). The result shows the corrected value in the same format.
       </p>
       <label class="dropzone" :class="{ 'dropzone-disabled': !isCalibrated }">
         <input
@@ -456,8 +450,7 @@ const pitchScaleOff = computed(() => {
         <span class="dz-sub">or drop it here</span>
       </label>
       <p v-if="!isCalibrated" class="tip" data-testid="em-scan-needs-calibration">
-        Calibrate the scanner first (step 1); the flow analysis needs the scanner's true
-        resolution to measure the coupon in millimetres.
+        Calibrate the scanner first (step 1); the analysis needs its true resolution.
       </p>
       <div v-if="analyzing" class="d-flex align-center ga-2 mt-3">
         <v-progress-circular indeterminate size="20" width="2" color="primary" />
@@ -519,8 +512,7 @@ const pitchScaleOff = computed(() => {
         <template v-if="correction">
           <CodeBlock :code="correction.command" data-testid="em-code" />
           <p class="tip mt-0">
-            The durable fix is the slicer flow above; the M221 command only scales the current
-            firmware session (useful for prints already sliced).
+            The slicer flow is the durable fix; M221 only affects the current firmware session.
           </p>
         </template>
       </template>
@@ -544,9 +536,8 @@ const pitchScaleOff = computed(() => {
 
     <p class="tip">
       <v-icon size="14" class="mr-1">mdi-information-outline</v-icon>
-      Print with a single filament color (no filament change), then scan the finished part top face
-      down, lid closed, at the calibrated resolution. The result is only valid near the printed
-      speed. Filament diameter variation limits repeatability to about 1%.
+      The result is only valid near the printed speed. Filament diameter variation limits
+      repeatability to about 1%.
     </p>
   </v-container>
 </template>
