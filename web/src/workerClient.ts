@@ -1,7 +1,8 @@
 import * as Comlink from 'comlink'
-import type { AnalysisApi, PaProcessing, ScanProcessing } from './worker/analysis.worker'
+import type { AnalysisApi, EmProcessing, PaProcessing, ScanProcessing } from './worker/analysis.worker'
 import type { CouponSpec, ScaleReferenceResult } from './engine/types'
 import type { PaProgressCallback, PaTestSpec } from './engine/pa/types'
+import type { EmProgressCallback, EmTestSpec } from './engine/em/types'
 
 // Lazily create the analysis worker (which pulls in OpenCV.js) only when the user first analyzes a
 // scan, so the wasm is not loaded on the initial page paint.
@@ -40,6 +41,23 @@ export async function analyzePaScan(
   )
 }
 
+// Analyse one extrusion-multiplier coupon scan: align the fiducials, measure the comb gaps, and
+// render the block overlay, all inside the worker.
+export async function analyzeEmScan(
+  bytes: Uint8Array,
+  spec: EmTestSpec,
+  scanPxPerMm: number,
+  onProgress?: EmProgressCallback,
+): Promise<EmProcessing> {
+  const b = bytes.slice().buffer
+  return getApi().analyzeEmScan(
+    Comlink.transfer(b, [b]),
+    spec,
+    scanPxPerMm,
+    onProgress ? Comlink.proxy(onProgress) : undefined,
+  )
+}
+
 export async function measureCardScan(
   bytes: Uint8Array,
   knownLongSideMm: number,
@@ -49,4 +67,4 @@ export async function measureCardScan(
   return getApi().measureCardScan(Comlink.transfer(b, [b]), knownLongSideMm, nominalDpi)
 }
 
-export type { PaProcessing, ScanProcessing }
+export type { EmProcessing, PaProcessing, ScanProcessing }

@@ -1,6 +1,7 @@
 import type { Mat, OpenCv } from '../opencv'
-import type { EmTestSpec } from './types'
+import type { EmProgressCallback, EmTestSpec } from './types'
 import { alignEmCoupon } from './fiducialAligner'
+import type { EmAlignment } from './fiducialAligner'
 import type { BlockMeasurement, EmMeasurement } from './gapMeasurer'
 import { measureEmCoupon } from './gapMeasurer'
 import { valueChannel } from '../cvUtils'
@@ -47,15 +48,24 @@ const W_MAX_MM = 2
 const MAD_TO_SIGMA = 1.4826
 const MAD_CUTOFF = 3.5
 
+/**
+ * Analyzes an EM coupon scan. `alignmentHolder`, when given, receives the solved fiducial
+ * alignment (successful or not) so callers such as the overlay renderer can place coupon-frame
+ * geometry in scan pixels without re-running the aligner.
+ */
 export function analyzeEmCoupon(
   cv: OpenCv,
   imageBgr: Mat,
   spec: EmTestSpec,
   scanPxPerMm: number,
+  alignmentHolder?: { alignment?: EmAlignment },
+  onProgress?: EmProgressCallback,
 ): EmResult {
   if (!imageBgr || imageBgr.empty()) throw new Error('Image is null or empty.')
 
+  onProgress?.({ stage: 'align' })
   const alignment = alignEmCoupon(cv, imageBgr, spec)
+  if (alignmentHolder) alignmentHolder.alignment = alignment
   if (!alignment.success || !alignment.affine) {
     return failure(
       alignment.failureReason ?? 'The coupon could not be located in the scan.',
@@ -67,6 +77,7 @@ export function analyzeEmCoupon(
   const fail = (reason: string) =>
     failure(reason, alignment.flipped, alignment.rotationQuarterTurns)
 
+  onProgress?.({ stage: 'measure' })
   const gray = valueChannel(cv, imageBgr)
   let measurement
   try {

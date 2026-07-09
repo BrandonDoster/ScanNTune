@@ -30,6 +30,13 @@ export interface EmTestSpec {
   nominalLineWidthMm: number
 }
 
+/** A stage event of the EM analysis. */
+export interface EmProgress {
+  stage: 'decode' | 'align' | 'measure' | 'render'
+}
+
+export type EmProgressCallback = (progress: EmProgress) => void
+
 export function defaultEmTestSpec(profile: PrinterProfile): EmTestSpec {
   const nominal = profile.nozzleDiameterMm * NOMINAL_WIDTH_FACTOR
   const round2 = (v: number) => Math.round(v * 100) / 100
