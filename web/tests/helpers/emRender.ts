@@ -15,12 +15,18 @@ export interface EmRenderOptions {
   blurSigmaMm?: number
   plasticGray?: number
   backgroundGray?: number
+  /**
+   * Gray tone of a contrasting-color base backing the window interior (gaps, separators,
+   * margins). Undefined means no base: the interior shows `backgroundGray`, the current
+   * behavior. The three fiducial holes are through-holes and always show `backgroundGray`.
+   */
+  baseGray?: number
   /** Uniform pitch scale simulating printer axis stretch (default 1). */
   pitchScale?: number
   marginMm?: number
 }
 
-type Resolved = Required<EmRenderOptions>
+type Resolved = Required<Omit<EmRenderOptions, 'baseGray'>> & Pick<EmRenderOptions, 'baseGray'>
 
 const DEFAULTS: Omit<Resolved, 'spec' | 'trueWidthMm'> = {
   pxPerMm: 12,
@@ -89,7 +95,7 @@ function couponCoverage(
   y: number,
   g: ReturnType<typeof emCouponGeometry>,
   o: Resolved,
-): number {
+): { plastic: number; hole: number } {
   const sigma = o.blurSigmaMm
   const scaleX = (xMm: number) => xMm * o.pitchScale
   const Wc = scaleX(g.couponWidthMm)
@@ -138,7 +144,10 @@ function couponCoverage(
     )
   }
 
-  return Math.max(0, Math.min(1, coverage - holeCoverage))
+  return {
+    plastic: Math.max(0, Math.min(1, coverage - holeCoverage)),
+    hole: Math.max(0, Math.min(1, holeCoverage)),
+  }
 }
 
 export function renderEmScan(options: EmRenderOptions): RgbaImage {
@@ -173,9 +182,17 @@ export function renderEmScan(options: EmRenderOptions): RgbaImage {
           if (o.flipped) mx = w0Mm - mx
           const bx = mx - o.marginMm
           const by = my - o.marginMm
-          const coverage =
-            bx < 0 || by < 0 || bx > Wc || by > Hc ? 0 : couponCoverage(bx, by, g, o)
-          acc += o.backgroundGray + coverage * (o.plasticGray - o.backgroundGray)
+          if (bx < 0 || by < 0 || bx > Wc || by > Hc) {
+            acc += o.backgroundGray
+          } else {
+            const { plastic, hole } = couponCoverage(bx, by, g, o)
+            // The stack, top to bottom: plastic, then the contrasting base (if any) backing
+            // the window interior, then the scanner background showing through the fiducial
+            // through-holes and where there is no base.
+            const backing = o.baseGray === undefined ? o.backgroundGray : o.baseGray
+            const behind = hole * o.backgroundGray + (1 - hole) * backing
+            acc += plastic * o.plasticGray + (1 - plastic) * behind
+          }
         }
       }
       const gray = acc / (S * S) + (o.noiseSigma > 0 ? gauss(rand) * o.noiseSigma : 0)

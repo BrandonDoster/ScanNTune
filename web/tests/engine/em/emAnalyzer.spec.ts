@@ -84,6 +84,41 @@ describe('analyzeEmCoupon render recovery', () => {
     240000,
   )
 
+  it(
+    'recovers 0.42 mm within 0.008 mm on a contrasting-color base (dark plastic on a gray base)',
+    async () => {
+      const r = await analyzeRender({
+        trueWidthMm: 0.42,
+        plasticGray: 40,
+        baseGray: 150,
+        backgroundGray: 245,
+      })
+      expect(r.success).toBe(true)
+      expect(r.wMm).not.toBeNull()
+      expect(Math.abs(r.wMm! - 0.42)).toBeLessThanOrEqual(0.008)
+    },
+    240000,
+  )
+
+  it(
+    'on a low-contrast light-on-light base either measures accurately or fails cleanly',
+    async () => {
+      const r = await analyzeRender({
+        trueWidthMm: 0.42,
+        plasticGray: 240,
+        baseGray: 200,
+        backgroundGray: 20,
+      })
+      if (r.success) {
+        expect(r.wMm).not.toBeNull()
+        expect(Math.abs(r.wMm! - 0.42)).toBeLessThanOrEqual(0.008)
+      } else {
+        expect(r.failureReason).toBeTruthy()
+      }
+    },
+    240000,
+  )
+
   it('fails with a reason on a blank image', async () => {
     const cv = await getCv()
     const width = 400
