@@ -296,7 +296,7 @@ const pitchScaleOff = computed(() => {
       />
     </section>
 
-    <!-- 3. Generate -->
+    <!-- 4. Generate -->
     <section class="step mb-3">
       <div class="step-head mb-2">
         <span class="num">4</span><span class="step-title">Generate</span>
