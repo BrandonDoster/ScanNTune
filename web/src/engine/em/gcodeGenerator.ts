@@ -1,6 +1,7 @@
 import type { FilamentProfile, PrinterProfile } from '../pa/types'
 import { substituteSlicerVariables } from '../pa/slicerVariables'
 import {
+  BASE_LAYERS,
   basePerimeters,
   COLD_PRINT_WARNING,
   type Emitter,
@@ -54,9 +55,18 @@ export function generateEmGcodeWithReport(
 
   const start = substituteSlicerVariables(profile.startGcode, profile, filament)
   const end = substituteSlicerVariables(profile.endGcode, profile, filament)
-  const substituted: PrinterProfile = { ...profile, startGcode: start.gcode, endGcode: end.gcode }
-  const unknownVariables = [...new Set([...start.unknown, ...end.unknown])]
-  const warnings = [...new Set([...start.warnings, ...end.warnings])]
+  // The pause gcode is only emitted (and its placeholders only reported) with a contrast base.
+  const pause = spec.contrastBase
+    ? substituteSlicerVariables(profile.pauseGcode, profile, filament)
+    : { gcode: profile.pauseGcode, unknown: [], warnings: [] }
+  const substituted: PrinterProfile = {
+    ...profile,
+    startGcode: start.gcode,
+    pauseGcode: pause.gcode,
+    endGcode: end.gcode,
+  }
+  const unknownVariables = [...new Set([...start.unknown, ...pause.unknown, ...end.unknown])]
+  const warnings = [...new Set([...start.warnings, ...pause.warnings, ...end.warnings])]
   if (!startGcodeHeats(start.gcode)) warnings.push(COLD_PRINT_WARNING)
 
   const flow = volumetricFlowMm3S(spec, profile.layerHeightMm)
@@ -123,8 +133,36 @@ function emitEmGcode(profile: PrinterProfile, filament: FilamentProfile, spec: E
     y1: b.y1 + holeClearance,
   })
 
+  // Contrasting-color base: two solid layers over the full coupon rectangle (the window is
+  // backed, not open; only the fiducial holes stay open), then a filament-change pause.
+  const zOffsetMm = spec.contrastBase ? BASE_LAYERS * profile.layerHeightMm : 0
+  if (spec.contrastBase) {
+    const baseRasterHoles = holes.map((h) => ({
+      x0: h.x0 - infillInset,
+      y0: h.y0 - infillInset,
+      x1: h.x1 + infillInset,
+      y1: h.y1 + infillInset,
+    }))
+    for (let layer = 0; layer < BASE_LAYERS; layer++) {
+      const z = profile.layerHeightMm * (layer + 1)
+      L.push(`G1 Z${z.toFixed(3)} F600`)
+      basePerimeters(e, profile, filament, nominal, ox, oy, g.couponWidthMm, g.couponHeightMm,
+        holes)
+      rasterBase(e, profile, filament, nominal, ox + infillInset, oy + infillInset,
+        g.couponWidthMm - 2 * infillInset, g.couponHeightMm - 2 * infillInset,
+        layer % 2 === 0, baseRasterHoles)
+    }
+    // Filament change to the contrasting color.
+    retract(e, profile, 1)
+    L.push(...profile.pauseGcode.split('\n'))
+    // Printers whose PAUSE/M600 macro already retracts may see a small blob at the frame
+    // start; set retractMm to 0 in the profile if that happens.
+    L.push('; if your pause macro already retracts, set retractMm to 0 in the profile')
+    retract(e, profile, -1)
+  }
+
   for (let layer = 0; layer < totalLayers; layer++) {
-    const z = profile.layerHeightMm * (layer + 1)
+    const z = profile.layerHeightMm * (layer + 1) + zOffsetMm
     // Bracket the layer change: retract before the Z push, travel to the frame corner where
     // the next layer's perimeter starts while still retracted (the move crosses the open
     // window), and only then restore pressure.

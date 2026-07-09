@@ -176,6 +176,95 @@ describe('generateEmGcodeWithReport', () => {
   })
 })
 
+describe('contrastBase', () => {
+  const baseSpec = { ...spec, contrastBase: true }
+  const report = generateEmGcodeWithReport(profile, filament, baseSpec)
+  const lines = report.gcode.split('\n')
+
+  it('emits the pause gcode only when contrastBase is set', () => {
+    expect(report.gcode).toContain('PAUSE')
+    expect(report.gcode).toContain('; if your pause macro already retracts')
+    const plain = generateEmGcodeWithReport(profile, filament, spec)
+    expect(plain.gcode).not.toContain('PAUSE')
+    expect(plain.gcode).not.toContain('; if your pause macro already retracts')
+  })
+
+  it('shifts the coupon layers up by the two base layers', () => {
+    const zMoves = lines.filter((l) => l.startsWith('G1 Z'))
+    const zs = [...new Set(zMoves.map((l) => l.match(/Z([\d.]+)/)![1]))]
+    expect(zs).toEqual(['0.200', '0.400', '0.600', '0.800', '1.000', '10'])
+  })
+
+  it('brackets the pause with a retract and an unretract', () => {
+    const i = lines.indexOf('PAUSE')
+    expect(i).toBeGreaterThan(0)
+    expect(lines[i - 1]).toMatch(/^G1 E-/)
+    expect(lines[i + 1]).toBe('; if your pause macro already retracts, set retractMm to 0 in the profile')
+    expect(lines[i + 2]).toMatch(/^G1 E[^-]/)
+  })
+
+  it('keeps the fiducial hole boxes free of extrusion on the base layers', () => {
+    const g = emCouponGeometry(baseSpec)
+    const ox = (profile.bedWidthMm - g.couponWidthMm) / 2
+    const oy = (profile.bedDepthMm - g.couponHeightMm) / 2
+    const holes = g.fiducials.map((f) => ({
+      x0: ox + f.xMm - g.fiducialSizeMm / 2,
+      y0: oy + f.yMm - g.fiducialSizeMm / 2,
+      x1: ox + f.xMm + g.fiducialSizeMm / 2,
+      y1: oy + f.yMm + g.fiducialSizeMm / 2,
+    }))
+    const pauseIndex = lines.indexOf('PAUSE')
+    const crossesHole = (x0: number, y0: number, x1: number, y1: number) => {
+      // Sample the segment densely; the hole boxes are 5 mm, so 0.5 mm steps cannot skip one.
+      const len = Math.hypot(x1 - x0, y1 - y0)
+      const n = Math.max(2, Math.ceil(len / 0.5))
+      for (let k = 0; k <= n; k++) {
+        const x = x0 + ((x1 - x0) * k) / n
+        const y = y0 + ((y1 - y0) * k) / n
+        for (const h of holes) {
+          if (x > h.x0 + 0.01 && x < h.x1 - 0.01 && y > h.y0 + 0.01 && y < h.y1 - 0.01) return true
+        }
+      }
+      return false
+    }
+    let x = 0
+    let y = 0
+    for (const l of lines.slice(0, pauseIndex)) {
+      const m = l.match(/^G([01]) X(-?[\d.]+) Y(-?[\d.]+)/)
+      if (!m) continue
+      const nx = Number(m[2])
+      const ny = Number(m[3])
+      if (m[1] === '1' && /E[\d.]/.test(l)) {
+        expect(crossesHole(x, y, nx, ny), `extrusion over a fiducial hole: ${l}`).toBe(false)
+      }
+      x = nx
+      y = ny
+    }
+  })
+
+  it('prints two solid base layers over the full rectangle before the pause', () => {
+    const g = emCouponGeometry(baseSpec)
+    const ox = (profile.bedWidthMm - g.couponWidthMm) / 2
+    const pauseIndex = lines.indexOf('PAUSE')
+    const preZs = [
+      ...new Set(
+        lines
+          .slice(0, pauseIndex)
+          .filter((l) => l.startsWith('G1 Z'))
+          .map((l) => l.match(/Z([\d.]+)/)![1]),
+      ),
+    ]
+    expect(preZs).toEqual(['0.200', '0.400'])
+    // Solid base: some extrusion crosses the window interior mid-width before the pause.
+    const midX = ox + g.couponWidthMm / 2
+    const crossesMid = lines.slice(0, pauseIndex).some((l) => {
+      const m = l.match(/^G1 X(-?[\d.]+) Y(-?[\d.]+) E/)
+      return m !== null && Math.abs(Number(m[1]) - midX) < g.couponWidthMm / 4
+    })
+    expect(crossesMid).toBe(true)
+  })
+})
+
 describe('placement', () => {
   const yExtentsOfExtrusionMoves = (gcode: string) => {
     const ys: number[] = []
