@@ -29,14 +29,18 @@ describe('combiner guards', () => {
     expect(r.rotationLooksValid).toBe(true)
   })
 
-  it.each([70.0, 110.0, 250.0])('far-off quarter-turn is invalid (%s)', (turn) => {
+  // The least-squares separation only needs the angles to differ (modulo 180); turns equal modulo
+  // 180, or too close to it, leave the scanner terms inseparable from the printer's.
+  it.each([0.0, 5.0, 176.0, 184.0, 355.0])('a degenerate turn is invalid (%s)', (turn) => {
     const r = combineScans(scan(0.0, false), scan(turn, false))
     expect(r.rotationLooksValid).toBe(false)
+    expect(r.failureReason).toMatch(/quarter turn/)
   })
 
-  it.each([87.0, 93.0, 273.0])('near quarter-turn is valid (%s)', (turn) => {
+  it.each([45.0, 70.0, 90.0, 110.0, 250.0, 273.0])('a well-spread turn is valid (%s)', (turn) => {
     const r = combineScans(scan(0.0, false), scan(turn, false))
     expect(r.rotationLooksValid).toBe(true)
+    expect(r.failureReason).toBeNull()
   })
 
   it('the combined detection carries the weaker scan consistently', () => {
@@ -53,8 +57,8 @@ describe('reconcile input guards', () => {
     expect(() => reconcileScans([alignedResult({ plane: null })], null)).toThrow(/plane/)
   })
 
-  it('rejects a plane that is not a pair instead of dropping it', () => {
-    expect(() => reconcileScans([alignedResult({ plane: 'XY' })], null)).toThrow(/exactly two/)
+  it('rejects a plane with a single scan instead of dropping it', () => {
+    expect(() => reconcileScans([alignedResult({ plane: 'XY' })], null)).toThrow(/at least two/)
   })
 
   it('rejects a non-positive px/mm reference', () => {

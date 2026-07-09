@@ -1,12 +1,14 @@
 import type { AlignedResult, AxisScale, MultiPlaneResult, Plane, PlaneAnalysis, PlaneSkew } from './types'
 import { planeAxes } from './types'
 import { applyReference } from './couponAnalyzer'
-import { combineScans } from './scanCombiner'
+import { combineScanSet } from './scanCombiner'
 
 // The whole reconciliation, pure TypeScript (no OpenCV): group the aligned per-scan results by plane,
-// apply the pxPerMm reference, pair each plane's two quarter-turn scans, and combine across planes.
-// The caller (the Analyze button) only passes scans that already measured a plane in matched pairs;
-// anything else is a caller bug and throws rather than silently dropping scans from the result.
+// apply the pxPerMm reference, separate printer from scanner error over each plane's scan set, and
+// combine across planes. The caller (the Analyze button) only passes scans that already measured a
+// plane with at least two scans per plane; anything else is a caller bug and throws rather than
+// silently dropping scans from the result. A scan set whose angles cannot separate the errors is a
+// normal outcome: it comes back flagged invalid with a user-worded failure reason, never a throw.
 export function reconcileScans(results: AlignedResult[], pxPerMm: number | null): MultiPlaneResult {
   const groups = new Map<Plane, AlignedResult[]>()
   for (const r of results) {
@@ -20,17 +22,17 @@ export function reconcileScans(results: AlignedResult[], pxPerMm: number | null)
 
   const planeAnalyses: PlaneAnalysis[] = []
   for (const [plane, group] of groups) {
-    if (group.length !== 2)
+    if (group.length < 2)
       throw new Error(
-        `The ${plane} plane has ${group.length} scan(s); each plane needs exactly two scans a quarter-turn apart.`,
+        `The ${plane} plane has ${group.length} scan(s); each plane needs at least two scans at different angles.`,
       )
-    planeAnalyses.push({ plane, twoScan: combineScans(group[0], group[1]) })
+    planeAnalyses.push({ plane, scanSet: combineScanSet(group) })
   }
   return combinePlanes(planeAnalyses)
 }
 
 // Assembles the whole-printer result from however many plates were measured (any subset of XY/XZ/YZ).
-// Each plane's two-scan combine already reports scale along its two in-plane axes (first = marker +X,
+// Each plane's scan-set combine already reports scale along its two in-plane axes (first = marker +X,
 // second = perpendicular) and its skew. Here we tag each scale with its physical axis and average the
 // planes that share an axis (X is on XY and XZ, Y on XY and YZ, Z on XZ and YZ), so an axis measured
 // twice becomes one reconciled figure with its sources recorded.
@@ -40,14 +42,14 @@ const AXIS_ORDER: ReadonlyArray<'X' | 'Y' | 'Z'> = ['X', 'Y', 'Z']
 export function combinePlanes(planes: PlaneAnalysis[]): MultiPlaneResult {
   const skews: PlaneSkew[] = planes.map((p) => ({
     plane: p.plane,
-    skewDegrees: p.twoScan.combined.skewDegrees,
+    skewDegrees: p.scanSet.combined.skewDegrees,
   }))
 
   const samples: Record<'X' | 'Y' | 'Z', { value: number; plane: Plane }[]> = { X: [], Y: [], Z: [] }
   for (const p of planes) {
     const [a1, a2] = planeAxes(p.plane)
-    samples[a1].push({ value: p.twoScan.combined.xScalePercent, plane: p.plane })
-    samples[a2].push({ value: p.twoScan.combined.yScalePercent, plane: p.plane })
+    samples[a1].push({ value: p.scanSet.combined.xScalePercent, plane: p.plane })
+    samples[a2].push({ value: p.scanSet.combined.yScalePercent, plane: p.plane })
   }
 
   const scales: AxisScale[] = []

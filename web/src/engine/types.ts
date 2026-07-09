@@ -155,20 +155,65 @@ export interface ScannerDiagnostic {
   skewDegrees: number
 }
 
-export interface TwoScanResult {
-  combined: AlignedResult
-  scanner: ScannerDiagnostic
-  scanA: AlignedResult
-  scanB: AlignedResult
-  relativeRotationDegrees: number
-  rotationLooksValid: boolean
-  flipMismatch: boolean
+/**
+ * Standard error and 95% confidence range half-width of one fitted printer figure. The unit is the
+ * figure's own: percent for the scale figures, degrees for skew. The range around the reported
+ * estimate is [estimate - rangeHalfWidth, estimate + rangeHalfWidth].
+ */
+export interface FigureUncertainty {
+  standardError: number
+  rangeHalfWidth: number
 }
 
-/** One plane's finished two-scan analysis, tagged with which plane it measures. */
+/**
+ * Per-figure uncertainty of the fitted printer terms, from the least-squares residuals with the
+ * scale (percent) and skew (degrees) observation channels weighted by their own residual variances.
+ * Only defined with enough scans for both channels to have residual degrees of freedom (four or
+ * more scans of the plate); null below that.
+ */
+export interface CombineUncertainty {
+  /** Scale along the plate's first in-plane axis (percent). */
+  scaleX: FigureUncertainty
+  /** Scale along the plate's second in-plane axis (percent). */
+  scaleY: FigureUncertainty
+  /** The plate's skew (degrees). */
+  skew: FigureUncertainty
+  /** Effective residual degrees of freedom of the scale channel (hat-matrix trace). */
+  scaleDof: number
+  /** Effective residual degrees of freedom of the skew channel (hat-matrix trace). */
+  skewDof: number
+  /** The confidence level of the range half-widths (0.95). */
+  confidenceLevel: number
+  /** How many scans of the plate went into the fit. */
+  scanCount: number
+}
+
+/**
+ * The result of separating printer and scanner error over N scans of one plate (N >= 2). The scans
+ * were taken at different placement angles on the glass; the least-squares fit recovers the printer
+ * terms (fixed to the coupon) and the scanner terms (fixed to the glass, rotating through the
+ * measurements with twice the placement angle).
+ */
+export interface ScanSetResult {
+  combined: AlignedResult
+  scanner: ScannerDiagnostic
+  scans: AlignedResult[]
+  /** Each scan's measured placement angle (degrees, [0, 360), image frame). */
+  scanAnglesDegrees: number[]
+  /** Largest pairwise turn separation in the error-separation sense (degrees, 0 to 90). */
+  angleSpreadDegrees: number
+  /** False when the angle spread is too small to separate the errors, or on a flip mismatch. */
+  rotationLooksValid: boolean
+  flipMismatch: boolean
+  /** Why the set could not be separated, worded for the user; null when the fit is valid. */
+  failureReason: string | null
+  uncertainty: CombineUncertainty | null
+}
+
+/** One plane's finished scan-set analysis, tagged with which plane it measures. */
 export interface PlaneAnalysis {
   plane: Plane
-  twoScan: TwoScanResult
+  scanSet: ScanSetResult
 }
 
 /** A physical-axis scale error, reconciled across the plates that measured it. */

@@ -6,10 +6,18 @@ import { useScans } from '../stores/useScans'
 import { readBytes } from '../util/preview'
 import { analyzeScan } from '../workerClient'
 import { reconcileScans } from '../engine/multiPlaneCombiner'
-import { turnBetween } from '../engine/scanCombiner'
-import { asAligned, defaultCouponSpec, xAxisAngleDegrees } from '../engine/types'
+import {
+  MIN_SCANS_FOR_RANGE,
+  MIN_TURN_SPREAD_DEGREES,
+  normalizeAngle,
+  quadrantsCovered,
+  turnBetween,
+  turnSpreadDegrees,
+} from '../engine/scanCombiner'
+import { asAligned, defaultCouponSpec, planeAxes, xAxisAngleDegrees } from '../engine/types'
 import type { CouponSpec, Plane } from '../engine/types'
-import { ScanState } from '../model/skewCouponScan'
+import type { MetricRange } from './MetricTile.vue'
+import { ScanState, SkewCouponScan } from '../model/skewCouponScan'
 import {
   skewFlavours,
   sizeFlavours,
@@ -29,7 +37,7 @@ const app = useApp()
 const calibration = useCalibration()
 const store = useScans()
 
-const MAX_SCANS = 6
+const MAX_SCANS = 24
 
 const dpi = ref<number | null>(1200)
 const baselineMm = ref<number | null>(100)
@@ -57,17 +65,14 @@ const fieldsLocked = computed(() => store.scans.length > 0)
 const anyPending = computed(() => store.scans.some((s) => s.state === ScanState.Pending))
 const notReady = computed(() => store.scans.filter((s) => !s.isMeasured))
 
-// A valid plate is exactly two scans of the same plane, a quarter-turn apart. Two problems get
-// flagged directly on the scan, rather than as a vague "planes don't pair up" message: a scan at
-// nearly the SAME orientation as an earlier one for that plane (the plate wasn't actually turned
-// between scans, often the same scan picked twice under a different file name), or a plane that
-// already has its two scans and doesn't need a third. Driven by the measured orientation angle, not
-// the file name, so it holds regardless of what the files are called.
+// A scan at nearly the SAME angle as an earlier scan of the plate (the plate was not actually
+// turned between scans) adds little information. It is flagged as a soft warning on the scan card,
+// never as a blocker: the least-squares fit still uses it. Driven by the measured orientation
+// angle, not the file name, so it holds regardless of what the files are called.
 const ROTATION_DUPLICATE_TOLERANCE_DEGREES = 15
-type PlaneProblem = 'duplicate' | 'extra'
 const planeProblems = computed(() => {
   const seenByPlane = new Map<Plane, number[]>()
-  const problems = new Map<number, PlaneProblem>()
+  const problems = new Map<number, 'duplicate'>()
   for (const s of store.scans) {
     if (!s.isMeasured || !s.plane || !s.result?.orientation) continue
     const angle = xAxisAngleDegrees(s.result.orientation)
@@ -77,31 +82,96 @@ const planeProblems = computed(() => {
       return turn <= ROTATION_DUPLICATE_TOLERANCE_DEGREES || turn >= 360 - ROTATION_DUPLICATE_TOLERANCE_DEGREES
     })
     if (isDuplicate) problems.set(s.id, 'duplicate')
-    else if (seen.length >= 2) problems.set(s.id, 'extra')
     seen.push(angle)
     seenByPlane.set(s.plane, seen)
   }
   return problems
 })
 
-// Data-driven: analysable only when every scan measured a plane and those planes pair up into
-// complete plates. So the button never lets a bad scan through, and combine can't surface a
-// picture-stage error.
-const planeCounts = computed(() => {
-  const byPlane = new Map<Plane, number>()
-  for (const s of store.scans.filter((s) => s.isMeasured)) {
-    byPlane.set(s.plane!, (byPlane.get(s.plane!) ?? 0) + 1)
+// Measured scans grouped by plane, each group carrying the angle figures the analyzability check
+// and the group header need. Scans that have not measured a plane (pending, unreadable, misaligned
+// or unlabeled) stay outside the groups and are listed separately.
+interface PlaneGroup {
+  plane: Plane
+  scans: SkewCouponScan[]
+  anglesDegrees: number[]
+  spreadDegrees: number
+  quadrants: number
+  ready: boolean
+  statusText: string
+  statusIcon: string
+  statusColor: string
+  /** Non-blocking accuracy nudge shown when the group is otherwise ready. */
+  note: string | null
+}
+const planeGroups = computed<PlaneGroup[]>(() => {
+  const byPlane = new Map<Plane, SkewCouponScan[]>()
+  for (const s of store.scans) {
+    if (!s.isMeasured || !s.plane) continue
+    const g = byPlane.get(s.plane)
+    if (g) g.push(s)
+    else byPlane.set(s.plane, [s])
   }
-  return byPlane
+  const groups: PlaneGroup[] = []
+  for (const [plane, unsorted] of byPlane) {
+    // Sorted by measured angle so near-duplicates sit next to each other. Angles are circular
+    // (0.2 and 359.96 are nearly the same), so the list starts after the largest gap around the
+    // circle instead of at a fixed zero.
+    const scans = sortByCircularAngle(unsorted)
+    const anglesDegrees = scans.map((s) => normalizeAngle(xAxisAngleDegrees(s.result!.orientation!)))
+    const spreadDegrees = turnSpreadDegrees(anglesDegrees)
+    const quadrants = quadrantsCovered(anglesDegrees)
+    const enough = scans.length >= 2
+    const spreadOk = spreadDegrees >= MIN_TURN_SPREAD_DEGREES
+    // Every measured scan carries its handedness, so a mirror-flip mismatch is detectable here,
+    // before Analyze, and blocks with an actionable message instead of surfacing after the fact.
+    const flipMismatch = scans.some(
+      (s) => s.result!.orientation!.flipped !== scans[0].result!.orientation!.flipped,
+    )
+    const ready = enough && spreadOk && !flipMismatch
+    const statusText = !enough
+      ? 'Needs a second scan at a different angle.'
+      : flipMismatch
+        ? 'One scan is mirror-flipped relative to the others. Rescan the plate the same way up each time.'
+        : !spreadOk
+          ? `These scans are only ${Math.round(spreadDegrees)} degrees apart. Turn the plate roughly a quarter turn and scan it again.`
+          : 'Ready to analyze.'
+    const note =
+      ready && quadrants < 4
+        ? `Adding a scan turned about a quarter turn further would improve accuracy. Scans cover ${quadrants} of 4 turn directions.`
+        : null
+    groups.push({
+      plane,
+      scans,
+      anglesDegrees,
+      spreadDegrees,
+      quadrants,
+      ready,
+      statusText,
+      statusIcon: ready ? 'mdi-check-circle' : 'mdi-alert-circle-outline',
+      statusColor: ready ? 'success' : 'warning',
+      note,
+    })
+  }
+  return groups
 })
-const planesPair = computed(() => {
-  if (planeCounts.value.size === 0) return false
-  for (const count of planeCounts.value.values()) if (count !== 2) return false
-  return true
+const groupedIds = computed(() => {
+  const ids = new Set<number>()
+  for (const g of planeGroups.value) for (const s of g.scans) ids.add(s.id)
+  return ids
 })
+const ungroupedScans = computed(() => store.scans.filter((s) => !groupedIds.value.has(s.id)))
+
 const canAnalyze = computed(() => {
   const n = store.scans.length
-  return !anyPending.value && n >= 2 && n <= MAX_SCANS && notReady.value.length === 0 && planesPair.value
+  return (
+    !anyPending.value &&
+    n >= 2 &&
+    n <= MAX_SCANS &&
+    notReady.value.length === 0 &&
+    planeGroups.value.length > 0 &&
+    planeGroups.value.every((g) => g.ready)
+  )
 })
 // The button label stays short and action-shaped; the reason it's disabled (if any) goes in a
 // caption below instead, since a long explanation wrapping inside the button looks broken.
@@ -113,16 +183,47 @@ const analyzeLabel = computed(() => {
 const analyzeReason = computed(() => {
   if (anyPending.value) return ''
   const n = store.scans.length
-  if (n === 0) return 'Add 2 scans to analyze.'
+  if (n === 0) return 'Add at least two scans of each plate to analyze.'
   const bad = notReady.value.length
   if (bad > 0) return `Fix ${bad} scan${bad === 1 ? '' : 's'} to analyze.`
-  if (!planesPair.value) {
-    return planeProblems.value.size > 0
-      ? 'Fix the flagged scan(s) above: each plate needs exactly two, a quarter-turn apart.'
-      : 'Each plate needs two scans a quarter-turn apart.'
-  }
+  const short = planeGroups.value.find((g) => !g.ready)
+  if (short) return `${short.plane} plate: ${short.statusText}`
   return ''
 })
+
+/**
+ * Orders a plane group's scans around the angle circle, starting after the largest gap between
+ * consecutive angles, so scans at nearly the same angle are always adjacent even across the
+ * 360-to-0 wrap.
+ */
+function sortByCircularAngle(scans: SkewCouponScan[]): SkewCouponScan[] {
+  const withAngle = scans.map((s) => ({
+    scan: s,
+    angle: normalizeAngle(xAxisAngleDegrees(s.result!.orientation!)),
+  }))
+  withAngle.sort((a, b) => a.angle - b.angle)
+  if (withAngle.length < 2) return withAngle.map((e) => e.scan)
+  let cutIndex = 0
+  let largestGap = -1
+  for (let i = 0; i < withAngle.length; i++) {
+    const next = withAngle[(i + 1) % withAngle.length]
+    const gap = normalizeAngle(next.angle - withAngle[i].angle)
+    if (gap > largestGap) {
+      largestGap = gap
+      cutIndex = (i + 1) % withAngle.length
+    }
+  }
+  return [...withAngle.slice(cutIndex), ...withAngle.slice(0, cutIndex)].map((e) => e.scan)
+}
+
+/** The measured placement angle shown in a group header, one decimal, folded so 359.96 reads 0.0 and not 360.0. */
+function formatAngle(a: number): string {
+  const rounded = Math.round(a * 10) / 10
+  return `${(rounded % 360).toFixed(1)}°`
+}
+function dialLabel(g: PlaneGroup): string {
+  return `Scan angles: ${g.anglesDegrees.map(formatAngle).join(', ')}`
+}
 
 // One firmware choice drives every firmware-specific command on the page (reset, and the skew fix),
 // so the reset command and the fix always agree on which firmware they're talking to.
@@ -135,18 +236,124 @@ const result = computed(() => app.payload?.result ?? null)
 const scales = computed(() => result.value?.scales ?? [])
 const skews = computed(() => result.value?.skews ?? [])
 const planes = computed(() => result.value?.planes ?? [])
-// A plane whose two-scan pairing didn't check out (bad quarter-turn, or a mirror-flip mismatch)
-// still produces numbers, but they shouldn't be trusted, so surface it rather than showing a clean
-// result indistinguishable from a good one.
+// A plane whose scan set could not be separated (angles too close together, or a mirror-flip
+// mismatch) still produces numbers, but they shouldn't be trusted, so surface it rather than
+// showing a clean result indistinguishable from a good one.
 const invalidPlanes = computed(() =>
   planes.value
-    .filter((p) => !p.twoScan.rotationLooksValid)
+    .filter((p) => !p.scanSet.rotationLooksValid)
     .map((p) => ({
       plane: p.plane,
-      reason: p.twoScan.flipMismatch
-        ? 'one scan is mirror-flipped relative to the other'
-        : "the scans aren't a quarter-turn apart",
+      reason: p.scanSet.failureReason ?? 'The scans could not be combined.',
     })),
+)
+
+// With enough scans of a plate the least-squares fit reports a 95% confidence range per figure.
+// The ranges are per plane; a scale tile shows one only when its axis was measured by exactly one
+// plane, since a figure averaged across two plates has no single scan set to take a spread from.
+function makeRange(point: number, halfWidth: number, unit: '°' | '%', scanCount: number): MetricRange {
+  return { low: point - halfWidth, high: point + halfWidth, point, unit, scanCount }
+}
+function rangeSpansZero(r: MetricRange): boolean {
+  return r.low <= 0 && r.high >= 0
+}
+interface ScaleRangeEntry {
+  range: MetricRange
+  plane: Plane
+  /** Which of the plane's two in-plane figures the axis maps to. */
+  figure: 'scaleX' | 'scaleY'
+}
+const scaleRanges = computed(() => {
+  const byAxis = new Map<'X' | 'Y' | 'Z', ScaleRangeEntry>()
+  for (const s of scales.value) {
+    if (s.sources.length !== 1) continue
+    const p = planes.value.find((pl) => pl.plane === s.sources[0])
+    const u = p?.scanSet.uncertainty
+    if (!p || !u) continue
+    const figure = planeAxes(p.plane)[0] === s.axis ? 'scaleX' : 'scaleY'
+    const halfWidth = (figure === 'scaleX' ? u.scaleX : u.scaleY).rangeHalfWidth
+    byAxis.set(s.axis, {
+      range: makeRange(s.scalePercent, halfWidth, '%', u.scanCount),
+      plane: p.plane,
+      figure,
+    })
+  }
+  return byAxis
+})
+const skewRanges = computed(() => {
+  const byPlane = new Map<Plane, MetricRange>()
+  for (const p of planes.value) {
+    const u = p.scanSet.uncertainty
+    if (u)
+      byPlane.set(
+        p.plane,
+        makeRange(p.scanSet.combined.skewDegrees, u.skew.rangeHalfWidth, '°', u.scanCount),
+      )
+  }
+  return byPlane
+})
+const anyRange = computed(() => scaleRanges.value.size > 0 || skewRanges.value.size > 0)
+
+// A plate scanned fewer than MIN_SCANS_FOR_RANGE times has no range yet; say how many scans away it is.
+const moreScansHints = computed(() =>
+  planes.value
+    .filter((p) => p.scanSet.uncertainty === null && p.scanSet.rotationLooksValid)
+    .map((p) => {
+      const missing = Math.max(1, MIN_SCANS_FOR_RANGE - p.scanSet.scans.length)
+      return {
+        plane: p.plane,
+        text: `Scan this plate ${missing} more ${missing === 1 ? 'time' : 'times'} to see a confidence range.`,
+      }
+    }),
+)
+
+// Planes whose every figure's range includes zero: nothing on that plane needs correcting.
+const wellCalibratedPlanes = computed(() =>
+  planes.value
+    .filter((p) => {
+      const u = p.scanSet.uncertainty
+      if (!u) return false
+      const c = p.scanSet.combined
+      return (
+        Math.abs(c.xScalePercent) <= u.scaleX.rangeHalfWidth &&
+        Math.abs(c.yScalePercent) <= u.scaleY.rangeHalfWidth &&
+        Math.abs(c.skewDegrees) <= u.skew.rangeHalfWidth
+      )
+    })
+    .map((p) => p.plane),
+)
+
+// A tip above a fix snippet when some or all of the figures it corrects have a range that includes
+// zero. The command values themselves are never altered.
+function zeroRangeNote(zeroNames: string[], totalFigures: number): string | null {
+  if (zeroNames.length === 0) return null
+  if (zeroNames.length === totalFigures)
+    return "Every figure's range includes zero, so no correction appears to be needed. The commands below reflect the measured values in case you still want to apply them."
+  const list = zeroNames.join(' and ')
+  return zeroNames.length === 1
+    ? `The ${list} range includes zero, so that figure may not need correcting; the other figures do.`
+    : `The ${list} ranges include zero, so those figures may not need correcting; the other figures do.`
+}
+const skewZeroNote = computed(() =>
+  zeroRangeNote(
+    [...skewRanges.value].filter(([, r]) => rangeSpansZero(r)).map(([p]) => `${p} skew`),
+    skews.value.length,
+  ),
+)
+const sizeZeroNote = computed(() =>
+  zeroRangeNote(
+    [...scaleRanges.value].filter(([, e]) => rangeSpansZero(e.range)).map(([axis]) => `${axis} scale`),
+    scales.value.length,
+  ),
+)
+
+// Changing the scan set after an analysis invalidates its results: clear the payload so the user
+// can add or remove scans and analyze again.
+watch(
+  () => store.scans.map((s) => s.id).join(','),
+  () => {
+    if (app.payload !== null) app.clearResults()
+  },
 )
 
 const sizeFlavour = ref<string>(sizeFlavours[0])
@@ -280,8 +487,9 @@ function getCoupon(file: string): void {
         />
       </div>
       <p class="text-body-2 text-medium-emphasis mt-1">
-        Print a plate for each plane you want to calibrate, scan each one twice (flat, then a quarter-turn),
-        and drop all the scans in. The app sorts them by plate and works out X/Y/Z scale and skew.
+        Print a plate for each plane you want to calibrate, scan each one at least twice at different
+        angles, and drop all the scans in. The app sorts them by plate and works out X/Y/Z scale and
+        skew. More scans at different angles improve accuracy.
       </p>
     </header>
 
@@ -368,8 +576,10 @@ function getCoupon(file: string): void {
         <span class="num">4</span><span class="step-title">Scan your prints</span>
       </div>
       <p class="tip mb-3">
-        Scan each plate flat, then quarter-turn it and scan again. Repeat for every plate. Back light
-        plates with a dark sheet for contrast.
+        Scan each plate, then rotate it roughly a quarter turn and scan it again. The exact angle does
+        not matter; the software measures it. The position on the glass does not matter either. Adding
+        more scans at different angles improves accuracy. Back light plates with a dark sheet for
+        contrast.
         <template v-if="scanDpiHint">{{ scanDpiHint }}</template>
       </p>
 
@@ -397,10 +607,12 @@ function getCoupon(file: string): void {
         <span class="num">5</span><span class="step-title">Upload your scans</span>
       </div>
       <p class="tip mb-3">
-        Drop in every scan at once: two per plate, up to three plates ({{ MAX_SCANS }} scans).
+        Drop in every scan at once. Each plate needs at least two scans at different angles; more
+        scans improve accuracy (up to {{ MAX_SCANS }} scans in total). The scans sort themselves into
+        plates below.
       </p>
 
-      <label v-if="!hasResults && store.scans.length < MAX_SCANS" class="dropzone">
+      <label v-if="store.scans.length < MAX_SCANS" class="dropzone">
         <input
           type="file"
           accept="image/*"
@@ -414,15 +626,68 @@ function getCoupon(file: string): void {
         <span class="dz-sub">or drop them here · you can add more later</span>
       </label>
 
-      <div v-if="store.scans.length" class="islands mt-3" data-testid="islands">
-        <ScanIsland
-          v-for="s in store.scans"
-          :key="s.id"
-          :scan="s"
-          :removable="!hasResults"
-          :problem="planeProblems.get(s.id)"
-          @remove="store.remove(s.id)"
-        />
+      <div v-if="store.scans.length" class="mt-3" data-testid="islands">
+        <div v-if="ungroupedScans.length" class="islands mb-3">
+          <ScanIsland
+            v-for="s in ungroupedScans"
+            :key="s.id"
+            :scan="s"
+            :removable="true"
+            @remove="store.remove(s.id)"
+          />
+        </div>
+
+        <section
+          v-for="g in planeGroups"
+          :key="g.plane"
+          class="plane-group mb-3"
+          :data-testid="`plane-group-${g.plane}`"
+        >
+          <div class="pg-head">
+            <span class="pg-title">{{ g.plane }} plane</span>
+            <v-chip size="x-small" variant="tonal" color="primary" class="pg-chip">
+              {{ g.scans.length }} {{ g.scans.length === 1 ? 'scan' : 'scans' }}
+            </v-chip>
+            <svg
+              class="pg-dial"
+              viewBox="0 0 32 32"
+              role="img"
+              :aria-label="dialLabel(g)"
+            >
+              <circle cx="16" cy="16" r="13" class="dial-ring" />
+              <line
+                v-for="(a, i) in g.anglesDegrees"
+                :key="i"
+                x1="16"
+                y1="16"
+                :x2="16 + 13 * Math.cos((a * Math.PI) / 180)"
+                :y2="16 + 13 * Math.sin((a * Math.PI) / 180)"
+                class="dial-tick"
+              />
+            </svg>
+            <span class="pg-angles">
+              Scan angles: {{ g.anglesDegrees.map(formatAngle).join(', ') }}
+            </span>
+            <span class="pg-status">
+              <v-icon :color="g.statusColor" size="15">{{ g.statusIcon }}</v-icon>
+              <span :data-testid="`plane-status-${g.plane}`">{{ g.statusText }}</span>
+            </span>
+          </div>
+          <p v-if="g.note" class="pg-note">
+            <v-icon color="info" size="14">mdi-information-outline</v-icon>
+            {{ g.note }}
+          </p>
+          <div class="islands">
+            <ScanIsland
+              v-for="s in g.scans"
+              :key="s.id"
+              :scan="s"
+              :removable="true"
+              :problem="planeProblems.get(s.id)"
+              @remove="store.remove(s.id)"
+            />
+          </div>
+        </section>
       </div>
 
       <div class="fields mt-4">
@@ -496,12 +761,22 @@ function getCoupon(file: string): void {
         <v-icon color="warning" size="16" class="warn-icon">mdi-alert-outline</v-icon>
         <span>
           <template v-for="(bad, i) in invalidPlanes" :key="bad.plane">
-            <strong class="warn-lead">{{ bad.plane }}</strong> didn't align: {{ bad.reason }}, so
-            those figures can't be trusted.<template v-if="i < invalidPlanes.length - 1"> </template>
+            <strong class="warn-lead">{{ bad.plane }}</strong> did not align. {{ bad.reason }}
+            These figures cannot be trusted until it is fixed.<template
+              v-if="i < invalidPlanes.length - 1"
+            >
+            </template>
           </template>
         </span>
       </div>
 
+      <p v-if="anyRange" class="range-info" data-testid="confidence-info">
+        <v-icon color="info" size="14" class="ri-icon">mdi-information-outline</v-icon>
+        <span>
+          The range shows the spread between your scans. A figure whose range includes zero is too
+          small to stand out from that spread.
+        </span>
+      </p>
       <div class="group-label">Scale</div>
       <div class="tiles mb-3">
         <MetricTile
@@ -510,6 +785,13 @@ function getCoupon(file: string): void {
           :label="`${s.axis} scale`"
           :value="signedPercent(s.scalePercent)"
           :testid="`scale-${s.axis}`"
+          :range="scaleRanges.get(s.axis)?.range"
+          :figure-name="`${s.axis} scale`"
+          :range-testid="
+            scaleRanges.has(s.axis)
+              ? `range-${scaleRanges.get(s.axis)!.figure}-${scaleRanges.get(s.axis)!.plane}`
+              : undefined
+          "
         />
       </div>
       <div class="group-label">Skew</div>
@@ -520,7 +802,37 @@ function getCoupon(file: string): void {
           :label="`${k.plane} skew`"
           :value="signedDegrees(k.skewDegrees)"
           :testid="`skew-${k.plane}`"
+          :range="skewRanges.get(k.plane)"
+          :figure-name="`${k.plane} skew`"
+          :range-testid="`range-skew-${k.plane}`"
         />
+      </div>
+      <p class="tip mt-0 mb-2" data-testid="skew-reference-frame-hint">
+        Positive skew means the corner between the printer's +X and +Y axes prints wider than 90
+        degrees. This matches the Skew value of the Califlower calculator; its Correction column
+        shows the same number negated.
+      </p>
+      <div v-if="moreScansHints.length || wellCalibratedPlanes.length" class="mb-4">
+        <p
+          v-for="h in moreScansHints"
+          :key="h.plane"
+          class="tip mt-0"
+          :data-testid="`more-scans-${h.plane}`"
+        >
+          {{ h.plane }} plate: {{ h.text }}
+        </p>
+        <p
+          v-for="plane in wellCalibratedPlanes"
+          :key="plane"
+          class="plane-ok mt-0"
+          :data-testid="`zero-note-plane-${plane}`"
+        >
+          <v-icon color="success" size="15" class="po-icon">mdi-check-circle</v-icon>
+          <span>
+            <strong>{{ plane }}:</strong> Your printer is already well calibrated for this plane.
+            No changes are needed.
+          </span>
+        </p>
       </div>
 
       <div class="fix-tabs">
@@ -543,6 +855,9 @@ function getCoupon(file: string): void {
       </div>
 
       <div v-if="activeFixTab === 'skew'" class="fix-panel">
+        <p v-if="skewZeroNote" class="tip mt-0 mb-2" data-testid="zero-note-skewfix">
+          {{ skewZeroNote }}
+        </p>
         <CodeBlock
           v-if="skewFix"
           :code="skewFix.code"
@@ -577,6 +892,9 @@ function getCoupon(file: string): void {
             :precision="3"
           />
         </div>
+        <p v-if="sizeZeroNote" class="tip mt-0 mb-2" data-testid="zero-note-sizefix">
+          {{ sizeZeroNote }}
+        </p>
         <CodeBlock v-if="sizeFix" :code="sizeFix.code" data-testid="size-code" />
         <p v-if="sizeFix?.hint" class="tip mt-0">{{ sizeFix.hint }}</p>
       </div>
@@ -762,6 +1080,73 @@ function getCoupon(file: string): void {
   flex-direction: column;
   gap: 12px;
 }
+.plane-group {
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.14);
+  border-radius: 12px;
+  padding: 12px;
+}
+.pg-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.pg-title {
+  font-weight: 600;
+  font-size: 13.5px;
+}
+.pg-chip {
+  flex-shrink: 0;
+}
+.pg-dial {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+}
+.dial-ring {
+  fill: none;
+  stroke: rgba(var(--v-theme-on-surface), 0.25);
+  stroke-width: 1.5;
+}
+.dial-tick {
+  stroke: rgb(var(--v-theme-primary));
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.pg-angles {
+  font-size: 12px;
+  color: rgba(var(--v-theme-on-surface), 0.65);
+  font-variant-numeric: tabular-nums;
+}
+.pg-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: rgba(var(--v-theme-on-surface), 0.75);
+  margin-left: auto;
+}
+.pg-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12px;
+  color: rgba(var(--v-theme-on-surface), 0.65);
+  margin: 0 0 10px;
+}
+@media (max-width: 560px) {
+  .plane-group {
+    padding: 10px;
+  }
+  .pg-head {
+    row-gap: 4px;
+  }
+  .pg-status {
+    margin-left: 0;
+    flex-basis: 100%;
+  }
+}
 .fields {
   display: flex;
   flex-wrap: wrap;
@@ -785,6 +1170,30 @@ function getCoupon(file: string): void {
   font-size: 16px;
   font-weight: 500;
   font-family: 'Roboto Mono', ui-monospace, monospace;
+}
+.range-info {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12px;
+  color: rgba(var(--v-theme-on-surface), 0.65);
+  margin: 0 0 10px;
+}
+.ri-icon {
+  margin-top: 1px;
+  flex-shrink: 0;
+}
+.plane-ok {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12.5px;
+  color: rgb(var(--v-theme-success));
+  margin-top: 6px;
+}
+.po-icon {
+  margin-top: 1px;
+  flex-shrink: 0;
 }
 .group-label {
   font-size: 11px;

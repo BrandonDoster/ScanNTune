@@ -2,12 +2,14 @@
 import { computed, ref } from 'vue'
 import { SkewCouponScan, ScanState } from '../model/skewCouponScan'
 import { ringSeverity } from '../engine/scanDiagnostics'
+import { normalizeAngle } from '../engine/scanCombiner'
+import { xAxisAngleDegrees } from '../engine/types'
 import OverlayCanvas from './OverlayCanvas.vue'
 
 const props = defineProps<{
   scan: SkewCouponScan
   removable?: boolean
-  problem?: 'duplicate' | 'extra'
+  problem?: 'duplicate'
 }>()
 const emit = defineEmits<{ (e: 'remove'): void }>()
 
@@ -38,14 +40,15 @@ const rows = computed(() => {
   const ringSev: Sev = rs === 'ok' ? 'ok' : rs === 'warning' ? 'warn' : 'err'
   const planeSev: Sev = s.plane ? 'ok' : aligned ? 'warn' : 'mute'
   const flipValue = s.flipped === null ? 'Unknown' : s.flipped ? 'Mirrored' : 'None'
+  const angle = s.result?.orientation ? normalizeAngle(xAxisAngleDegrees(s.result.orientation)) : null
   return [
     { label: 'Rings', value: `${s.ringsFound} of ${s.ringsExpected}`, sev: ringSev, testid: 'ring-count' },
     { label: 'Plane', value: s.plane ?? 'Not detected', sev: planeSev, testid: undefined },
     {
       label: 'Rotation',
-      value: aligned ? 'Locked' : 'Not resolved',
+      value: aligned && angle !== null ? `${angle.toFixed(1)}°` : 'Not resolved',
       sev: (aligned ? 'ok' : 'mute') as Sev,
-      testid: undefined,
+      testid: 'rotation-angle',
     },
     { label: 'Flip', value: flipValue, sev: (s.flipped === null ? 'mute' : 'ok') as Sev, testid: undefined },
   ]
@@ -60,8 +63,7 @@ const pill = computed<{ text: string; sev: Sev } | null>(() => {
     case ScanState.Unlabeled:
       return { text: 'Plane not read', sev: 'warn' }
     case ScanState.Measured:
-      if (props.problem === 'duplicate') return { text: 'Duplicate scan', sev: 'err' }
-      if (props.problem === 'extra') return { text: 'Extra scan', sev: 'err' }
+      if (props.problem === 'duplicate') return { text: 'Nearly same angle', sev: 'warn' }
       return { text: `${props.scan.plane} plane`, sev: 'ok' }
     default:
       return null
@@ -83,8 +85,11 @@ const note = computed<string | null>(() => {
   const clipped = props.scan.clippedSides
   if (clipped.length > 0)
     return `A missing ring sits at the ${clipped.join(' and ')} image edge: the coupon looks cut off there. Rescan with the whole coupon inside the scan area.`
-  if (props.problem === 'duplicate') return 'Same plane, same orientation as another scan. Remove one.'
-  if (props.problem === 'extra') return 'Plane already has two scans. Remove this one.'
+  if (props.problem === 'duplicate')
+    return (
+      'This scan is at nearly the same angle as another scan of this plate. ' +
+      'Turn the plate further before scanning again.'
+    )
   return null
 })
 </script>

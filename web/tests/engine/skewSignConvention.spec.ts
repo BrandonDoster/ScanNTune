@@ -76,6 +76,35 @@ describe('skew sign convention', () => {
     expect(Math.abs(factor - shearTan)).toBeLessThanOrEqual(0.001)
   })
 
+  // The emitted reference square side changed from baselineMm to baselineMm/sqrt(2) for Califlower
+  // visual parity (owner-approved presentational change, 2026-07-10); factor-equivalence against
+  // Klipper's calc_skew_factor formula is verified here for several skew values, including negative
+  // and zero, so the change is checked against the firmware's own recovery math rather than pinned
+  // literal strings.
+  it('Klipper factor recovery matches calc_skew_factor for several skew values', () => {
+    const coupon = defaultCouponSpec()
+    // calc_skew_factor's side formula is degenerate at exactly zero skew (side collapses to 0), so
+    // this uses a near-zero value rather than 0.0 itself; that degeneracy is inherent to the
+    // formula for any square side, not something this change introduces.
+    for (const skewDegrees of [-2.0, -0.3, 0.01, 0.3, 2.0]) {
+      const c = skewCorrection(KLIPPER, skewDegrees, coupon)
+      const line = firstLine(c.code)
+      const prefix = 'SET_SKEW XY='
+      expect(line.startsWith(prefix)).toBe(true)
+      const [ac, bd, ad] = line
+        .substring(prefix.length)
+        .split(',')
+        .map((s) => parseFloat(s))
+
+      const side = Math.sqrt(2 * ac * ac + 2 * bd * bd - 4 * ad * ad) / 2.0
+      const factor = Math.tan(Math.PI / 2 - Math.acos((ac * ac - side * side - ad * ad) / (2 * side * ad)))
+      const expected = Math.tan((-skewDegrees * Math.PI) / 180.0)
+      // 1e-5, not 1e-9: the emitted values are formatted to 3 decimal places (upTo3), so the
+      // recovered factor carries that rounding error, not full floating-point precision.
+      expect(Math.abs(factor - expected)).toBeLessThanOrEqual(1e-5)
+    }
+  })
+
   it('Marlin emits a positive factor for a +X shear', () => {
     const marlin = skewCorrection(MARLIN, -ShearDeg, defaultCouponSpec())
     const marlinI = parseAfterPrefix(marlin.code, 'M852 I')
