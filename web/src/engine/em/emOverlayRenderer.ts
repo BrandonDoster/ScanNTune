@@ -29,6 +29,9 @@ export function renderEmOverlayMat(
   spec: EmTestSpec,
   result: EmResult,
 ): Mat {
+  // A failed alignment throws inside mmToPx below; fail before allocating the canvas so the
+  // throw cannot leak a Mat.
+  if (!alignment.success) throw new Error('Overlay rendering requires a successful alignment')
   const canvas = toBgr(cv, image)
   const thickness = strokeThickness(image)
   const g = emCouponGeometry(spec)
