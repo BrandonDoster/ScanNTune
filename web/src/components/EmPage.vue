@@ -353,13 +353,19 @@ const pitchScaleOff = computed(() => {
       <div class="fields mb-3">
         <NumericField
           v-model="currentFlow"
-          label="Current flow %"
+          label="Flow % while the coupon printed"
           :step="1"
           :min="1"
           :disabled="analyzing"
           data-testid="em-current-flow"
         />
       </div>
+      <p class="tip mb-3">
+        Leave at 100 unless a flow override (M221) was active while the coupon printed. The
+        coupon runs at firmware flow, so slicer flow settings do not apply to it; to carry the
+        result into a slicer profile, multiply that profile's flow by the same ratio the result
+        applies (its flow value divided by 100).
+      </p>
       <label class="dropzone" :class="{ 'dropzone-disabled': !isCalibrated }">
         <input
           type="file"
