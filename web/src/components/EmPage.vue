@@ -19,6 +19,7 @@ import {
 import { fitsA4 } from '../engine/gcode/emitter'
 import { defaultPrinterProfile } from '../engine/pa/types'
 import PrinterProfileCard from './PrinterProfileCard.vue'
+import EmScanOrientationDiagram from './EmScanOrientationDiagram.vue'
 import NumericField from './NumericField.vue'
 import OverlayCanvas from './OverlayCanvas.vue'
 import CodeBlock from './CodeBlock.vue'
@@ -420,9 +421,14 @@ const pitchScaleOff = computed(() => {
         <span class="num">5</span><span class="step-title">Scan the print</span>
       </div>
       <p class="tip mb-3">
-        Scan the printed coupon top face down at the calibrated resolution, then drop the
-        image in.
+        Scan the printed coupon top face down at the calibrated resolution. Place it with the
+        test lines parallel to the direction the scanner lamp travels; rotating the coupon
+        180 degrees is fine, but 90 degrees lets the lamp shadow the narrow gaps and degrades
+        the measurement. Then drop the image in.
       </p>
+      <div class="diagram-wrap mb-3">
+        <EmScanOrientationDiagram />
+      </div>
       <div class="fields mb-3">
         <NumericField
           v-model="currentFlow"
@@ -587,6 +593,10 @@ const pitchScaleOff = computed(() => {
   font-size: 12.5px;
   color: rgba(var(--v-theme-on-surface), 0.6);
   margin-top: 8px;
+}
+.diagram-wrap {
+  display: flex;
+  justify-content: center;
 }
 .fields {
   display: flex;
