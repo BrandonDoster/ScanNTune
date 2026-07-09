@@ -18,6 +18,8 @@ describe('defaultEmTestSpec', () => {
     expect(spec.linesPerBlock).toBe(7)
     expect(spec.lineLengthMm).toBe(25)
     expect(spec.printSpeedMmS).toBeGreaterThan(0)
+    expect(spec.placement).toBe('center')
+    expect(spec.contrastBase).toBe(false)
   })
   it('scales for a 0.6 nozzle', () => {
     const p = { ...defaultPrinterProfile(), nozzleDiameterMm: 0.6 }

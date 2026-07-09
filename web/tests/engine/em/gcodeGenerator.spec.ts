@@ -4,6 +4,7 @@ import { defaultEmTestSpec, emCouponGeometry, PEDESTAL_WIDTH_FACTOR } from '../.
 import { extrusionMm } from '../../../src/engine/gcode/emitter'
 import {
   ANCHOR_OVERLAP_MM,
+  EDGE_MARGIN_MM,
   generateEmGcodeWithReport,
 } from '../../../src/engine/em/gcodeGenerator'
 
@@ -166,5 +167,54 @@ describe('generateEmGcodeWithReport', () => {
     const weird = { ...profile, startGcode: 'M104 S[not_a_real_variable]' }
     const r = generateEmGcodeWithReport(weird, filament, spec)
     expect(r.unknownVariables).toContain('not_a_real_variable')
+  })
+
+  it('matches the same generation with placement and contrastBase set to their defaults', () => {
+    const explicit = { ...spec, placement: 'center' as const, contrastBase: false }
+    const r = generateEmGcodeWithReport(profile, filament, explicit)
+    expect(r.gcode).toBe(report.gcode)
+  })
+})
+
+describe('placement', () => {
+  const yExtentsOfExtrusionMoves = (gcode: string) => {
+    const ys: number[] = []
+    for (const l of gcode.split('\n')) {
+      const m = l.match(/^G1 X(-?[\d.]+) Y(-?[\d.]+).*E(-?[\d.]+)/)
+      if (m && Number(m[3]) > 0) ys.push(Number(m[2]))
+    }
+    return { minY: Math.min(...ys), maxY: Math.max(...ys) }
+  }
+
+  it('center placement centers the coupon vertically (unchanged default behavior)', () => {
+    const g = emCouponGeometry(spec)
+    const oy = (profile.bedDepthMm - g.couponHeightMm) / 2
+    const r = generateEmGcodeWithReport(profile, filament, { ...spec, placement: 'center' })
+    const { minY, maxY } = yExtentsOfExtrusionMoves(r.gcode)
+    expect(minY).toBeGreaterThanOrEqual(oy - 0.001)
+    expect(maxY).toBeLessThanOrEqual(oy + g.couponHeightMm + 0.001)
+  })
+
+  it('front placement puts the coupon near the front edge', () => {
+    const r = generateEmGcodeWithReport(profile, filament, { ...spec, placement: 'front' })
+    const { minY } = yExtentsOfExtrusionMoves(r.gcode)
+    expect(minY).toBeGreaterThanOrEqual(EDGE_MARGIN_MM - 0.001)
+    expect(minY).toBeLessThan(EDGE_MARGIN_MM + 5)
+  })
+
+  it('back placement puts the coupon near the back edge', () => {
+    const r = generateEmGcodeWithReport(profile, filament, { ...spec, placement: 'back' })
+    const { maxY } = yExtentsOfExtrusionMoves(r.gcode)
+    const expectedBackEdge = profile.bedDepthMm - EDGE_MARGIN_MM
+    expect(maxY).toBeLessThanOrEqual(expectedBackEdge + 0.001)
+    expect(maxY).toBeGreaterThan(expectedBackEdge - 5)
+  })
+
+  it('throws when a front/back placement pushes the coupon off the bed', () => {
+    const g = emCouponGeometry(spec)
+    const tiny = { ...profile, bedDepthMm: g.couponHeightMm + EDGE_MARGIN_MM - 1 }
+    expect(() =>
+      generateEmGcodeWithReport(tiny, filament, { ...spec, placement: 'back' }),
+    ).toThrow(/fit/i)
   })
 })

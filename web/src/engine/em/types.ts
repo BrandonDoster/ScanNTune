@@ -28,6 +28,10 @@ export interface EmTestSpec {
   lineLengthMm: number
   printSpeedMmS: number
   nominalLineWidthMm: number
+  /** Where the coupon sits on the bed: centered, or pushed to the front/back edge. */
+  placement: 'center' | 'front' | 'back'
+  /** Whether the coupon prints on a contrasting-color base layer (consumed by the generator). */
+  contrastBase: boolean
 }
 
 /** A stage event of the EM analysis. */
@@ -49,6 +53,8 @@ export function defaultEmTestSpec(profile: PrinterProfile): EmTestSpec {
     lineLengthMm: 25,
     printSpeedMmS: Math.min(profile.travelSpeedMmS / 2, Math.floor(speedCap)),
     nominalLineWidthMm: nominal,
+    placement: 'center',
+    contrastBase: false,
   }
 }
 

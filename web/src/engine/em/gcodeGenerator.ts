@@ -26,6 +26,8 @@ import {
 } from './types'
 
 export const HIGH_FLOW_WARNING_THRESHOLD_MM3_S = 12
+/** Clearance from the bed edge for the 'front'/'back' placements. */
+export const EDGE_MARGIN_MM = 10
 /** How far each comb line runs past its row boundary onto the band/rail perimeters. */
 export const ANCHOR_OVERLAP_MM = 1
 /** Loops around each fiducial hole; one more than elsewhere so raster ends stay clear. */
@@ -78,7 +80,12 @@ export function generateEmGcodeWithReport(
 function emitEmGcode(profile: PrinterProfile, filament: FilamentProfile, spec: EmTestSpec): string {
   const g = emCouponGeometry(spec)
   const ox = (profile.bedWidthMm - g.couponWidthMm) / 2
-  const oy = (profile.bedDepthMm - g.couponHeightMm) / 2
+  const oy =
+    spec.placement === 'front'
+      ? EDGE_MARGIN_MM
+      : spec.placement === 'back'
+        ? profile.bedDepthMm - g.couponHeightMm - EDGE_MARGIN_MM
+        : (profile.bedDepthMm - g.couponHeightMm) / 2
   if (ox < 0 || oy < 0) throw new Error('Coupon does not fit on the configured bed')
 
   const nominal = spec.nominalLineWidthMm
