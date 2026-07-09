@@ -53,14 +53,17 @@ export function skewCorrection(flavour: string, skewDegrees: number, coupon: Cou
       }
 
     default: {
-      // Klipper
-      const l = coupon.baselineMm
+      // Klipper: the reference square's side is the baseline over sqrt(2), not the baseline itself,
+      // so the emitted diagonals read near the baseline instead of near baseline*sqrt(2): purely a
+      // presentation choice for visual parity with the Califlower calculator's output. Klipper
+      // recovers the same skew factor from any consistent square side, so the correction is identical.
+      const l = coupon.baselineMm / Math.SQRT2
       const ac = l * Math.sqrt((1.0 + tan) * (1.0 + tan) + 1.0)
       const bd = l * Math.sqrt((tan - 1.0) * (tan - 1.0) + 1.0)
       const ad = l * Math.sqrt(tan * tan + 1.0)
       return {
         code: `SET_SKEW XY=${upTo3(ac)},${upTo3(bd)},${upTo3(ad)}\nSKEW_PROFILE SAVE=ScanNTune\nSAVE_CONFIG`,
-        hint: '',
+        hint: "The three values are the two diagonals and one side of a reference square that encodes the measured skew, in Klipper's AC, BD, AD order. They give the same skew factor as a caliper-measured Califlower print.",
         primaryCaption: 'Paste into the Klipper console:',
         secondaryCaption: 'Add this to your start g-code:',
         secondaryCode: 'SKEW_PROFILE LOAD=ScanNTune',
@@ -150,8 +153,10 @@ export function skewCorrectionMulti(
     }
 
     default: {
-      // Klipper: one SET_SKEW carrying every measured plane's baseline triangle.
-      const l = coupon.baselineMm
+      // Klipper: one SET_SKEW carrying every measured plane's baseline triangle. Side = baseline /
+      // sqrt(2) for visual parity with the Califlower calculator (see skewCorrection above); the
+      // recovered skew factor is unchanged.
+      const l = coupon.baselineMm / Math.SQRT2
       const parts = usable.map((s) => {
         const tan = planeTan(s.skewDegrees)
         const ac = l * Math.sqrt((1.0 + tan) * (1.0 + tan) + 1.0)

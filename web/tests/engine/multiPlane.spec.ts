@@ -11,25 +11,27 @@ import {
 } from '../../src/engine/correctionFormatter'
 import { defaultCouponSpec } from '../../src/engine/types'
 import { alignedResult } from '../helpers/results'
-import type { AlignedResult, PlaneAnalysis, Plane, TwoScanResult } from '../../src/engine/types'
+import type { AlignedResult, PlaneAnalysis, Plane, ScanSetResult } from '../../src/engine/types'
 
 function cr(x: number, y: number, skew: number): AlignedResult {
   return alignedResult({ xScalePercent: x, yScalePercent: y, skewDegrees: skew })
 }
-function two(x: number, y: number, skew: number): TwoScanResult {
+function two(x: number, y: number, skew: number): ScanSetResult {
   const c = cr(x, y, skew)
   return {
     combined: c,
     scanner: { anisotropyPercent: 0, skewDegrees: 0 },
-    scanA: c,
-    scanB: c,
-    relativeRotationDegrees: 90,
+    scans: [c, c],
+    scanAnglesDegrees: [0, 90],
+    angleSpreadDegrees: 90,
     rotationLooksValid: true,
     flipMismatch: false,
+    failureReason: null,
+    uncertainty: null,
   }
 }
 function plane(p: Plane, x: number, y: number, skew: number): PlaneAnalysis {
-  return { plane: p, twoScan: two(x, y, skew) }
+  return { plane: p, scanSet: two(x, y, skew) }
 }
 
 describe('multi-plane combine', () => {
