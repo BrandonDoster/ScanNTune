@@ -141,6 +141,30 @@ this pipeline the same way `TestData_2solid.png` is for the XY/XZ/YZ engine. Do 
 measurement math (alignment, width profiling, transition scoring, parabolic refinement) without keeping
 the render-recovery tests green (rule 1).
 
+## Extrusion multiplier (flow) calibration
+
+A third calibration flow lives under `web/src/engine/em/`: it measures the deposited bead width from
+a single scan of a single-color coupon and emits the flow correction (slicer flow % and `M221 S`).
+The coupon (generated in-app, `em/gcodeGenerator.ts` over the shared `web/src/engine/gcode/emitter.ts`
+extracted from the PA generator) is a frame band with the same 3-hole + solid-origin-corner fiducial
+convention, a center rail, and two mirrored rows of 13 blocks of 7 parallel single-bead lines, each
+block at a different known pitch (defaults 0.70-1.10 mm, always above the bead width: a flatbed cannot
+read a slit much narrower than ~0.25 mm through the part's depth, so every gap must stay open). Lines
+are 3 layers tall (1 narrower pedestal layer absorbs z-offset squish, 2 measured layers define the
+scanned edge; scan top face down, lid closed) and overrun the band/rail by 1 mm so their tips weld onto
+perimeters. Measurement (`em/fiducialAligner`, `em/gapMeasurer`, `em/emAnalyzer`): per gap, the bead
+width is the gap complement `w = measured local pitch - measured gap` (line centres are
+extrusion-immune, so printer axis stretch and material shrinkage cancel), edges located by a gradient
+centroid (center-of-gravity) sub-pixel estimator, samples pooled over both rows, MAD-cleaned, and
+summarized by the median. Distances convert to true mm ONLY via the card calibration px/mm
+(`useCalibration`, a hard requirement for this flow); the affine is for locating features. The block
+separators are NOT a width reference (their air is `2 + nominal - w`, w-dependent); they provide the
+`biasMm` cross-check residual. `pitchScale` (measured vs commanded pitch) is a per-axis printer-scale
+diagnostic. Validation contract: `web/tests/helpers/emRender.ts` renders coupons from known ground
+truth; do not change the EM measurement math without keeping its render-recovery tests
+(`emAnalyzer.spec.ts`) green, and `tests/engine/em/realScan.spec.ts` + `e2e/em.spec.ts` pin a real
+600 dpi scan end to end (rule 1).
+
 ## Conventions
 
 The coding rules are strict; each is numbered for unambiguous reference. Do not cite these rule numbers in
