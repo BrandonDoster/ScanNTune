@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, shallowRef } from 'vue'
+import { computed, onBeforeUnmount, ref, shallowRef } from 'vue'
 import { usePrinterProfiles } from '../stores/usePrinterProfiles'
 import { readBytes } from '../util/preview'
 import { analyzePaScan } from '../workerClient'
@@ -263,6 +263,12 @@ function resetStProcessing(): void {
   stProcessing.value = null
   stAnalyzedSpec.value = null
 }
+
+onBeforeUnmount(() => {
+  resetProcessing()
+  resetStProcessing()
+})
+
 async function onPickSmooth(e: Event): Promise<void> {
   await analyzeUpload(e, 'smoothTime', stSpec.value, {
     processing: stProcessing,

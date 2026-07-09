@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, shallowRef, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import { useApp } from '../stores/useApp'
 import { useCalibration } from '../stores/useCalibration'
 import { usePrinterProfiles } from '../stores/usePrinterProfiles'
@@ -154,6 +154,8 @@ function resetProcessing(): void {
   analyzedSpec.value = null
 }
 
+onBeforeUnmount(resetProcessing)
+
 async function onPick(e: Event): Promise<void> {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0]
@@ -252,7 +254,7 @@ const pitchScaleOff = computed(() => {
         <div class="fields">
           <NumericField v-model="pitchMin" label="Pitch min (mm)" :step="0.01" :min="0.01" :precision="4" />
           <NumericField v-model="pitchMax" label="Pitch max (mm)" :step="0.01" :min="0.01" :precision="4" />
-          <NumericField v-model="blockCount" label="Blocks" :step="1" :min="3" />
+          <NumericField v-model="blockCount" label="Blocks per row" :step="1" :min="3" />
           <NumericField v-model="linesPerBlock" label="Lines per block" :step="1" :min="2" />
         </div>
       </div>
@@ -410,7 +412,7 @@ const pitchScaleOff = computed(() => {
           />
           <MetricTile
             label="Blocks measured"
-            :value="`${result.blocksMeasured} of ${analyzedSpec!.blockCount}`"
+            :value="`${result.blocksMeasured} of ${2 * analyzedSpec!.blockCount}`"
             testid="em-blocks"
           />
         </div>
