@@ -6,7 +6,7 @@
 
 <template>
   <svg
-    viewBox="0 0 420 200"
+    viewBox="0 0 480 200"
     class="diagram"
     role="img"
     aria-label="Place the flow coupon with its test lines parallel to the scanner lamp's travel; a 180 degree turn is fine, a 90 degree turn shadows the gaps"
@@ -28,23 +28,23 @@
     <polyline points="144,110 151,117 144,124" class="sweepStroke" fill="none" stroke-width="1.5" />
 
     <!-- Upper coupon: lines running with the lamp's travel (horizontal), the gaps stay lit. -->
-    <rect x="150" y="66" width="70" height="52" rx="4" class="couponFill" />
-    <line x1="154" y1="74" x2="216" y2="74" class="green" stroke-width="2" />
-    <line x1="154" y1="82" x2="216" y2="82" class="green" stroke-width="2" />
-    <line x1="154" y1="90" x2="216" y2="90" class="green" stroke-width="2" />
-    <line x1="154" y1="98" x2="216" y2="98" class="green" stroke-width="2" />
-    <line x1="154" y1="106" x2="216" y2="106" class="green" stroke-width="2" />
-    <path d="M226 90 l4 4 l7 -8" class="greenStroke" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
+    <rect x="150" y="64" width="70" height="48" rx="4" class="couponFill" />
+    <line x1="154" y1="72" x2="216" y2="72" class="green" stroke-width="2" />
+    <line x1="154" y1="80" x2="216" y2="80" class="green" stroke-width="2" />
+    <line x1="154" y1="88" x2="216" y2="88" class="green" stroke-width="2" />
+    <line x1="154" y1="96" x2="216" y2="96" class="green" stroke-width="2" />
+    <line x1="154" y1="104" x2="216" y2="104" class="green" stroke-width="2" />
+    <path d="M226 86 l4 4 l7 -8" class="greenStroke" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
 
     <!-- Lower coupon: lines across the travel (vertical bars), the gaps get shadowed. -->
-    <rect x="150" y="130" width="70" height="52" rx="4" class="couponFill" />
-    <line x1="158" y1="134" x2="158" y2="178" class="amber" stroke-width="2" />
-    <line x1="166" y1="134" x2="166" y2="178" class="amber" stroke-width="2" />
-    <line x1="174" y1="134" x2="174" y2="178" class="amber" stroke-width="2" />
-    <line x1="182" y1="134" x2="182" y2="178" class="amber" stroke-width="2" />
-    <line x1="190" y1="134" x2="190" y2="178" class="amber" stroke-width="2" />
-    <line x1="227" y1="150" x2="235" y2="158" class="amberStroke" stroke-width="2.4" stroke-linecap="round" />
-    <line x1="235" y1="150" x2="227" y2="158" class="amberStroke" stroke-width="2.4" stroke-linecap="round" />
+    <rect x="150" y="120" width="70" height="48" rx="4" class="couponFill" />
+    <line x1="158" y1="124" x2="158" y2="164" class="amber" stroke-width="2" />
+    <line x1="166" y1="124" x2="166" y2="164" class="amber" stroke-width="2" />
+    <line x1="174" y1="124" x2="174" y2="164" class="amber" stroke-width="2" />
+    <line x1="182" y1="124" x2="182" y2="164" class="amber" stroke-width="2" />
+    <line x1="190" y1="124" x2="190" y2="164" class="amber" stroke-width="2" />
+    <line x1="227" y1="140" x2="235" y2="148" class="amberStroke" stroke-width="2.4" stroke-linecap="round" />
+    <line x1="235" y1="140" x2="227" y2="148" class="amberStroke" stroke-width="2.4" stroke-linecap="round" />
 
     <rect x="316" y="86" width="14" height="4" rx="2" class="greenFill" />
     <text x="336" y="91" class="lbl">lines parallel: reads clean</text>
