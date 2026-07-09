@@ -27,22 +27,22 @@
     <polyline points="132,110 139,117 132,124" class="sweepStroke" fill="none" stroke-width="1.5" />
     <polyline points="144,110 151,117 144,124" class="sweepStroke" fill="none" stroke-width="1.5" />
 
-    <!-- Upper coupon: lines parallel to the sweep (vertical bars, running top to bottom). -->
+    <!-- Upper coupon: lines running with the lamp's travel (horizontal), the gaps stay lit. -->
     <rect x="150" y="66" width="70" height="52" rx="4" class="couponFill" />
-    <line x1="158" y1="70" x2="158" y2="114" class="green" stroke-width="2" />
-    <line x1="166" y1="70" x2="166" y2="114" class="green" stroke-width="2" />
-    <line x1="174" y1="70" x2="174" y2="114" class="green" stroke-width="2" />
-    <line x1="182" y1="70" x2="182" y2="114" class="green" stroke-width="2" />
-    <line x1="190" y1="70" x2="190" y2="114" class="green" stroke-width="2" />
+    <line x1="154" y1="74" x2="216" y2="74" class="green" stroke-width="2" />
+    <line x1="154" y1="82" x2="216" y2="82" class="green" stroke-width="2" />
+    <line x1="154" y1="90" x2="216" y2="90" class="green" stroke-width="2" />
+    <line x1="154" y1="98" x2="216" y2="98" class="green" stroke-width="2" />
+    <line x1="154" y1="106" x2="216" y2="106" class="green" stroke-width="2" />
     <path d="M226 90 l4 4 l7 -8" class="greenStroke" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
 
-    <!-- Lower coupon: lines across the sweep (horizontal bars), the gaps get shadowed. -->
+    <!-- Lower coupon: lines across the travel (vertical bars), the gaps get shadowed. -->
     <rect x="150" y="130" width="70" height="52" rx="4" class="couponFill" />
-    <line x1="154" y1="138" x2="216" y2="138" class="amber" stroke-width="2" />
-    <line x1="154" y1="146" x2="216" y2="146" class="amber" stroke-width="2" />
-    <line x1="154" y1="154" x2="216" y2="154" class="amber" stroke-width="2" />
-    <line x1="154" y1="162" x2="216" y2="162" class="amber" stroke-width="2" />
-    <line x1="154" y1="170" x2="216" y2="170" class="amber" stroke-width="2" />
+    <line x1="158" y1="134" x2="158" y2="178" class="amber" stroke-width="2" />
+    <line x1="166" y1="134" x2="166" y2="178" class="amber" stroke-width="2" />
+    <line x1="174" y1="134" x2="174" y2="178" class="amber" stroke-width="2" />
+    <line x1="182" y1="134" x2="182" y2="178" class="amber" stroke-width="2" />
+    <line x1="190" y1="134" x2="190" y2="178" class="amber" stroke-width="2" />
     <line x1="227" y1="150" x2="235" y2="158" class="amberStroke" stroke-width="2.4" stroke-linecap="round" />
     <line x1="235" y1="150" x2="227" y2="158" class="amberStroke" stroke-width="2.4" stroke-linecap="round" />
 
