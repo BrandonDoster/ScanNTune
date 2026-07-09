@@ -66,15 +66,16 @@ const partColorsItems = [
 const scanPlanNote = computed(() => {
   if (scanPlace.value === 'plate') {
     return (
-      'For parts that stay on the plate (TPU, PETG). Prints at the front bed edge; scan ' +
-      'with the plate edge on the glass. The plate color must contrast the filament.'
+      'Useful for filaments that are hard to remove, like TPU or PETG. The coupon is ' +
+      'printed at the front edge of the bed, so that edge of the build plate can lie on ' +
+      'the scanner glass. The plate color needs to contrast with the filament.'
     )
   }
   return partColors.value === 'base'
-    ? 'Prints a base in a second color under the coupon (filament swap pause). The two ' +
-        'filaments must differ in brightness.'
-    : 'Scan the removed part top face down. The filament must contrast the backing ' +
-        '(lid or a sheet of paper).'
+    ? 'A base is printed in a second color underneath the coupon, with a filament swap ' +
+        'pause between the two. The two filaments need to differ in brightness.'
+    : 'The removed part is scanned face down on the glass. The filament color needs to ' +
+        'contrast with the backing, either the scanner lid or a sheet of paper.'
 })
 
 watch(
@@ -285,8 +286,8 @@ const pitchScaleOff = computed(() => {
         </v-btn>
       </div>
       <p v-if="!isCalibrated" class="text-body-2 text-medium-emphasis mt-2 mb-0">
-        Required. The analysis measures the coupon in millimetres, which needs the card
-        calibration's true resolution.
+        Required. The analysis measures the coupon in millimetres, which needs the true
+        scanner resolution from the card calibration.
       </p>
     </section>
 
@@ -419,7 +420,8 @@ const pitchScaleOff = computed(() => {
         <span class="num">5</span><span class="step-title">Scan the print</span>
       </div>
       <p class="tip mb-3">
-        Scan the coupon top face down, lid closed, at the calibrated resolution.
+        Scan the printed coupon top face down at the calibrated resolution, then drop the
+        image in.
       </p>
       <div class="fields mb-3">
         <NumericField
@@ -433,8 +435,9 @@ const pitchScaleOff = computed(() => {
         />
       </div>
       <p class="tip mb-3">
-        The slicer's current value: extrusion multiplier / flow ratio (0.96) or percentage
-        (96). The result shows the corrected value in the same format.
+        Enter the current value from your slicer, either as an extrusion multiplier / flow
+        ratio (0.96) or as a percentage (96). The result shows the corrected value in the
+        same format.
       </p>
       <label class="dropzone" :class="{ 'dropzone-disabled': !isCalibrated }">
         <input
@@ -450,7 +453,8 @@ const pitchScaleOff = computed(() => {
         <span class="dz-sub">or drop it here</span>
       </label>
       <p v-if="!isCalibrated" class="tip" data-testid="em-scan-needs-calibration">
-        Calibrate the scanner first (step 1); the analysis needs its true resolution.
+        Calibrate the scanner first (step 1); the analysis needs the scanner's true
+        resolution.
       </p>
       <div v-if="analyzing" class="d-flex align-center ga-2 mt-3">
         <v-progress-circular indeterminate size="20" width="2" color="primary" />
@@ -512,7 +516,8 @@ const pitchScaleOff = computed(() => {
         <template v-if="correction">
           <CodeBlock :code="correction.command" data-testid="em-code" />
           <p class="tip mt-0">
-            The slicer flow is the durable fix; M221 only affects the current firmware session.
+            The slicer flow value is the permanent fix; the M221 command only affects the
+            current firmware session.
           </p>
         </template>
       </template>

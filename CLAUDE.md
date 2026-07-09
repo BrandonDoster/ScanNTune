@@ -209,12 +209,22 @@ shipped source, comments, or UI text: they are guidance for how to work, not doc
    ONLY where grammar genuinely requires one, such as a compound modifier ("sub-pixel", "user-facing") or a
    hyphenated name.
 
-7. **UI text is compact, neutral information.** Helper texts, hints, notes, and warnings state facts in as
-   few plain sentences as possible: what happens, what is required, nothing else. No marketing tone, no
-   "pick this when", no motivational framing, no restating what the control already says, no second
-   sentence that only elaborates the first. State requirements generally rather than baking in one setup
-   (say "backing" with the options in parentheses, not "the scanner lid" as if it were the only backing).
-   If a note exceeds two short sentences, cut it.
+7. **UI text is plain technical prose; terminology is the community's, everywhere.** Helper texts, hints,
+   notes, and warnings are complete, grammatical sentences in a neutral register, written the way a good
+   manual states facts. Short but never telegraphic: no clipped fragments, no dropped articles. Brevity
+   comes from cutting information, never from cutting grammar; two to three short sentences is the normal
+   size. Content stays factual: what the option does and what it requires, no persuasion ("pick this
+   when"), no restating the control's label, no setup-specific claims where a general one is true (say
+   "the backing, either the lid or a sheet of paper", not "the scanner lid").
+   Terminology: use the words the 3D printing community already uses, and use them consistently, in UI
+   text AND internally (identifiers, comments, docs), so no one has to translate between code vocabulary
+   and printing vocabulary. Settings are named as the slicers and firmwares name them (extrusion
+   multiplier, flow ratio, pressure advance, z-offset, e-steps, rotation distance); hardware and process
+   terms are the accepted ones (nozzle, bed, build plate, first layer, perimeter, brim, filament swap).
+   Never invent a synonym for an established term; keep one term per concept ("bed" is the printer's
+   surface, "build plate" the removable sheet). Where ecosystems differ, use the term matching the user's
+   selected firmware or slicer, or name both once ("extrusion multiplier / flow ratio"). Existing internal
+   names are renamed opportunistically when the code is touched, not in bulk churn.
 
 **Verification bar.** The standard for "verified" is `npm run build` plus `npm test` plus `npm run e2e` all
 green (and, for any change to the measurement pipeline, the synthetic-fixture validation of rule 1). That
