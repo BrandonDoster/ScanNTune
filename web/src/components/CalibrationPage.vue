@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useApp } from '../stores/useApp'
 import { useCalibration } from '../stores/useCalibration'
 import { readBytes } from '../util/preview'
+import { diagnoseScale } from '../engine/scanScale'
 import { measureCardScan } from '../workerClient'
 import { signedFixed } from '../util/format'
 import NumericField from './NumericField.vue'
@@ -45,6 +46,16 @@ const percentVsNominal = computed(() =>
   dpi.value ? (pxPerMm.value / (dpi.value / 25.4) - 1) * 100 : 0,
 )
 
+// Geometric resolution cross-check: when the detected card size is about double or half the
+// measured size, the scan was almost certainly taken at a different resolution than entered.
+// Driven by the same reactive figures as the size check, so it updates when the fields change.
+const scaleFactorNote = computed(() => {
+  if (!hasResult.value || !measuredMm.value || !dpi.value) return null
+  const d = diagnoseScale(detectedMm.value, measuredMm.value)
+  if (d.likelyMultiple === null) return null
+  return `The detected card is about ${d.factor.toFixed(1)} times your measured size. The scan resolution likely differs from the ${Math.round(dpi.value)} dpi you entered.`
+})
+
 const isoSanityWarn = computed(
   () => measuredMm.value != null && Math.abs(measuredMm.value - ISO_MM) > 0.25,
 )
@@ -73,6 +84,15 @@ async function processFile(file: File | null): Promise<void> {
     if (!r.success) {
       isError.value = true
       statusText.value = r.message ?? "Couldn't detect the card in that scan."
+      // A card-shaped object rejected only by the size gate points at a resolution mix-up, which
+      // is a far more actionable diagnosis than the generic "no card" message.
+      if (r.rejectedLongSidePx && measuredMm.value && dpi.value) {
+        const rejectedMm = r.rejectedLongSidePx / (dpi.value / 25.4)
+        const d = diagnoseScale(rejectedMm, measuredMm.value)
+        if (d.likelyMultiple !== null) {
+          statusText.value = `The detected card is about ${d.factor.toFixed(1)} times your measured size. The scan resolution likely differs from the ${Math.round(dpi.value)} dpi you entered.`
+        }
+      }
       return
     }
     measuredWidthPx.value = r.measuredWidthPx
@@ -228,6 +248,9 @@ watch([measuredMm, dpi], () => {
         <span>Detected {{ detectedMm.toFixed(2) }} mm</span
         ><span v-if="sizeCheckOk">, matches your {{ (measuredMm ?? 0).toFixed(2) }} mm.</span
         ><span v-else>, but you entered {{ (measuredMm ?? 0).toFixed(2) }} mm. Check the DPI or the measured value.</span>
+      </p>
+      <p v-if="scaleFactorNote" class="text-body-2 warn" data-testid="scale-factor-note">
+        {{ scaleFactorNote }}
       </p>
 
       <div class="d-flex align-center justify-space-between mt-3">

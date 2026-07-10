@@ -4,6 +4,8 @@ import { useApp } from '../stores/useApp'
 import { useCalibration } from '../stores/useCalibration'
 import { useScans } from '../stores/useScans'
 import { readBytes } from '../util/preview'
+import { diagnoseScale } from '../engine/scanScale'
+import { pxPerMmAtDpi } from '../engine/scannerCalibration'
 import { analyzeScan } from '../workerClient'
 import { reconcileScans } from '../engine/multiPlaneCombiner'
 import {
@@ -385,6 +387,7 @@ function startOver(): void {
   store.clear()
   isError.value = false
   statusText.value = ''
+  scaleMismatchWarning.value = ''
 }
 
 const plates: ReadonlyArray<{ key: string; label: string; file: string }> = [
@@ -462,13 +465,34 @@ async function analyzeItem(id: number, bytes: Uint8Array, coupon: CouponSpec): P
   }
 }
 
+// Set by analyze() when the scans measure a size far from what the calibration resolution
+// predicts (a clean 2x or 0.5x factor: a resolution swap between calibration and scan).
+const scaleMismatchWarning = ref('')
+
 async function analyze(): Promise<void> {
   const measured = store.scans.filter((s) => s.isMeasured)
-  const pxPerMm = calibration.calibration
-    ? calibration.calibration.pxPerMm
+  // The card calibration stores the scanner's scale error, which holds across resolutions, so it
+  // is priced at the calibration DPI: the resolution the coupon scan is expected to use.
+  const cal = calibration.calibration
+  const pxPerMm = cal
+    ? pxPerMmAtDpi(cal, cal.dpi)
     : dpi.value != null && dpi.value >= 50
       ? dpi.value / 25.4
       : null
+  scaleMismatchWarning.value = ''
+  if (cal && pxPerMm !== null && measured.length > 0) {
+    // Geometric cross-check, independent of any metadata: the scans' own measured px/mm against
+    // the expected one. A clean 2x or 0.5x factor means the resolutions were swapped.
+    const detectedPxPerMm =
+      measured.reduce(
+        (sum, s) => sum + Math.sqrt(s.result!.measuredPxPerMmX! * s.result!.measuredPxPerMmY!),
+        0,
+      ) / measured.length
+    const d = diagnoseScale(detectedPxPerMm, pxPerMm)
+    if (d.likelyMultiple !== null) {
+      scaleMismatchWarning.value = `This scan measures about ${d.factor.toFixed(1)} times the size expected at ${Math.round(cal.dpi)} dpi. Rescan at your calibration resolution, or recalibrate at this one.`
+    }
+  }
   try {
     const result = reconcileScans(
       measured.map((s) => asAligned(toRaw(s.result!))),
@@ -806,6 +830,11 @@ function getCoupon(file: string): void {
         >
           Start over
         </v-btn>
+      </div>
+
+      <div v-if="scaleMismatchWarning" class="warn-box mb-3" data-testid="scale-mismatch-warning">
+        <v-icon color="warning" size="16" class="warn-icon">mdi-alert-outline</v-icon>
+        <span>{{ scaleMismatchWarning }}</span>
       </div>
 
       <div v-if="invalidPlanes.length" class="warn-box mb-3">
