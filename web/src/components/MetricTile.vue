@@ -9,6 +9,8 @@ export interface MetricRange {
   point: number
   unit: '°' | '%'
   scanCount: number
+  /** Standard error of the estimate, used for the no-correction note (see zeroNote below). */
+  standardError: number
 }
 
 const props = defineProps<{
@@ -48,8 +50,13 @@ const caption = computed(() =>
     ? `Likely between ${fmt(props.range.low)} and ${fmt(props.range.high)} (95% from ${props.range.scanCount} scans).`
     : '',
 )
+// Zero within one standard error of the estimate: the note fires only when the measured value
+// could plausibly be pure noise, tighter than the 95% range shown by the bar/caption above.
+const zeroWithinOneSE = computed(
+  () => !!props.range && Math.abs(props.range.point) <= props.range.standardError,
+)
 const zeroNote = computed(() =>
-  spansZero.value && props.figureName
+  zeroWithinOneSE.value && props.figureName
     ? `No correction needed: the measured ${props.figureName} is too small to stand out from the scan-to-scan spread.`
     : '',
 )

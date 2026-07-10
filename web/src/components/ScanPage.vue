@@ -256,11 +256,19 @@ const invalidPlanes = computed(() =>
 // With enough scans of a plate the least-squares fit reports a 95% confidence range per figure.
 // The ranges are per plane; a scale tile shows one only when its axis was measured by exactly one
 // plane, since a figure averaged across two plates has no single scan set to take a spread from.
-function makeRange(point: number, halfWidth: number, unit: '°' | '%', scanCount: number): MetricRange {
-  return { low: point - halfWidth, high: point + halfWidth, point, unit, scanCount }
+function makeRange(
+  point: number,
+  halfWidth: number,
+  standardError: number,
+  unit: '°' | '%',
+  scanCount: number,
+): MetricRange {
+  return { low: point - halfWidth, high: point + halfWidth, point, unit, scanCount, standardError }
 }
-function rangeSpansZero(r: MetricRange): boolean {
-  return r.low <= 0 && r.high >= 0
+// Zero within one standard error of the estimate: tighter than (and independent of) the 95% range
+// the bar/caption show, so a range can include zero without qualifying for the no-correction note.
+function isZeroWithinOneSE(r: MetricRange): boolean {
+  return Math.abs(r.point) <= r.standardError
 }
 interface ScaleRangeEntry {
   range: MetricRange
@@ -276,9 +284,9 @@ const scaleRanges = computed(() => {
     const u = p?.scanSet.uncertainty
     if (!p || !u) continue
     const figure = planeAxes(p.plane)[0] === s.axis ? 'scaleX' : 'scaleY'
-    const halfWidth = (figure === 'scaleX' ? u.scaleX : u.scaleY).rangeHalfWidth
+    const fig = figure === 'scaleX' ? u.scaleX : u.scaleY
     byAxis.set(s.axis, {
-      range: makeRange(s.scalePercent, halfWidth, '%', u.scanCount),
+      range: makeRange(s.scalePercent, fig.rangeHalfWidth, fig.standardError, '%', u.scanCount),
       plane: p.plane,
       figure,
     })
@@ -292,7 +300,13 @@ const skewRanges = computed(() => {
     if (u)
       byPlane.set(
         p.plane,
-        makeRange(p.scanSet.combined.skewDegrees, u.skew.rangeHalfWidth, '°', u.scanCount),
+        makeRange(
+          p.scanSet.combined.skewDegrees,
+          u.skew.rangeHalfWidth,
+          u.skew.standardError,
+          '°',
+          u.scanCount,
+        ),
       )
   }
   return byPlane
@@ -310,7 +324,7 @@ const moreScansHints = computed(() =>
     }),
 )
 
-// Planes whose every figure's range includes zero: nothing on that plane needs correcting.
+// Planes whose every figure is zero within one standard error: nothing on that plane needs correcting.
 const wellCalibratedPlanes = computed(() =>
   planes.value
     .filter((p) => {
@@ -318,9 +332,9 @@ const wellCalibratedPlanes = computed(() =>
       if (!u) return false
       const c = p.scanSet.combined
       return (
-        Math.abs(c.xScalePercent) <= u.scaleX.rangeHalfWidth &&
-        Math.abs(c.yScalePercent) <= u.scaleY.rangeHalfWidth &&
-        Math.abs(c.skewDegrees) <= u.skew.rangeHalfWidth
+        Math.abs(c.xScalePercent) <= u.scaleX.standardError &&
+        Math.abs(c.yScalePercent) <= u.scaleY.standardError &&
+        Math.abs(c.skewDegrees) <= u.skew.standardError
       )
     })
     .map((p) => p.plane),
@@ -339,13 +353,13 @@ function zeroRangeNote(zeroNames: string[], totalFigures: number): string | null
 }
 const skewZeroNote = computed(() =>
   zeroRangeNote(
-    [...skewRanges.value].filter(([, r]) => rangeSpansZero(r)).map(([p]) => `${p} skew`),
+    [...skewRanges.value].filter(([, r]) => isZeroWithinOneSE(r)).map(([p]) => `${p} skew`),
     skews.value.length,
   ),
 )
 const sizeZeroNote = computed(() =>
   zeroRangeNote(
-    [...scaleRanges.value].filter(([, e]) => rangeSpansZero(e.range)).map(([axis]) => `${axis} scale`),
+    [...scaleRanges.value].filter(([, e]) => isZeroWithinOneSE(e.range)).map(([axis]) => `${axis} scale`),
     scales.value.length,
   ),
 )
