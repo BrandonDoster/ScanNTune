@@ -260,8 +260,8 @@ watch([measuredMm, dpi], () => {
 
       <div class="tiles">
         <MetricTile label="px / mm" :value="pxPerMm.toFixed(3)" testid="pxpermm" />
-        <MetricTile label="effective dpi" :value="effectiveDpi.toFixed(0)" />
-        <MetricTile label="vs nominal" :value="`${signedFixed(percentVsNominal, 3)} %`" />
+        <MetricTile label="effective dpi" :value="effectiveDpi.toFixed(0)" testid="effective-dpi" />
+        <MetricTile label="vs nominal" :value="`${signedFixed(percentVsNominal, 3)} %`" testid="vs-nominal" />
       </div>
 
       <p class="text-caption text-medium-emphasis mt-3 mb-1">
@@ -290,7 +290,13 @@ watch([measuredMm, dpi], () => {
       </div>
     </section>
 
-    <v-alert v-if="statusText" :type="isError ? 'error' : 'info'" variant="tonal" :text="statusText" />
+    <v-alert
+      v-if="statusText"
+      :type="isError ? 'error' : 'info'"
+      variant="tonal"
+      :text="statusText"
+      :data-testid="isError ? 'card-error' : undefined"
+    />
 
     <v-dialog v-model="confirmReset" max-width="420">
       <v-card title="Start over?">

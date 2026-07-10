@@ -48,9 +48,9 @@ const rows = computed(() => {
       label: 'Rotation',
       value: aligned && angle !== null ? `${angle.toFixed(1)}°` : 'Not resolved',
       sev: (aligned ? 'ok' : 'mute') as Sev,
-      testid: 'rotation-angle',
+      testid: 'scan-angle',
     },
-    { label: 'Flip', value: flipValue, sev: (s.flipped === null ? 'mute' : 'ok') as Sev, testid: undefined },
+    { label: 'Flip', value: flipValue, sev: (s.flipped === null ? 'mute' : 'ok') as Sev, testid: 'scan-flip' },
   ]
 })
 

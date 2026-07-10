@@ -17,7 +17,7 @@ exists: the exact user journey step by step (page opens, which control is clicke
 checked after every step), every assertion with its expected value, and the provenance of every
 golden number (which caliper measurement, which reference dimension, which design parameter).
 The spec covers the full happy path from app entry to every displayed output field, plus the
-rejection paths of principle 6. The spec is a repo file at `web/e2e/flows/<name>.md`, committed
+rejection paths of principle 7. The spec is a repo file at `web/e2e/flows/<name>.md`, committed
 alongside the test, so it is reviewable and survives as the test's contract. The designer reads
 the app UI to name real controls and testids but takes NO expected values from the code.
 
@@ -27,7 +27,7 @@ where the spec and the app disagree, the engineer reports back instead of adapti
 a needed testid does not exist, the engineer adds the testid to the UI, not a workaround selector.
 
 Changing an existing golden test starts over at phase 1: amend the flow spec first (with owner
-sign-off for golden-value changes per principle 7), then re-derive the code from it.
+sign-off for golden-value changes per principle 8), then re-derive the code from it.
 
 Both phases are dispatched to current-generation Sonnet-class agents: the design phase is
 procedural specification and the implementation phase is mechanical translation, neither needs a
@@ -91,18 +91,27 @@ outside the code entirely.
    from: instrument, hand measurement, or coupon design math, with enough detail (which caliper
    reading, which STL parameter) that someone can re-derive it later.
 
-5. **Read what the user reads.** Assert on the same `data-testid` text the user sees on the
+5. **No math in the test.** A golden webtest reads displayed values and compares them to
+   hardcoded literals (a number plus tolerance, or an exact string). It never re-derives an
+   expected value through a formula, never converts units, never implements a helper that mirrors
+   engine logic: test-side math can be wrong in exactly the way the app is wrong, and it rots
+   silently. Relations between figures (a command encoding a measurement, a percent deriving from
+   a ratio) are pinned in engine unit tests, where the formula belongs; the webtest asserts the
+   literal on-screen outcome. Fixtures are frozen and the engine is deterministic, so a literal
+   exists for every field.
+
+6. **Read what the user reads.** Assert on the same `data-testid` text the user sees on the
    results page (e.g. `scale-x`, `skew-xy`, `em-width`, `pa-value`), parsed with `innerText()`,
    not on engine return values or intermediate objects. If the UI rounds or formats a number,
    assert against what's actually displayed; a hidden precision bug that never reaches the screen
    isn't this test's job.
 
-6. **Cover the failure paths users actually hit, not just the happy path.** At least one test per
+7. **Cover the failure paths users actually hit, not just the happy path.** At least one test per
    flow should upload a scan set the app must reject: two scans of the same angle, a mirror-flipped
    pair, a missing fiducial, or an unreadable image. Assert the specific testid the UI uses for the
    actionable message (e.g. `em-failure`, `plane-status-*`), not just that *something* failed.
 
-7. **A backend change never authorizes changing a golden expectation.** When only the UI changed,
+8. **A backend change never authorizes changing a golden expectation.** When only the UI changed,
    selectors and testids may be updated freely as long as the numeric expectations stay untouched.
    When the measurement engine changed, the golden values and tolerances are the judge of that
    change and must not be edited alongside it: if the test fails, the presumption is that the

@@ -548,7 +548,7 @@ function getCoupon(file: string): void {
             <v-icon :color="isCalibrated ? 'success' : 'warning'" size="15">
               {{ isCalibrated ? 'mdi-check-circle' : 'mdi-alert-circle-outline' }}
             </v-icon>
-            <span class="text-medium-emphasis">{{ calibrationLine }}</span>
+            <span class="text-medium-emphasis" data-testid="calibration-status-line">{{ calibrationLine }}</span>
           </span>
         </div>
         <v-btn
@@ -802,7 +802,7 @@ function getCoupon(file: string): void {
         >
           {{ analyzeLabel }}
         </v-btn>
-        <p v-if="analyzeReason" class="tip text-center mt-2">{{ analyzeReason }}</p>
+        <p v-if="analyzeReason" class="tip text-center mt-2" data-testid="analyze-reason">{{ analyzeReason }}</p>
 
         <v-alert
           v-if="statusText"
