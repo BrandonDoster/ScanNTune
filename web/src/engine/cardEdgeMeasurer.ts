@@ -5,8 +5,9 @@ import { analyzeThresholdBands, valueChannel } from './cvUtils'
 
 // Measures a reference card's long side to sub-pixel precision: locates the card by validating both
 // threshold polarities against the ISO/IEC 7810 ID-1 shape, fits each long edge as a straight line
-// from sub-pixel gradient-peak edge points (one per scan row), and takes the perpendicular distance
-// between the two lines. Only the long dimension feeds the scale: the short edges sit where a
+// from sub-pixel gradient-peak edge points (one per scan row), refines each edge's location with an
+// ISO 12233 style slanted-edge projection, and takes the perpendicular distance between the two
+// lines. Only the long dimension feeds the scale: the short edges sit where a
 // scanner lid shadow can bias one of them, and scanner anisotropy is separated by the coupon's own
 // two-scan combine instead. The long side is measured in a frame where it runs horizontally
 // (portrait is transposed).
@@ -23,6 +24,9 @@ interface EdgeFit {
   c: number
   rms: number
   n: number
+  // The MAD-inlier rows the fit kept; the slanted-edge refinement projects pixels from exactly
+  // these rows so an outlier row (a glare spot, a torn corner) never feeds the ESF.
+  ys: number[]
 }
 
 interface SpanMeasurement {
@@ -40,6 +44,7 @@ export function measureCard(
 ): ScaleReferenceResult {
   if (!image || image.empty()) throw new Error('Image is null or empty.')
   if (knownLongSideMm <= 0) throw new Error('The reference length must be positive.')
+  if (nominalDpi <= 0) throw new Error('The nominal scan dpi must be positive.')
 
   // The tracer runs on the same HSV value channel the detector thresholds, so a saturated coloured
   // card that detects also traces (BGR-to-gray luma can lose the contrast the value channel has).
@@ -61,7 +66,7 @@ export function measureCard(
     }
 
     // The short edges (near vertical in the landscape frame) bound the long side.
-    const long = measureSpan(work, wbox)
+    const long = measureSpan(work, wbox, nominalDpi)
     if (!long)
       return fail(
         "Couldn't trace the card's long edges. Check the scan contrast and that the whole card is on the glass.",
@@ -86,12 +91,20 @@ export function measureCard(
   }
 }
 
-// Traces the two near-vertical edges of `box` in `work` and returns the perpendicular span between
-// them, or null when either edge yields too few points to trust.
-function measureSpan(work: Mat, box: Rect): SpanMeasurement | null {
+// The half-width of the edge search and projection window, in millimetres. 1.7 mm equals the 2%
+// of the 85.60 mm long side the window used to be sized from, restated as a physical length so
+// every dpi sees the same physical neighbourhood of the edge.
+const EDGE_HALF_WINDOW_MM = 1.7
+
+// Traces the two near-vertical edges of `box` in `work`, refines each edge's intercept with an
+// ISO 12233 style slanted-edge projection (see refineEdgeIntercept), and returns the perpendicular
+// span between them, or null when either edge yields too few points to trust or the refined edge
+// has no significant gradient peak.
+function measureSpan(work: Mat, box: Rect, nominalDpi: number): SpanMeasurement | null {
   const data = work.data as Uint8Array
   const cols = work.cols
-  const halfWin = clampInt(Math.trunc(box.width * 0.02), 12, 60)
+  // A physical window; the floor only guarantees the window holds enough samples to interpolate.
+  const halfWin = Math.max(2, Math.round((EDGE_HALF_WINDOW_MM * nominalDpi) / 25.4))
   const y0 = box.y + Math.trunc(box.height * 0.15)
   const y1 = box.y + Math.trunc(box.height * 0.85)
 
@@ -99,9 +112,13 @@ function measureSpan(work: Mat, box: Rect): SpanMeasurement | null {
   const right = fitVerticalEdge(data, cols, y0, y1, box.x + box.width, halfWin)
   if (left.n < 15 || right.n < 15) return null
 
+  const cL = refineEdgeIntercept(data, cols, left, halfWin, nominalDpi)
+  const cR = refineEdgeIntercept(data, cols, right, halfWin, nominalDpi)
+  if (cL === null || cR === null) return null
+
   const yMid = (y0 + y1) / 2.0
-  const xL = left.m * yMid + left.c
-  const xR = right.m * yMid + right.c
+  const xL = left.m * yMid + cL
+  const xR = right.m * yMid + cR
   const mAvg = (left.m + right.m) / 2.0
   return {
     spanPx: (xR - xL) / Math.sqrt(1 + mAvg * mAvg),
@@ -109,6 +126,153 @@ function measureSpan(work: Mat, box: Rect): SpanMeasurement | null {
     straightnessPx: Math.max(left.rms, right.rms),
     edgePointCount: Math.min(left.n, right.n),
   }
+}
+
+// --- Slanted-edge sub-pixel refinement ------------------------------------------------------
+//
+// The per-row gradient-peak trace above localizes each row's edge from three discrete pixel
+// gradients. A scanner edge profile is not symmetric (a shadow or halo hugs the card's physical
+// edge), so the discrete peak carries a fixed sub-pixel offset from the true edge; and because the
+// two long-side profiles mirror each other, the two per-edge offsets add OUTWARD in the span
+// instead of cancelling. A fixed pixel offset per edge is a fixed relative error proportional to
+// 1/dpi, which is exactly the dpi-dependent scale disagreement observed between scans.
+//
+// The fix is the ISO 12233 slanted-edge method: project every pixel in a band around the fitted
+// edge line onto the edge normal, pooling hundreds of rows whose sub-pixel edge phases differ into
+// one densely supersampled edge spread function (ESF). Working in millimetres, with the smoothing
+// matched to the pixel aperture (below), the ESF and its gradient peak are the same physical curve
+// at every dpi, so the residual localization offset is the same physical length at every dpi and
+// the 1/dpi-proportional error disappears.
+
+// The total mm-domain blur the smoothed ESF carries, as the standard deviation of the combined
+// pixel-aperture and smoothing-kernel blur. Each dpi's pixel aperture already blurs by
+// p^2/12 (the variance of a box of width p = 25.4/dpi mm), so the Gaussian regression kernel gets
+// the remainder: sigma_k = sqrt(sigma_tot^2 - p^2/12) (pixel-aperture blur matching). The value is
+// derived, not tuned: kernel regression over the binned ESF needs sigma_k >= p/2 at the lowest
+// supported dpi of 150, which requires sigma_tot >= p/sqrt(3) = 0.098 mm; 0.10 mm is that bound
+// rounded up.
+const ESF_SIGMA_TOTAL_MM = 0.1
+
+// The ESF is linearly binned at 0.02 mm pitch (comfortably below sigma_k, so binning adds no
+// resolvable blur) and the smoothed ESF is evaluated on a 0.005 mm grid, fine enough that the
+// 3-point parabolic peak refinement operates on a locally quadratic sampling of the derivative.
+const ESF_BIN_PITCH_MM = 0.02
+const ESF_GRID_STEP_MM = 0.005
+
+// Refines one traced edge's intercept `c` by locating the gradient-magnitude peak of the pooled,
+// mm-domain edge spread function, and returns the refined intercept, or null when the smoothed
+// derivative has no peak that stands above its own noise floor (the same median + 3 MAD-derived
+// sigma rule the per-row tracer uses). The projection is recentred on the refined line and run a
+// second time so the window is symmetric about the found edge, which makes the kernel regression's
+// support symmetric and the estimate self-consistent.
+function refineEdgeIntercept(
+  data: Uint8Array,
+  cols: number,
+  fit: EdgeFit,
+  halfWin: number,
+  nominalDpi: number,
+): number | null {
+  const mmPerPx = 25.4 / nominalDpi
+  const apertureVariance = (mmPerPx * mmPerPx) / 12
+  const kernelVariance = ESF_SIGMA_TOTAL_MM * ESF_SIGMA_TOTAL_MM - apertureVariance
+  if (kernelVariance <= 0) {
+    throw new Error(`The scan resolution (${nominalDpi} dpi) is too low for sub-pixel edge refinement.`)
+  }
+  const sigmaK = Math.sqrt(kernelVariance)
+
+  let c = fit.c
+  for (let pass = 0; pass < 2; pass++) {
+    const du = esfGradientPeakOffsetMm(data, cols, fit.m, c, fit.ys, halfWin, mmPerPx, sigmaK)
+    if (du === null) return null
+    // The offset is measured along the edge normal in mm; convert it back to an x intercept shift.
+    c += (du / mmPerPx) * Math.sqrt(1 + fit.m * fit.m)
+  }
+  return c
+}
+
+// Projects the band's pixels onto the edge normal (ISO 12233 slanted-edge projection), smooths the
+// pooled samples with a binned Gaussian kernel regression (Nadaraya-Watson estimator), and returns
+// the sub-grid offset of the gradient-magnitude peak from the current line, in millimetres, or
+// null when no significant peak exists.
+function esfGradientPeakOffsetMm(
+  data: Uint8Array,
+  cols: number,
+  m: number,
+  c: number,
+  ys: number[],
+  halfWin: number,
+  mmPerPx: number,
+  sigmaK: number,
+): number | null {
+  const norm = Math.sqrt(1 + m * m)
+  const binCount = Math.round((2 * EDGE_HALF_WINDOW_MM) / ESF_BIN_PITCH_MM) + 1
+  const binWeight = new Float64Array(binCount)
+  const binValue = new Float64Array(binCount)
+
+  for (const y of ys) {
+    const xc = m * y + c
+    const x0 = Math.ceil(xc - halfWin)
+    const x1 = Math.floor(xc + halfWin)
+    if (x0 < 0 || x1 > cols - 1) continue // a row whose window leaves the image contributes nothing
+    const row = y * cols
+    for (let x = x0; x <= x1; x++) {
+      const uMm = (((x - xc) / norm) * mmPerPx + EDGE_HALF_WINDOW_MM) / ESF_BIN_PITCH_MM
+      const i0 = Math.floor(uMm)
+      if (i0 < 0 || i0 >= binCount) continue
+      const w1 = uMm - i0 // linear binning: the sample splits between its two nearest bins
+      const v = data[row + x]
+      binWeight[i0] += 1 - w1
+      binValue[i0] += (1 - w1) * v
+      if (i0 + 1 < binCount) {
+        binWeight[i0 + 1] += w1
+        binValue[i0 + 1] += w1 * v
+      }
+    }
+  }
+
+  // Nadaraya-Watson Gaussian kernel regression evaluated on the fine grid, computed over the bins
+  // (each bin stands for its pooled samples, which the linear binning placed to first order).
+  const gridCount = Math.round((2 * EDGE_HALF_WINDOW_MM) / ESF_GRID_STEP_MM) + 1
+  const esf = new Float64Array(gridCount)
+  for (let i = 0; i < gridCount; i++) {
+    const g = -EDGE_HALF_WINDOW_MM + i * ESF_GRID_STEP_MM
+    let num = 0
+    let den = 0
+    for (let j = 0; j < binCount; j++) {
+      if (binWeight[j] === 0) continue
+      const b = -EDGE_HALF_WINDOW_MM + j * ESF_BIN_PITCH_MM
+      const t = (g - b) / sigmaK
+      const w = Math.exp(-0.5 * t * t)
+      num += w * binValue[j]
+      den += w * binWeight[j]
+    }
+    if (den <= 0) return null // an empty stretch of the window: the band ran off the data
+    esf[i] = num / den
+  }
+
+  // Central-difference derivative magnitude on the uniform grid.
+  const da = new Float64Array(gridCount - 2)
+  for (let i = 1; i < gridCount - 1; i++) {
+    da[i - 1] = Math.abs((esf[i + 1] - esf[i - 1]) / (2 * ESF_GRID_STEP_MM))
+  }
+  let pi = 0
+  for (let i = 1; i < da.length; i++) if (da[i] > da[pi]) pi = i
+  if (pi <= 0 || pi >= da.length - 1) return null
+
+  // The peak must stand above the smoothed derivative's own noise floor (median + 3 MAD sigmas).
+  const daArr = Array.from(da)
+  const med = median(daArr)
+  const sigma = 1.4826 * median(daArr.map((v) => Math.abs(v - med)))
+  if (da[pi] <= med + EDGE_PEAK_MAD_SIGMAS * sigma) return null
+
+  // 3-point parabolic refinement: safe here because the grid is uniform and the mm-domain
+  // smoothing is identical at every dpi, so the parabola sees the same physical curve everywhere.
+  const dm = da[pi - 1]
+  const dc = da[pi]
+  const dp = da[pi + 1]
+  const denom = dm - 2 * dc + dp
+  const sub = Math.abs(denom) < 1e-12 ? 0 : (0.5 * (dm - dp)) / denom
+  return -EDGE_HALF_WINDOW_MM + (pi + 1 + sub) * ESF_GRID_STEP_MM
 }
 
 // The ISO/IEC 7810 ID-1 card is 85.60 x 53.98 mm; its side ratio identifies it among the other
@@ -341,7 +505,7 @@ function fitEdgePass(
       xs.push(xe)
     }
   }
-  if (ys.length < 3) return { m: 0, c: 0, rms: 0, n: ys.length }
+  if (ys.length < 3) return { m: 0, c: 0, rms: 0, n: ys.length, ys }
 
   const { c, m } = fitLine(ys, xs) // x = c + m*y
 
@@ -358,10 +522,10 @@ function fitEdgePass(
     }
     if (y2.length >= 3) {
       const fit = fitLine(y2, x2)
-      return { m: fit.m, c: fit.c, rms: rms(y2, x2, fit.m, fit.c), n: y2.length }
+      return { m: fit.m, c: fit.c, rms: rms(y2, x2, fit.m, fit.c), n: y2.length, ys: y2 }
     }
   }
-  return { m, c, rms: rms(ys, xs, m, c), n: ys.length }
+  return { m, c, rms: rms(ys, xs, m, c), n: ys.length, ys }
 }
 
 // A row's gradient peak counts as an edge only when it stands above the row's own noise: the
@@ -436,10 +600,6 @@ function rms(ys: number[], xs: number[], m: number, c: number): number {
     s += e * e
   }
   return Math.sqrt(s / ys.length)
-}
-
-function clampInt(value: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, value))
 }
 
 function fail(message: string, rejectedLongSidePx: number | null = null): ScaleReferenceResult {
