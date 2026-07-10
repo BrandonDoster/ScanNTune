@@ -8,11 +8,11 @@
     <title>ScanNTune: 3D printer calibration from a flatbed scan</title>
     <meta
       name="description"
-      content="Caliper-free 3D printer calibration from a flatbed scan: skew, shrinkage, and pressure advance. Ready-to-paste Klipper, Marlin, RepRapFirmware and slicer corrections."
+      content="Caliper-free 3D printer calibration from a flatbed scan: skew, shrinkage, pressure advance, and extrusion multiplier. Klipper, Marlin, RepRapFirmware, slicer output."
     />
     <meta
       name="keywords"
-      content="3D printer calibration, XY calibration, XYZ calibration, shrinkage calibration, skew calibration, pressure advance calibration, linear advance, Klipper, Marlin, RepRapFirmware, Orca Slicer, PrusaSlicer, SET_SKEW, XY_SKEW_FACTOR, M900, PRESSURE_ADVANCE, steps per mm, flatbed scanner, calibration coupon"
+      content="3D printer calibration, XY calibration, XYZ calibration, shrinkage calibration, skew calibration, pressure advance calibration, linear advance, Klipper, Marlin, RepRapFirmware, Orca Slicer, PrusaSlicer, SET_SKEW, XY_SKEW_FACTOR, M900, PRESSURE_ADVANCE, steps per mm, flatbed scanner, calibration coupon, extrusion multiplier calibration, flow ratio, M221"
     />
     <meta name="robots" content="index, follow" />
     <link rel="canonical" href="https://scanntune.jaak0b.at/" />
@@ -24,19 +24,19 @@
     <meta property="og:title" content="ScanNTune: 3D printer calibration from a flatbed scan" />
     <meta
       property="og:description"
-      content="Caliper-free 3D printer calibration from a flatbed scan: skew, shrinkage, and pressure advance. Ready-to-paste firmware and slicer corrections."
+      content="Caliper-free 3D printer calibration from a flatbed scan: skew, shrinkage, pressure advance, and flow ratio. Klipper, Marlin, RepRapFirmware corrections."
     />
     <meta property="og:image" content="https://scanntune.jaak0b.at/og-image.png" />
     <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="ScanNTune: caliper-free 3D printer calibration from a flatbed scan: skew, shrinkage, and pressure advance" />
+    <meta property="og:image:alt" content="ScanNTune: caliper-free 3D printer calibration from a flatbed scan: skew, shrinkage, pressure advance, and extrusion multiplier" />
 
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="ScanNTune: 3D printer calibration from a flatbed scan" />
     <meta
       name="twitter:description"
-      content="Caliper-free 3D printer calibration from a flatbed scan: skew, shrinkage, and pressure advance. No calipers, no eyeballing test prints."
+      content="Caliper-free 3D printer calibration from a flatbed scan: skew, shrinkage, pressure advance, and flow ratio. Klipper, Marlin, RepRapFirmware corrections."
     />
     <meta name="twitter:image" content="https://scanntune.jaak0b.at/og-image.png" />
 
@@ -49,14 +49,14 @@
         "applicationCategory": "UtilitiesApplication",
         "operatingSystem": "Any (web browser)",
         "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-        "description": "Caliper-free 3D printer calibration from a flatbed scanner: X/Y/Z shrinkage, skew, and pressure advance. Measures scanned printed coupons in the browser and emits ready-to-paste Klipper, Marlin, RepRapFirmware, and slicer corrections."
+        "description": "Caliper-free 3D printer calibration from a flatbed scanner: X/Y/Z shrinkage, skew, pressure advance, and extrusion multiplier. Measures scanned printed coupons in the browser and emits ready-to-paste Klipper, Marlin, RepRapFirmware, and slicer corrections."
       }
     </script>
   </head>
   <body>
     <div id="app"></div>
     <noscript>
-      ScanNTune calibrates a 3D printer's X/Y/Z shrinkage, skew, and pressure advance from flatbed scans of
+      ScanNTune calibrates a 3D printer's X/Y/Z shrinkage, skew, pressure advance, and extrusion multiplier from flatbed scans of
       printed calibration coupons, with no calipers. It needs JavaScript to run: enable it to load the app.
     </noscript>
     <script type="module" src="/src/main.ts"></script>
