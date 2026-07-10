@@ -5,6 +5,48 @@ description: Use when adding or changing a Playwright end-to-end test in web/e2e
 
 # Writing golden webtests
 
+## The two-phase process (mandatory)
+
+A golden webtest is created in two separate phases by two separate roles, never by one agent in
+one pass. This separation exists because the failure mode of end-to-end tests is the implementer
+inventing expectations from the code under test, which reduces the test to a snapshot of today's
+bugs.
+
+**Phase 1: test design.** A QA test designer writes a flow specification BEFORE any test code
+exists: the exact user journey step by step (page opens, which control is clicked, what state is
+checked after every step), every assertion with its expected value, and the provenance of every
+golden number (which caliper measurement, which reference dimension, which design parameter).
+The spec covers the full happy path from app entry to every displayed output field, plus the
+rejection paths of principle 6. The spec is a repo file at `web/e2e/flows/<name>.md`, committed
+alongside the test, so it is reviewable and survives as the test's contract. The designer reads
+the app UI to name real controls and testids but takes NO expected values from the code.
+
+**Phase 2: test implementation.** A QA automation engineer turns the spec into a Playwright test
+mechanically. The engineer may not add, drop, weaken, or reinterpret any assertion in the spec;
+where the spec and the app disagree, the engineer reports back instead of adapting the test. If
+a needed testid does not exist, the engineer adds the testid to the UI, not a workaround selector.
+
+Changing an existing golden test starts over at phase 1: amend the flow spec first (with owner
+sign-off for golden-value changes per principle 7), then re-derive the code from it.
+
+Both phases are dispatched to current-generation Sonnet-class agents: the design phase is
+procedural specification and the implementation phase is mechanical translation, neither needs a
+larger model. Escalate a phase to a larger model only when a Sonnet attempt has concretely failed.
+
+## The golden sample library
+
+Externally verified scan sets live in `web/e2e/golden/<set-name>/`, one directory per physical
+sample set, shared across all flows and tests. Prefer scanning the physical sample natively at a
+repo-friendly resolution (300 dpi) over downsampling a high-resolution scan: a native scan has no
+resampling artifacts and is exactly what a real user's scanner produces. When the flow includes
+scanner calibration, the set must include a card scan made at the same DPI in the same session. Each set contains the downsampled scan images
+(lowercase names) and a `PROVENANCE.md` recording: printer and date, print conditions (filament,
+any deliberately injected correction profile with its exact command), the external measurements
+(instrument, raw readings), the derived golden values with their tolerances, and the downsample
+re-verification result. Flow specs and tests reference a set by its directory name and take
+golden values ONLY from its `PROVENANCE.md`. New real-world sample sets go here, not loose in
+`web/e2e/fixtures/` (which keeps synthetic renders and non-golden fixtures).
+
 ## Why this exists
 
 A sign-inversion bug in the measurement engine shipped past `npm test` because the synthetic

@@ -79,12 +79,12 @@ const note = computed<string | null>(() => {
   if (props.scan.failureReason) return props.scan.failureReason
   if (props.scan.state === ScanState.Unlabeled)
     return (
-      'The 1/2/3 plane-ID diagonals next to the origin corner could not be read, so this scan ' +
-      'cannot be assigned to a plane. Print the current plates (they carry the diagonal marks) or rescan.'
+      'The plane-identifying marks near the origin corner could not be read, so this scan ' +
+      'cannot be assigned to a plane. Print the current plates (they carry the marks) or rescan.'
     )
   const clipped = props.scan.clippedSides
   if (clipped.length > 0)
-    return `A missing ring sits at the ${clipped.join(' and ')} image edge: the coupon looks cut off there. Rescan with the whole coupon inside the scan area.`
+    return `A missing ring sits at the ${clipped.join(' and ')} image edge: the plate looks cut off there. Rescan with the whole plate inside the scan area.`
   if (props.problem === 'duplicate')
     return (
       'This scan is at nearly the same angle as another scan of this plate. ' +

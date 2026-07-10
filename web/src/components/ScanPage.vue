@@ -29,6 +29,7 @@ import {
 import { signedPercent, signedDegrees } from '../util/format'
 import NumericField from './NumericField.vue'
 import CouponGlyph from './CouponGlyph.vue'
+import PlateStyleGlyph from './PlateStyleGlyph.vue'
 import ScanIsland from './ScanIsland.vue'
 import CodeBlock from './CodeBlock.vue'
 import MetricTile from './MetricTile.vue'
@@ -39,7 +40,7 @@ const store = useScans()
 
 const MAX_SCANS = 24
 
-const dpi = ref<number | null>(1200)
+const dpi = ref<number | null>(600)
 const baselineMm = ref<number | null>(100)
 const gridN = ref<number | null>(5)
 
@@ -53,10 +54,12 @@ const isCalibrated = computed(() => calibration.calibration !== null)
 const calibrationLine = computed(() =>
   isCalibrated.value
     ? `${Math.round(calibration.calibration!.dpi)} dpi`
-    : 'Optional · skips absolute size',
+    : 'Optional: reports skew and X-to-Y difference only',
 )
 const scanDpiHint = computed(() =>
-  isCalibrated.value ? `Scan every plate at ${Math.round(calibration.calibration!.dpi)} dpi.` : '',
+  isCalibrated.value
+    ? `Scan every plate at ${Math.round(calibration.calibration!.dpi)} dpi, the DPI the scanner was calibrated at.`
+    : '',
 )
 
 // Coupon geometry locks once any scan is loaded: the per-scan analysis is cached against these
@@ -130,15 +133,15 @@ const planeGroups = computed<PlaneGroup[]>(() => {
     )
     const ready = enough && spreadOk && !flipMismatch
     const statusText = !enough
-      ? 'Needs a second scan at a different angle.'
+      ? 'This plate needs a second scan, turned on the glass from the first.'
       : flipMismatch
-        ? 'One scan is mirror-flipped relative to the others. Rescan the plate the same way up each time.'
+        ? 'One scan shows the plate mirrored relative to the others. Scan every image of this plate with the same face down.'
         : !spreadOk
-          ? `These scans are only ${Math.round(spreadDegrees)} degrees apart. Turn the plate roughly a quarter turn and scan it again.`
+          ? `These two scans are only ${Math.round(spreadDegrees)} degrees apart. Turn the plate further, about a quarter turn, and scan it again so the app can separate scale from skew.`
           : 'Ready to analyze.'
     const note =
       ready && quadrants < 4
-        ? `Adding a scan turned about a quarter turn further would improve accuracy. Scans cover ${quadrants} of 4 turn directions.`
+        ? `This plate covers ${quadrants} of 4 quarter turns. A scan at one of the remaining quarter turns would improve accuracy.`
         : null
     groups.push({
       plane,
@@ -183,7 +186,7 @@ const analyzeLabel = computed(() => {
 const analyzeReason = computed(() => {
   if (anyPending.value) return ''
   const n = store.scans.length
-  if (n === 0) return 'Add at least two scans of each plate to analyze.'
+  if (n === 0) return 'Add at least two scans of each plate you want to calibrate.'
   const bad = notReady.value.length
   if (bad > 0) return `Fix ${bad} scan${bad === 1 ? '' : 's'} to analyze.`
   const short = planeGroups.value.find((g) => !g.ready)
@@ -292,8 +295,6 @@ const skewRanges = computed(() => {
   }
   return byPlane
 })
-const anyRange = computed(() => scaleRanges.value.size > 0 || skewRanges.value.size > 0)
-
 // A plate scanned fewer than MIN_SCANS_FOR_RANGE times has no range yet; say how many scans away it is.
 const moreScansHints = computed(() =>
   planes.value
@@ -302,7 +303,7 @@ const moreScansHints = computed(() =>
       const missing = Math.max(1, MIN_SCANS_FOR_RANGE - p.scanSet.scans.length)
       return {
         plane: p.plane,
-        text: `Scan this plate ${missing} more ${missing === 1 ? 'time' : 'times'} to see a confidence range.`,
+        text: `Scan this plate ${missing} more ${missing === 1 ? 'time' : 'times'} to get a confidence range, which shows how tightly the value is pinned down.`,
       }
     }),
 )
@@ -392,14 +393,35 @@ const plates: ReadonlyArray<{ key: string; label: string; file: string }> = [
   { key: 'yz', label: 'YZ plane', file: 'calibration_coupon_yz.stl' },
 ]
 
+// Plate picker cards in step 3: one entry per downloadable plate, with the caption and glyph
+// orientation the card shows. The selection drives the guidance panel and the download button.
+const plateCards: ReadonlyArray<{ key: string; caption: string; standing: boolean }> = [
+  { key: 'xy', caption: 'XY (flat)', standing: false },
+  { key: 'xz', caption: 'XZ (standing)', standing: true },
+  { key: 'yz', caption: 'YZ (standing)', standing: true },
+]
+const selectedPlates = ref<string[]>(['xy'])
+const selectedPlateEntries = computed(() =>
+  plates.filter((p) => selectedPlates.value.includes(p.key)),
+)
+const anyStandingSelected = computed(() =>
+  selectedPlates.value.some((key) => key !== 'xy'),
+)
+const downloadLabel = computed(() => {
+  const keys = selectedPlateEntries.value.map((p) => p.key.toUpperCase())
+  if (keys.length === 0) return 'Download'
+  if (keys.length === 1) return `Download ${keys[0]} plate`
+  return `Download ${keys.join(' + ')} plates`
+})
+
 function buildCoupon(): CouponSpec {
   return { ...defaultCouponSpec(), baselineMm: baselineMm.value ?? 100, gridN: gridN.value ?? 5 }
 }
 
-function downloadAllCoupons(): void {
+function downloadSelectedCoupons(): void {
   // Browsers gate multiple downloads fired in the same tick without a fresh user gesture per file
   // (Chrome/Firefox silently block the 2nd+ after the first), so space them out.
-  plates.forEach((p, i) => setTimeout(() => getCoupon(p.file), i * 400))
+  selectedPlateEntries.value.forEach((p, i) => setTimeout(() => getCoupon(p.file), i * 400))
 }
 
 async function onPick(e: Event): Promise<void> {
@@ -487,9 +509,9 @@ function getCoupon(file: string): void {
         />
       </div>
       <p class="text-body-2 text-medium-emphasis mt-1">
-        Print a plate for each plane you want to calibrate, scan each one at least twice at different
-        angles, and drop all the scans in. The app sorts them by plate and works out X/Y/Z scale and
-        skew. More scans at different angles improve accuracy.
+        Print a plate for each plane you want to calibrate, scan each plate, and drop the scans in.
+        The app works out X, Y, and Z scale and skew; two scans of a plate give a result, four or more
+        add a confidence range.
       </p>
     </header>
 
@@ -515,6 +537,11 @@ function getCoupon(file: string): void {
           {{ isCalibrated ? 'Recalibrate' : 'Calibrate scanner' }}
         </v-btn>
       </div>
+      <p v-if="!isCalibrated" class="tip">
+        Scanning a standard plastic card of known size teaches the app the true pixels per
+        millimeter, which no scanner reports exactly. Without it the app still measures skew and the
+        difference between X and Y scale, but not absolute size.
+      </p>
     </section>
 
     <!-- 2. Reset printer skew -->
@@ -525,9 +552,11 @@ function getCoupon(file: string): void {
       <div class="warn-box mb-3">
         <v-icon color="warning" size="16" class="warn-icon">mdi-alert-outline</v-icon>
         <span>
-          <strong class="warn-lead">Coupons must be printed with skew correction disabled.</strong>
-          A correction still active bends the coupon before it prints, so the skew fix ScanNTune
-          calculates from it will be wrong.
+          <strong class="warn-lead">
+            Turn off skew correction in the printer's firmware before printing the plates.
+          </strong>
+          Any correction still active bends the plate as it prints, so the skew ScanNTune reports
+          would be measured on top of the old correction and come out wrong.
         </span>
       </div>
       <CodeBlock :code="resetCommand.code" />
@@ -536,38 +565,48 @@ function getCoupon(file: string): void {
 
     <!-- 3. Print the plates -->
     <section class="step mb-3">
-      <div class="step-row mb-2">
-        <div class="step-head">
-          <span class="num">3</span><span class="step-title">Print the plate(s)</span>
-        </div>
-        <v-menu>
-          <template #activator="{ props }">
-            <v-btn variant="tonal" size="small" prepend-icon="mdi-download" v-bind="props">
-              Download plate
-            </v-btn>
-          </template>
-          <v-list density="compact">
-            <v-list-item v-for="p in plates" :key="p.key" @click="getCoupon(p.file)">
-              <v-list-item-title>{{ p.label }}</v-list-item-title>
-            </v-list-item>
-            <v-divider />
-            <v-list-item @click="downloadAllCoupons">
-              <v-list-item-title class="text-primary">Download all</v-list-item-title>
-            </v-list-item>
-          </v-list>
-        </v-menu>
+      <div class="step-head mb-2">
+        <span class="num">3</span><span class="step-title">Print the plate(s)</span>
       </div>
-      <p class="tip">
-        Download the plane(s) you want to calibrate. XZ and YZ print standing, no supports needed.
+      <p class="tip mt-0 mb-1">
+        <strong>Print it exactly as downloaded. Do not rotate or mirror it.</strong> A flipped plate
+        reports the wrong X and Y directions, and the scan cannot detect that this happened.
       </p>
-      <ul class="tip print-tips">
-        <li>
-          <strong>XZ / YZ: add a brim</strong> (about 8&nbsp;mm, outer side only). The standing plates
-          have a narrow bed contact and warp without one.
-        </li>
-        <li>Let the bed cool before removing the plate; peeling it off warm bends it.</li>
-        <li>Peel the brim off and deburr its edge, so the plate lies flat on the scanner glass.</li>
-      </ul>
+      <v-item-group v-model="selectedPlates" multiple class="plate-select">
+        <v-item v-for="c in plateCards" :key="c.key" :value="c.key" v-slot="{ isSelected, toggle }">
+          <div
+            class="plate-card"
+            :class="{ selected: isSelected }"
+            :data-testid="`plate-select-${c.key}`"
+            role="checkbox"
+            :aria-checked="isSelected ? 'true' : 'false'"
+            tabindex="0"
+            @click="toggle"
+            @keydown.enter="toggle"
+          >
+            <PlateStyleGlyph :standing="c.standing" />
+            <span class="glyph-cap">{{ c.caption }}</span>
+          </div>
+        </v-item>
+      </v-item-group>
+      <p v-if="anyStandingSelected" class="tip" data-testid="plate-brim-tip">
+        <strong>Add an 8&nbsp;mm brim to the outer side; peel it off and file the edge smooth before
+        scanning.</strong> Thin-edge plates lift at the corners without one.
+      </p>
+      <p class="tip">Let the bed cool before removing the plate.</p>
+      <div class="plate-actions mt-2">
+        <v-btn
+          data-testid="plate-download-button"
+          color="primary"
+          variant="flat"
+          size="small"
+          prepend-icon="mdi-download"
+          :disabled="selectedPlateEntries.length === 0"
+          @click="downloadSelectedCoupons"
+        >
+          {{ downloadLabel }}
+        </v-btn>
+      </div>
     </section>
 
     <!-- 4. Scan your prints -->
@@ -575,28 +614,41 @@ function getCoupon(file: string): void {
       <div class="step-head mb-1">
         <span class="num">4</span><span class="step-title">Scan your prints</span>
       </div>
+      <p class="tip mb-2">
+        Cover the plate with a backing that contrasts with its color: dark paper behind a light
+        plate, or the white lid behind a dark plate. Scan the plate once. Turn it on the glass and
+        scan it again. Use the same face down for every scan of a plate.
+      </p>
+      <p class="tip mb-2">
+        <strong>{{ scanDpiHint || 'Scan at 600 dpi.' }}</strong>
+      </p>
       <p class="tip mb-3">
-        Scan each plate, then rotate it roughly a quarter turn and scan it again. The exact angle does
-        not matter; the software measures it. The position on the glass does not matter either. Adding
-        more scans at different angles improves accuracy. Back light plates with a dark sheet for
-        contrast.
-        <template v-if="scanDpiHint">{{ scanDpiHint }}</template>
+        More scans improve accuracy; four, turned roughly a quarter turn each, are ideal. Up to
+        {{ MAX_SCANS }} scans in total.
       </p>
 
       <div class="scan-flow">
         <div class="glyph-step">
           <CouponGlyph :rotate="0" :size="76" />
-          <span class="glyph-cap">1 · scan flat</span>
+          <span class="glyph-cap">Scan 1</span>
         </div>
         <div class="connector">
           <v-icon class="arrow" color="primary" size="26">mdi-rotate-right</v-icon>
-          <span class="deg">turn 90°</span>
+          <span class="deg">turn the plate</span>
         </div>
         <div class="glyph-step">
           <div class="roll">
             <div class="glyph-wrap"><CouponGlyph :size="76" /></div>
           </div>
-          <span class="glyph-cap">2 · scan again</span>
+          <span class="glyph-cap">Scan 2</span>
+        </div>
+        <div class="connector">
+          <v-icon class="arrow" color="primary" size="26">mdi-rotate-right</v-icon>
+          <span class="deg">turn again</span>
+        </div>
+        <div class="glyph-step faded">
+          <CouponGlyph :rotate="180" :size="76" />
+          <span class="glyph-cap">More scans (optional)</span>
         </div>
       </div>
     </section>
@@ -607,9 +659,8 @@ function getCoupon(file: string): void {
         <span class="num">5</span><span class="step-title">Upload your scans</span>
       </div>
       <p class="tip mb-3">
-        Drop in every scan at once. Each plate needs at least two scans at different angles; more
-        scans improve accuracy (up to {{ MAX_SCANS }} scans in total). The scans sort themselves into
-        plates below.
+        Drop in every scan at once. The app reads each one, identifies which plate and which plane it
+        shows, and groups them below. A plate needs at least two scans to produce a result.
       </p>
 
       <label v-if="store.scans.length < MAX_SCANS" class="dropzone">
@@ -697,11 +748,11 @@ function getCoupon(file: string): void {
           label="Scanner DPI"
           :step="100"
           :min="50"
-          hint="DPI / 25.4 = px per mm. Clear for anisotropy and skew only."
+          hint="The app divides DPI by 25.4 to get pixels per millimeter. Leave it blank to skip absolute size."
         />
         <template v-if="fieldsLocked">
           <div class="locked-field">
-            <span class="lf-label">Coupon baseline (mm)</span>
+            <span class="lf-label">Plate baseline (mm)</span>
             <span class="lf-value">{{ baselineMm }}</span>
           </div>
           <div class="locked-field">
@@ -710,7 +761,7 @@ function getCoupon(file: string): void {
           </div>
         </template>
         <template v-else>
-          <NumericField v-model="baselineMm" label="Coupon baseline (mm)" :step="10" :min="10" />
+          <NumericField v-model="baselineMm" label="Plate baseline (mm)" :step="10" :min="10" />
           <NumericField v-model="gridN" label="Rings per side" :step="1" :min="2" />
         </template>
       </div>
@@ -770,13 +821,6 @@ function getCoupon(file: string): void {
         </span>
       </div>
 
-      <p v-if="anyRange" class="range-info" data-testid="confidence-info">
-        <v-icon color="info" size="14" class="ri-icon">mdi-information-outline</v-icon>
-        <span>
-          The range shows the spread between your scans. A figure whose range includes zero is too
-          small to stand out from that spread.
-        </span>
-      </p>
       <div class="group-label">Scale</div>
       <div class="tiles mb-3">
         <MetricTile
@@ -809,8 +853,8 @@ function getCoupon(file: string): void {
       </div>
       <p class="tip mt-0 mb-2" data-testid="skew-reference-frame-hint">
         Positive skew means the corner between the printer's +X and +Y axes prints wider than 90
-        degrees. This matches the Skew value of the Califlower calculator; its Correction column
-        shows the same number negated.
+        degrees. You do not correct the sign yourself: the commands below already carry the right
+        value to cancel the measured skew.
       </p>
       <div v-if="moreScansHints.length || wellCalibratedPlanes.length" class="mb-4">
         <p
@@ -898,6 +942,11 @@ function getCoupon(file: string): void {
         <CodeBlock v-if="sizeFix" :code="sizeFix.code" data-testid="size-code" />
         <p v-if="sizeFix?.hint" class="tip mt-0">{{ sizeFix.hint }}</p>
       </div>
+
+      <p class="tip mt-3" data-testid="verify-fix-tip">
+        To confirm the fix, print the plate again with the correction active and scan it; the skew
+        should now read near zero.
+      </p>
     </section>
   </v-container>
 
@@ -961,12 +1010,6 @@ function getCoupon(file: string): void {
   color: rgba(var(--v-theme-on-surface), 0.6);
   margin-top: 8px;
 }
-.print-tips {
-  padding-left: 18px;
-}
-.print-tips li {
-  margin-top: 4px;
-}
 .warn-box {
   display: flex;
   align-items: flex-start;
@@ -990,6 +1033,7 @@ function getCoupon(file: string): void {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-wrap: wrap;
   gap: 18px;
   padding: 6px 0 2px;
 }
@@ -1002,6 +1046,39 @@ function getCoupon(file: string): void {
 .glyph-cap {
   font-size: 12px;
   color: rgba(var(--v-theme-on-surface), 0.7);
+}
+.glyph-step.faded {
+  opacity: 0.4;
+}
+.plate-select {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 8px 0 4px;
+}
+.plate-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 18px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.12);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.plate-card:hover {
+  border-color: rgba(var(--v-theme-primary), 0.5);
+}
+.plate-card.selected {
+  border-color: rgb(var(--v-theme-primary));
+  background: rgba(var(--v-theme-primary), 0.08);
+}
+.plate-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 /* The second coupon pivots about its top-right corner (transform-origin 0 0 plus translateX by one
    glyph width pins that corner on screen) so it ROLLS in from the right onto the quarter-turned
@@ -1170,18 +1247,6 @@ function getCoupon(file: string): void {
   font-size: 16px;
   font-weight: 500;
   font-family: 'Roboto Mono', ui-monospace, monospace;
-}
-.range-info {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  font-size: 12px;
-  color: rgba(var(--v-theme-on-surface), 0.65);
-  margin: 0 0 10px;
-}
-.ri-icon {
-  margin-top: 1px;
-  flex-shrink: 0;
 }
 .plane-ok {
   display: flex;
