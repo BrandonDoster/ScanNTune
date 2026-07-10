@@ -4,6 +4,7 @@ import { useApp } from '../stores/useApp'
 import { useCalibration } from '../stores/useCalibration'
 import { usePrinterProfiles } from '../stores/usePrinterProfiles'
 import { readBytes } from '../util/preview'
+import { pxPerMmAtDpi } from '../engine/scannerCalibration'
 import { analyzeEmScan } from '../workerClient'
 import type { EmProcessing } from '../workerClient'
 import { emCorrection } from '../engine/em/emCorrectionFormatter'
@@ -206,13 +207,16 @@ async function onPick(e: Event): Promise<void> {
   // requirement and a running analysis must not be doubled up.
   if (!file || analyzing.value || !calibration.calibration) return
   const usedSpec = spec.value
-  const scanPxPerMm = calibration.calibration.pxPerMm
+  const cal = calibration.calibration
   analyzing.value = true
   progressText.value = 'Reading the scan'
   scanError.value = ''
   resetProcessing()
   try {
     const bytes = await readBytes(file)
+    // The calibration's scale error holds across resolutions; the scan is expected at the
+    // calibration DPI, so the calibration is priced at exactly that resolution.
+    const scanPxPerMm = pxPerMmAtDpi(cal, cal.dpi)
     processing.value = await analyzeEmScan(bytes, usedSpec, scanPxPerMm, onProgress)
     analyzedSpec.value = usedSpec
   } catch (err) {

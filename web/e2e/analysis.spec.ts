@@ -42,6 +42,12 @@ test('calibration flow recovers ~23.6 px/mm from the real card scan', async ({ p
   expect(pxPerMm).toBeGreaterThan(23.3)
   expect(pxPerMm).toBeLessThan(23.9)
   await expect(page.getByTestId('saved')).toBeVisible()
+
+  // Starting over clears the stored calibration and returns the page to its upload state.
+  await page.getByTestId('startover-btn').click()
+  await page.getByTestId('startover-confirm').click()
+  await expect(page.getByTestId('calibration-result')).toBeHidden()
+  await expect(page.getByTestId('card-input')).toBeVisible()
 })
 
 test('calibration recovers after uploading before entering the measurement', async ({ page }) => {

@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useApp } from '../stores/useApp'
 import { useCalibration } from '../stores/useCalibration'
 import { readBytes } from '../util/preview'
+import { diagnoseScale } from '../engine/scanScale'
 import { measureCardScan } from '../workerClient'
 import { signedFixed } from '../util/format'
 import NumericField from './NumericField.vue'
@@ -21,6 +22,7 @@ const dpi = ref<number | null>(calibration.calibration?.dpi ?? 600)
 const detecting = ref(false)
 const isError = ref(false)
 const statusText = ref('')
+const confirmReset = ref(false)
 
 const measuredWidthPx = ref<number | null>(calibration.calibration?.measuredWidthPx ?? null)
 const straightnessPx = ref(calibration.calibration?.straightnessPx ?? 0)
@@ -44,6 +46,16 @@ const saved = computed(() => sizeCheckOk.value)
 const percentVsNominal = computed(() =>
   dpi.value ? (pxPerMm.value / (dpi.value / 25.4) - 1) * 100 : 0,
 )
+
+// Geometric resolution cross-check: when the detected card size is about double or half the
+// measured size, the scan was almost certainly taken at a different resolution than entered.
+// Driven by the same reactive figures as the size check, so it updates when the fields change.
+const scaleFactorNote = computed(() => {
+  if (!hasResult.value || !measuredMm.value || !dpi.value) return null
+  const d = diagnoseScale(detectedMm.value, measuredMm.value)
+  if (d.likelyMultiple === null) return null
+  return `The detected card is about ${d.factor.toFixed(1)} times your measured size. The scan resolution likely differs from the ${Math.round(dpi.value)} dpi you entered.`
+})
 
 const isoSanityWarn = computed(
   () => measuredMm.value != null && Math.abs(measuredMm.value - ISO_MM) > 0.25,
@@ -73,6 +85,15 @@ async function processFile(file: File | null): Promise<void> {
     if (!r.success) {
       isError.value = true
       statusText.value = r.message ?? "Couldn't detect the card in that scan."
+      // A card-shaped object rejected only by the size gate points at a resolution mix-up, which
+      // is a far more actionable diagnosis than the generic "no card" message.
+      if (r.rejectedLongSidePx && measuredMm.value && dpi.value) {
+        const rejectedMm = r.rejectedLongSidePx / (dpi.value / 25.4)
+        const d = diagnoseScale(rejectedMm, measuredMm.value)
+        if (d.likelyMultiple !== null) {
+          statusText.value = `The detected card is about ${d.factor.toFixed(1)} times your measured size. The scan resolution likely differs from the ${Math.round(dpi.value)} dpi you entered.`
+        }
+      }
       return
     }
     measuredWidthPx.value = r.measuredWidthPx
@@ -118,6 +139,18 @@ function maybeSave(): void {
       calibratedUtc: new Date().toISOString(),
     })
   }
+}
+
+function startOver(): void {
+  confirmReset.value = false
+  calibration.clear()
+  measuredWidthPx.value = null
+  straightnessPx.value = 0
+  parallelismDegrees.value = 0
+  hasResult.value = false
+  detecting.value = false
+  isError.value = false
+  statusText.value = ''
 }
 
 watch([measuredMm, dpi], () => {
@@ -213,12 +246,22 @@ watch([measuredMm, dpi], () => {
       <div class="d-flex align-center ga-2 mb-3">
         <v-icon color="success">mdi-check-circle</v-icon>
         <span class="font-weight-medium">Card detected</span>
+        <v-spacer />
+        <v-btn
+          data-testid="startover-btn"
+          variant="text"
+          size="small"
+          prepend-icon="mdi-refresh"
+          @click="confirmReset = true"
+        >
+          Start over
+        </v-btn>
       </div>
 
       <div class="tiles">
         <MetricTile label="px / mm" :value="pxPerMm.toFixed(3)" testid="pxpermm" />
-        <MetricTile label="effective dpi" :value="effectiveDpi.toFixed(0)" />
-        <MetricTile label="vs nominal" :value="`${signedFixed(percentVsNominal, 3)} %`" />
+        <MetricTile label="effective dpi" :value="effectiveDpi.toFixed(0)" testid="effective-dpi" />
+        <MetricTile label="vs nominal" :value="`${signedFixed(percentVsNominal, 3)} %`" testid="vs-nominal" />
       </div>
 
       <p class="text-caption text-medium-emphasis mt-3 mb-1">
@@ -228,6 +271,9 @@ watch([measuredMm, dpi], () => {
         <span>Detected {{ detectedMm.toFixed(2) }} mm</span
         ><span v-if="sizeCheckOk">, matches your {{ (measuredMm ?? 0).toFixed(2) }} mm.</span
         ><span v-else>, but you entered {{ (measuredMm ?? 0).toFixed(2) }} mm. Check the DPI or the measured value.</span>
+      </p>
+      <p v-if="scaleFactorNote" class="text-body-2 warn" data-testid="scale-factor-note">
+        {{ scaleFactorNote }}
       </p>
 
       <div class="d-flex align-center justify-space-between mt-3">
@@ -244,7 +290,29 @@ watch([measuredMm, dpi], () => {
       </div>
     </section>
 
-    <v-alert v-if="statusText" :type="isError ? 'error' : 'info'" variant="tonal" :text="statusText" />
+    <v-alert
+      v-if="statusText"
+      :type="isError ? 'error' : 'info'"
+      variant="tonal"
+      :text="statusText"
+      :data-testid="isError ? 'card-error' : undefined"
+    />
+
+    <v-dialog v-model="confirmReset" max-width="420">
+      <v-card title="Start over?">
+        <v-card-text>
+          This removes the stored scanner calibration. Scans analyzed afterwards need a new card
+          measurement until you calibrate again.
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="confirmReset = false">Cancel</v-btn>
+          <v-btn color="error" variant="flat" data-testid="startover-confirm" @click="startOver">
+            Start over
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </v-container>
 </template>
 

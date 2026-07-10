@@ -34,7 +34,7 @@ export function skewCorrection(flavour: string, skewDegrees: number, coupon: Cou
   if (!Number.isFinite(tan) || Math.abs(skewDegrees) >= 45.0)
     return {
       code: 'skew out of range, check the scan',
-      hint: 'A real coupon skews well under 1 degree; this suggests a detection problem.',
+      hint: 'A real plate skews well under 1 degree; this suggests a detection problem.',
     }
 
   switch (flavour) {
@@ -63,7 +63,7 @@ export function skewCorrection(flavour: string, skewDegrees: number, coupon: Cou
       const ad = l * Math.sqrt(tan * tan + 1.0)
       return {
         code: `SET_SKEW XY=${upTo3(ac)},${upTo3(bd)},${upTo3(ad)}\nSKEW_PROFILE SAVE=ScanNTune\nSAVE_CONFIG`,
-        hint: "The three values are the two diagonals and one side of a reference square that encodes the measured skew, in Klipper's AC, BD, AD order. They give the same skew factor as a caliper-measured Califlower print.",
+        hint: "The three values are the two diagonals and one side of a reference square that encodes the measured skew, in Klipper's AC, BD, AD order. They give the same result as measuring a printed test square by hand.",
         primaryCaption: 'Paste into the Klipper console:',
         secondaryCaption: 'Add this to your start g-code:',
         secondaryCode: 'SKEW_PROFILE LOAD=ScanNTune',
@@ -81,11 +81,20 @@ export function skewCorrection(flavour: string, skewDegrees: number, coupon: Cou
 export function resetSkewCommand(flavour: string): Correction {
   switch (flavour) {
     case MARLIN:
-      return { code: `M852 I0 J0 K0\nM500`, hint: 'Send via console; M500 saves it.' }
+      return {
+        code: `M852 I0 J0 K0\nM500`,
+        hint: 'Send M852 with no arguments to see the current factors. Send the zeroing command, then M500 to save it. Values of 0 mean skew correction is off.',
+      }
     case REPRAP:
-      return { code: `M556 S100 X0 Y0 Z0`, hint: 'Send via console, or add to config.g.' }
+      return {
+        code: `M556 S100 X0 Y0 Z0`,
+        hint: 'Send this in the console, or add it to config.g so it applies on every boot. A factor of 0 on each axis means skew correction is off.',
+      }
     default:
-      return { code: 'SET_SKEW CLEAR=1', hint: '' }
+      return {
+        code: 'SET_SKEW CLEAR=1',
+        hint: 'Send SET_SKEW CLEAR=1 in the console before printing. Check your printer start G-code and remove any SKEW_PROFILE LOAD line; otherwise the profile is reapplied on every print. Restart Klipper after editing the config or start G-code.',
+      }
   }
 }
 
@@ -118,13 +127,13 @@ export function skewCorrectionMulti(
   const outOfRange = dropped.map((s) => s.plane)
   const rangeHint =
     outOfRange.length > 0
-      ? ` ${outOfRange.join(', ')} skew is out of range and was left out; check that scan.`
+      ? `${outOfRange.join(', ')} skew is out of range and was left out; check that scan. `
       : ''
 
   if (usable.length === 0)
     return {
       code: 'skew out of range, check the scans',
-      hint: 'A real coupon skews well under 1 degree; this suggests a detection problem.',
+      hint: 'A real plate skews well under 1 degree; this suggests a detection problem.',
     }
 
   switch (flavour) {
@@ -136,7 +145,7 @@ export function skewCorrectionMulti(
         : ''
       return {
         code: `M852 ${parts.join(' ')}\nM500`,
-        hint: `Send via console; M500 saves it.${zSkewNote}${rangeHint}`,
+        hint: `${rangeHint}Send via console; M500 saves it.${zSkewNote}`,
       }
     }
 
@@ -148,7 +157,7 @@ export function skewCorrectionMulti(
       )
       return {
         code: `M556 S${upTo3(coupon.baselineMm)} ${parts.join(' ')}`,
-        hint: `Add to config.g.${rangeHint}`,
+        hint: `${rangeHint}Add to config.g.`,
       }
     }
 
@@ -234,7 +243,7 @@ export function sizeCorrection(
     default: // Shrinkage
       return {
         code: `XY shrinkage: ${f2((1.0 + avg) * 100.0)} %`,
-        hint: 'OrcaSlicer / SuperSlicer: Filament → Advanced → Shrinkage compensation (XY). Single value; use Steps/mm for per-axis.',
+        hint: 'OrcaSlicer / SuperSlicer: Filament -> Advanced -> Shrinkage compensation (XY). Single value; use Steps/mm for per-axis.',
       }
   }
 }

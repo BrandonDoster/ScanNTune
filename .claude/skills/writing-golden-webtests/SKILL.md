@@ -5,6 +5,48 @@ description: Use when adding or changing a Playwright end-to-end test in web/e2e
 
 # Writing golden webtests
 
+## The two-phase process (mandatory)
+
+A golden webtest is created in two separate phases by two separate roles, never by one agent in
+one pass. This separation exists because the failure mode of end-to-end tests is the implementer
+inventing expectations from the code under test, which reduces the test to a snapshot of today's
+bugs.
+
+**Phase 1: test design.** A QA test designer writes a flow specification BEFORE any test code
+exists: the exact user journey step by step (page opens, which control is clicked, what state is
+checked after every step), every assertion with its expected value, and the provenance of every
+golden number (which caliper measurement, which reference dimension, which design parameter).
+The spec covers the full happy path from app entry to every displayed output field, plus the
+rejection paths of principle 7. The spec is a repo file at `web/e2e/flows/<name>.md`, committed
+alongside the test, so it is reviewable and survives as the test's contract. The designer reads
+the app UI to name real controls and testids but takes NO expected values from the code.
+
+**Phase 2: test implementation.** A QA automation engineer turns the spec into a Playwright test
+mechanically. The engineer may not add, drop, weaken, or reinterpret any assertion in the spec;
+where the spec and the app disagree, the engineer reports back instead of adapting the test. If
+a needed testid does not exist, the engineer adds the testid to the UI, not a workaround selector.
+
+Changing an existing golden test starts over at phase 1: amend the flow spec first (with owner
+sign-off for golden-value changes per principle 8), then re-derive the code from it.
+
+Both phases are dispatched to current-generation Sonnet-class agents: the design phase is
+procedural specification and the implementation phase is mechanical translation, neither needs a
+larger model. Escalate a phase to a larger model only when a Sonnet attempt has concretely failed.
+
+## The golden sample library
+
+Externally verified scan sets live in `web/e2e/golden/<set-name>/`, one directory per physical
+sample set, shared across all flows and tests. Prefer scanning the physical sample natively at a
+repo-friendly resolution (300 dpi) over downsampling a high-resolution scan: a native scan has no
+resampling artifacts and is exactly what a real user's scanner produces. When the flow includes
+scanner calibration, the set must include a card scan made at the same DPI in the same session. Each set contains the downsampled scan images
+(lowercase names) and a `PROVENANCE.md` recording: printer and date, print conditions (filament,
+any deliberately injected correction profile with its exact command), the external measurements
+(instrument, raw readings), the derived golden values with their tolerances, and the downsample
+re-verification result. Flow specs and tests reference a set by its directory name and take
+golden values ONLY from its `PROVENANCE.md`. New real-world sample sets go here, not loose in
+`web/e2e/fixtures/` (which keeps synthetic renders and non-golden fixtures).
+
 ## Why this exists
 
 A sign-inversion bug in the measurement engine shipped past `npm test` because the synthetic
@@ -49,18 +91,27 @@ outside the code entirely.
    from: instrument, hand measurement, or coupon design math, with enough detail (which caliper
    reading, which STL parameter) that someone can re-derive it later.
 
-5. **Read what the user reads.** Assert on the same `data-testid` text the user sees on the
+5. **No math in the test.** A golden webtest reads displayed values and compares them to
+   hardcoded literals (a number plus tolerance, or an exact string). It never re-derives an
+   expected value through a formula, never converts units, never implements a helper that mirrors
+   engine logic: test-side math can be wrong in exactly the way the app is wrong, and it rots
+   silently. Relations between figures (a command encoding a measurement, a percent deriving from
+   a ratio) are pinned in engine unit tests, where the formula belongs; the webtest asserts the
+   literal on-screen outcome. Fixtures are frozen and the engine is deterministic, so a literal
+   exists for every field.
+
+6. **Read what the user reads.** Assert on the same `data-testid` text the user sees on the
    results page (e.g. `scale-x`, `skew-xy`, `em-width`, `pa-value`), parsed with `innerText()`,
    not on engine return values or intermediate objects. If the UI rounds or formats a number,
    assert against what's actually displayed; a hidden precision bug that never reaches the screen
    isn't this test's job.
 
-6. **Cover the failure paths users actually hit, not just the happy path.** At least one test per
+7. **Cover the failure paths users actually hit, not just the happy path.** At least one test per
    flow should upload a scan set the app must reject: two scans of the same angle, a mirror-flipped
    pair, a missing fiducial, or an unreadable image. Assert the specific testid the UI uses for the
    actionable message (e.g. `em-failure`, `plane-status-*`), not just that *something* failed.
 
-7. **A backend change never authorizes changing a golden expectation.** When only the UI changed,
+8. **A backend change never authorizes changing a golden expectation.** When only the UI changed,
    selectors and testids may be updated freely as long as the numeric expectations stay untouched.
    When the measurement engine changed, the golden values and tolerances are the judge of that
    change and must not be edited alongside it: if the test fails, the presumption is that the

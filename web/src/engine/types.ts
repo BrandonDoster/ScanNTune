@@ -260,6 +260,12 @@ export interface ScaleReferenceResult {
   parallelismDegrees: number
   edgePointCount: number
   message?: string | null
+  /**
+   * On failure only: the long side (px) of the best card-shaped candidate that was rejected by the
+   * size gate, so the caller can diagnose a scan taken at a different resolution than entered.
+   * Null or absent when nothing card-shaped was seen at any size.
+   */
+  rejectedLongSidePx?: number | null
 }
 
 /** A stored scanner calibration; the true px/mm recovered from a known-length reference. */

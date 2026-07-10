@@ -39,6 +39,12 @@ function decodePngBgr(cv: OpenCv, url: URL): Mat {
   return rgbaToBgrMat(cv, { data: png.data, width: png.width, height: png.height })
 }
 
+// Decodes a PNG from an absolute filesystem path (for the untracked real-scan corpus in Data/).
+export function decodePngFileBgr(cv: OpenCv, absolutePath: string): Mat {
+  const png = PNG.sync.read(readFileSync(absolutePath))
+  return rgbaToBgrMat(cv, { data: png.data, width: png.width, height: png.height })
+}
+
 // Image transforms (ports of ScanNTune.Tests/CouponImageTransforms.cs). Each returns a fresh Mat the
 // caller deletes.
 export function stretchX(cv: OpenCv, src: Mat, factor: number): Mat {
