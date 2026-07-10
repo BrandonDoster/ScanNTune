@@ -22,6 +22,7 @@ const dpi = ref<number | null>(calibration.calibration?.dpi ?? 600)
 const detecting = ref(false)
 const isError = ref(false)
 const statusText = ref('')
+const confirmReset = ref(false)
 
 const measuredWidthPx = ref<number | null>(calibration.calibration?.measuredWidthPx ?? null)
 const straightnessPx = ref(calibration.calibration?.straightnessPx ?? 0)
@@ -140,6 +141,18 @@ function maybeSave(): void {
   }
 }
 
+function startOver(): void {
+  confirmReset.value = false
+  calibration.clear()
+  measuredWidthPx.value = null
+  straightnessPx.value = 0
+  parallelismDegrees.value = 0
+  hasResult.value = false
+  detecting.value = false
+  isError.value = false
+  statusText.value = ''
+}
+
 watch([measuredMm, dpi], () => {
   // Once the numbers are valid, drop a stale "enter your measurement first" prompt.
   if (isError.value && canUpload.value) {
@@ -233,6 +246,16 @@ watch([measuredMm, dpi], () => {
       <div class="d-flex align-center ga-2 mb-3">
         <v-icon color="success">mdi-check-circle</v-icon>
         <span class="font-weight-medium">Card detected</span>
+        <v-spacer />
+        <v-btn
+          data-testid="startover-btn"
+          variant="text"
+          size="small"
+          prepend-icon="mdi-refresh"
+          @click="confirmReset = true"
+        >
+          Start over
+        </v-btn>
       </div>
 
       <div class="tiles">
@@ -268,6 +291,22 @@ watch([measuredMm, dpi], () => {
     </section>
 
     <v-alert v-if="statusText" :type="isError ? 'error' : 'info'" variant="tonal" :text="statusText" />
+
+    <v-dialog v-model="confirmReset" max-width="420">
+      <v-card title="Start over?">
+        <v-card-text>
+          This removes the stored scanner calibration. Scans analyzed afterwards need a new card
+          measurement until you calibrate again.
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="confirmReset = false">Cancel</v-btn>
+          <v-btn color="error" variant="flat" data-testid="startover-confirm" @click="startOver">
+            Start over
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </v-container>
 </template>
 
