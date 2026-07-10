@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest'
-import { getCv, syntheticCard, blankGray } from '../helpers/cv'
+import { getCv, syntheticCard, blankGray, decodeFixtureBgr, decodeE2eFixtureBgr } from '../helpers/cv'
 import { measureCard } from '../../src/engine/cardEdgeMeasurer'
 import type { Mat, OpenCv } from '../../src/engine/opencv'
 
@@ -50,6 +50,20 @@ describe('card edge measurer', () => {
     }
   }, 60000)
 
+  // The rotation the edge tracer must survive: at 5 degrees the edge drifts out of a window that is
+  // anchored at the upright bounding box, so the second, fit-recentred pass is what recovers it.
+  it('a 5 degree rotated card still traces', async () => {
+    const cv = await getCv()
+    const img = syntheticCard(cv, 255, 60, false, 5.0)
+    try {
+      const r = measureCard(cv, img, LongMm, Dpi)
+      expect(r.success).toBe(true)
+      expect(Math.abs(r.pxPerMm - 10.0)).toBeLessThanOrEqual(0.06)
+    } finally {
+      img.delete()
+    }
+  }, 60000)
+
   // The real-world failure geometry: a dark backing sheet that stops short of the scan bed, so a
   // bright scanner-lid margin dominates the image border. A border-statistics polarity guess flips
   // on this; the card must still be found by validating both polarities against the card's shape.
@@ -65,6 +79,62 @@ describe('card edge measurer', () => {
     assertRecovers(cv, scene)
   }, 60000)
 
+  // A card lying inside a card-ratio encloser (a sleeve): the true card and the sleeve are nested
+  // near-equal candidates; the one whose long side matches the dpi prediction is the card, so the
+  // inner card must be measured, not the sleeve.
+  it('a card inside a card-ratio sleeve measures the card, not the sleeve', async () => {
+    const cv = await getCv()
+    const scene = new cv.Mat(1000, 1400, cv.CV_8UC1, new cv.Scalar(255))
+    const sleeve = scene.roi(new cv.Rect(200, 190, 985, 621)) // 985/621 ~ the ISO ratio
+    sleeve.setTo(new cv.Scalar(150))
+    sleeve.delete()
+    const card = scene.roi(new cv.Rect(264, 230, 856, 540)) // the true card, 10 px/mm
+    card.setTo(new cv.Scalar(60))
+    card.delete()
+    try {
+      const r = measureCard(cv, scene, LongMm, Dpi)
+      expect(r.success).toBe(true)
+      expect(Math.abs(r.pxPerMm - 10.0)).toBeLessThanOrEqual(0.05)
+    } finally {
+      scene.delete()
+    }
+  }, 60000)
+
+  // Two separate similar-size card-shaped objects are genuinely ambiguous and must be refused, not
+  // silently resolved to either one.
+  it('two distinct card-shaped objects are refused as ambiguous', async () => {
+    const cv = await getCv()
+    const scene = new cv.Mat(1400, 2200, cv.CV_8UC1, new cv.Scalar(255))
+    const a = scene.roi(new cv.Rect(100, 400, 856, 540))
+    a.setTo(new cv.Scalar(60))
+    a.delete()
+    const b = scene.roi(new cv.Rect(1150, 400, 900, 567)) // a second card-shaped object, different tone
+    b.setTo(new cv.Scalar(150))
+    b.delete()
+    try {
+      const r = measureCard(cv, scene, LongMm, Dpi)
+      expect(r.success).toBe(false)
+      expect(r.message).toMatch(/More than one/)
+    } finally {
+      scene.delete()
+    }
+  }, 60000)
+
+  it('a card clipped by the scan border is refused', async () => {
+    const cv = await getCv()
+    const scene = new cv.Mat(1120, 1220, cv.CV_8UC1, new cv.Scalar(255))
+    const card = scene.roi(new cv.Rect(0, 300, 856, 540)) // touches the left border
+    card.setTo(new cv.Scalar(60))
+    card.delete()
+    try {
+      const r = measureCard(cv, scene, LongMm, Dpi)
+      expect(r.success).toBe(false)
+      expect(r.message).toBeTruthy()
+    } finally {
+      scene.delete()
+    }
+  }, 60000)
+
   it('a sheet without a card is refused, not measured', async () => {
     const cv = await getCv()
     const scene = new cv.Mat(1300, 1400, cv.CV_8UC1, new cv.Scalar(255))
@@ -77,6 +147,36 @@ describe('card edge measurer', () => {
       expect(r.message).toBeTruthy()
     } finally {
       scene.delete()
+    }
+  }, 60000)
+
+  // Real 300 dpi scan, byte-for-byte: the two overlapping logo circles on the card face form a
+  // card-ratio rectangle in one dark-threshold band, so before the containment and size gates the
+  // measurer refused the scan as ambiguous. The card must be recovered at about 11.81 px/mm.
+  it('a real 300 dpi scan with a card-ratio logo on the card recovers px/mm', async () => {
+    const cv = await getCv()
+    const img = decodeFixtureBgr(cv, 'card_300dpi.png')
+    try {
+      const r = measureCard(cv, img, LongMm, 300)
+      expect(r.success).toBe(true)
+      expect(Math.abs(r.pxPerMm - 300 / 25.4)).toBeLessThanOrEqual(0.12) // ~1% dpi error allowance
+      expect(r.parallelismDegrees).toBeLessThan(0.5)
+    } finally {
+      img.delete()
+    }
+  }, 60000)
+
+  // The real 600 dpi card scan the e2e suite uses: about 23.6 px/mm.
+  it('the real 600 dpi card scan recovers ~23.6 px/mm', async () => {
+    const cv = await getCv()
+    const img = decodeE2eFixtureBgr(cv, 'card.png')
+    try {
+      const r = measureCard(cv, img, 85.5, 600)
+      expect(r.success).toBe(true)
+      expect(r.pxPerMm).toBeGreaterThan(23.3)
+      expect(r.pxPerMm).toBeLessThan(23.9)
+    } finally {
+      img.delete()
     }
   }, 60000)
 
