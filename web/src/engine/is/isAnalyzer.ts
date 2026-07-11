@@ -4,10 +4,10 @@ import { isCouponGeometry } from './couponGeometry'
 import type { IsLineGroup } from './couponGeometry'
 import { alignIsCoupon } from './isFiducialAligner'
 import type { IsAlignment } from './isFiducialAligner'
-import { imageDirection, measuredDirection, traceGroup } from './lineTracer'
+import { imageDirection, measuredDirection, traceGroup, tracedSpanPx } from './lineTracer'
 import { analyzeTracedLine, poolAxisFits } from './ringAnalyzer'
 import { recommendShapers } from './shaperRecommender'
-import type { IsAxisResult, IsResult } from './resultTypes'
+import type { IsAxisResult, IsLineOutcome, IsResult } from './resultTypes'
 import { valueChannel } from '../cvUtils'
 import { isUsableReference } from '../scannerCalibration'
 import type { ScaleReference } from '../scannerCalibration'
@@ -36,6 +36,7 @@ export function analyzeIsCoupon(
   scanB: Mat,
   spec: IsTestSpec,
   scanReference: ScaleReference,
+  alignmentHolder?: { alignments?: IsAlignment[] },
 ): IsResult {
   if (!scanA || scanA.empty() || !scanB || scanB.empty()) {
     throw new Error('Image is null or empty.')
@@ -47,6 +48,9 @@ export function analyzeIsCoupon(
   const geometry = isCouponGeometry(spec)
   const scans = [scanA, scanB]
   const alignments: IsAlignment[] = []
+  // The caller (the worker's overlay rendering) sees whatever alignments succeeded, even
+  // when the analysis stops at a failed scan.
+  if (alignmentHolder) alignmentHolder.alignments = alignments
   for (let i = 0; i < 2; i++) {
     const alignment = alignIsCoupon(cv, scans[i], spec)
     if (!alignment.success) {
@@ -81,7 +85,13 @@ export function analyzeIsCoupon(
   }
 }
 
-function refusedAxis(axis: IsAxis, refusals: string[], linesTraced = 0, scanIndex: 0 | 1 | null = null): IsAxisResult {
+function refusedAxis(
+  axis: IsAxis,
+  refusals: string[],
+  linesTraced = 0,
+  scanIndex: 0 | 1 | null = null,
+  lines: IsLineOutcome[] = [],
+): IsAxisResult {
   return {
     axis,
     accepted: false,
@@ -93,10 +103,15 @@ function refusedAxis(axis: IsAxis, refusals: string[], linesTraced = 0, scanInde
     linesUsed: 0,
     linesTraced,
     scanIndex,
+    lines,
     shapers: null,
     recommended: null,
   }
 }
+
+const NOT_TRACED_REASON =
+  'The line could not be traced in the scan. It may be damaged, incompletely printed, or ' +
+  'partly outside the scan area.'
 
 function measureGroup(
   cv: OpenCv,
@@ -120,22 +135,60 @@ function measureGroup(
     }
   }
   if (scanIndex === null) {
-    return refusedAxis(group.axis, [
-      `The ${group.axis.toUpperCase()} axis lines do not run along the scanner's sensor rows in ` +
-        'either scan, so their ring wavelength cannot be read reliably. Scan the coupon once ' +
-        'upright and once turned a quarter turn on the glass.',
-    ])
+    // With no scan assigned there is no image space to place the lines in.
+    const lines: IsLineOutcome[] = group.lines.map((l, i) => ({
+      lineIndex: i,
+      axis: group.axis,
+      speedMmS: l.speedMmS,
+      traced: false,
+      accepted: false,
+      refusalReason: null,
+      startPx: null,
+      endPx: null,
+    }))
+    return refusedAxis(
+      group.axis,
+      [
+        `The ${group.axis.toUpperCase()} axis lines do not run along the scanner's sensor rows in ` +
+          'either scan, so their ring wavelength cannot be read reliably. Scan the coupon once ' +
+          'upright and once turned a quarter turn on the glass.',
+      ],
+      0,
+      null,
+      lines,
+    )
   }
 
+  const alignment = alignments[scanIndex]
   const gray = valueChannel(cv, scans[scanIndex])
   let traced
   try {
-    traced = traceGroup(cv, gray, alignments[scanIndex], spec, group, scanReference)
+    traced = traceGroup(cv, gray, alignment, spec, group, scanReference)
   } finally {
     gray.delete()
   }
 
-  if (traced.lines.length === 0) {
+  // Per-line outcomes, in geometry order. Untraced lines still get their expected span from
+  // the geometry through the alignment, so the overlay can point at a damaged line.
+  const lines: IsLineOutcome[] = group.lines.map((l, i) => {
+    const span = tracedSpanPx(alignment, spec, l)
+    return {
+      lineIndex: i,
+      axis: group.axis,
+      speedMmS: l.speedMmS,
+      traced: traced.traces[i] !== null,
+      accepted: false,
+      refusalReason: traced.traces[i] === null ? NOT_TRACED_REASON : null,
+      startPx: span.start,
+      endPx: span.end,
+    }
+  })
+
+  const tracedIndices = traced.traces
+    .map((t, i) => (t !== null ? i : -1))
+    .filter((i) => i >= 0)
+
+  if (tracedIndices.length === 0) {
     return refusedAxis(
       group.axis,
       [
@@ -144,18 +197,23 @@ function measureGroup(
       ],
       0,
       scanIndex,
+      lines,
     )
   }
 
-  const fits = traced.lines.map((line) => analyzeTracedLine(line))
+  const fits = tracedIndices.map((i) => analyzeTracedLine(traced.traces[i]!))
+  for (let k = 0; k < tracedIndices.length; k++) {
+    lines[tracedIndices[k]].accepted = fits[k].accepted
+    lines[tracedIndices[k]].refusalReason = fits[k].refusalReason
+  }
   const pool = poolAxisFits(
     fits,
     spec.speedsMmS,
-    traced.lines.map((l) => l.speedMmS),
+    tracedIndices.map((i) => group.lines[i].speedMmS),
   )
 
   if (!pool.accepted) {
-    const r = refusedAxis(group.axis, pool.refusals, traced.lines.length, scanIndex)
+    const r = refusedAxis(group.axis, pool.refusals, tracedIndices.length, scanIndex, lines)
     r.linesUsed = pool.linesUsed
     return r
   }
@@ -174,8 +232,9 @@ function measureGroup(
     frequencyCi95Hz: pool.frequencyCi95Hz,
     amplitudeMm: pool.amplitudeMm,
     linesUsed: pool.linesUsed,
-    linesTraced: traced.lines.length,
+    linesTraced: tracedIndices.length,
     scanIndex,
+    lines,
     shapers: recommendation.options,
     recommended: recommendation.recommended,
   }

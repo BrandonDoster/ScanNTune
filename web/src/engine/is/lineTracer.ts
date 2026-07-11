@@ -38,9 +38,11 @@ export interface TracedLine {
 
 export interface TracedGroup {
   axis: IsLineGroup['axis']
-  lines: TracedLine[]
-  /** Lines the tracer had to drop because their trace left the image or showed no bead. */
-  droppedLines: number
+  /**
+   * One entry per geometry line, in group order. A null entry is a line the tracer had to
+   * drop because its trace left the image or showed no bead.
+   */
+  traces: (TracedLine | null)[]
 }
 
 /** Distance from the corner where tracing starts: clears the corner blob and keeps the
@@ -131,14 +133,28 @@ export function traceGroup(
   const cols = gray.cols
   const rows = gray.rows
 
-  const lines: TracedLine[] = []
-  let dropped = 0
-  for (const line of group.lines) {
-    const traced = traceLine(data, cols, rows, alignment, spec, line, scanReference)
-    if (traced) lines.push(traced)
-    else dropped++
-  }
-  return { axis: group.axis, lines, droppedLines: dropped }
+  const traces = group.lines.map((line) =>
+    traceLine(data, cols, rows, alignment, spec, line, scanReference),
+  )
+  return { axis: group.axis, traces }
+}
+
+/**
+ * Image-pixel endpoints of a line's traced stretch (TRACE_START_MM past the corner to the
+ * end of the clean read), from the coupon geometry mapped through the alignment. This is
+ * the nominal, undisturbed centerline span; the ring's lateral deviations are sub-millimetre
+ * and irrelevant for pointing at the line.
+ */
+export function tracedSpanPx(
+  alignment: IsAlignment,
+  spec: IsTestSpec,
+  line: IsLine,
+): { start: { x: number; y: number }; end: { x: number; y: number } } {
+  const dir = measuredDirection(line)
+  const endMm = tierRampMm(spec, line.speedMmS) + spec.measuredLineMm
+  const at = (sMm: number) =>
+    mmToPx(alignment, line.measured.x0 + dir.dx * sMm, line.measured.y0 + dir.dy * sMm)
+  return { start: at(TRACE_START_MM), end: at(endMm) }
 }
 
 function traceLine(

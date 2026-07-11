@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { computed, ref, shallowRef, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import { useApp } from '../stores/useApp'
 import { useCalibration } from '../stores/useCalibration'
 import { usePrinterProfiles } from '../stores/usePrinterProfiles'
 import { readBytes } from '../util/preview'
 import { scaleReferenceAtDpi } from '../engine/scannerCalibration'
 import { analyzeIsScans } from '../workerClient'
-import type { IsResult } from '../engine/is/resultTypes'
+import type { IsProcessing } from '../workerClient'
 import type { Firmware } from '../engine/gcode/profileTypes'
 import {
   generateIsGcodeWithReport,
@@ -28,6 +28,7 @@ import PrinterProfileCard from './PrinterProfileCard.vue'
 import IsGuideDiagram from './IsGuideDiagram.vue'
 import IsResultsCard from './IsResultsCard.vue'
 import NumericField from './NumericField.vue'
+import OverlayCanvas from './OverlayCanvas.vue'
 
 const app = useApp()
 const store = usePrinterProfiles()
@@ -178,10 +179,88 @@ const scanFiles = ref<File[]>([])
 const scanPickHint = ref('')
 const analyzing = ref(false)
 const scanError = ref('')
-const result = shallowRef<IsResult | null>(null)
+const processing = shallowRef<IsProcessing | null>(null)
+const result = computed(() => processing.value?.result ?? null)
 // The firmware the current result was analyzed under, so the snippet stays consistent even if
 // the profile selection changes afterwards.
 const analyzedFirmware = ref<Firmware>('Klipper')
+
+function resetProcessing(): void {
+  zoomed.value = null
+  processing.value?.overlays.forEach((bitmap) => bitmap.close())
+  processing.value = null
+}
+
+onBeforeUnmount(resetProcessing)
+
+// The overlay a scan card was clicked on, shown full size in a dialog; null when closed.
+const zoomed = shallowRef<ImageBitmap | null>(null)
+
+// Per-scan card facts, derived from the result: the alignment (fiducials), the resolved
+// orientation, and which axis group this scan measured with its line tally. The engine stops
+// at the first scan that fails to align, so a later scan may be not analyzed rather than
+// failed.
+type CardSev = 'ok' | 'warn' | 'mute'
+const CARD_ICON: Record<CardSev, string> = {
+  ok: 'mdi-check-circle',
+  warn: 'mdi-alert-circle',
+  mute: 'mdi-minus-circle-outline',
+}
+const CARD_COLOR: Record<CardSev, string> = { ok: 'success', warn: 'warning', mute: 'grey' }
+interface ScanCardRow {
+  label: string
+  value: string
+  sev: CardSev
+}
+interface ScanCard {
+  index: number
+  title: string
+  bitmap: ImageBitmap
+  rows: ScanCardRow[]
+}
+const scanCards = computed<ScanCard[]>(() => {
+  const p = processing.value
+  const r = p?.result
+  if (!p || !r) return []
+  // r.scans lists the successfully aligned scans in order, so on a failed pair its length is
+  // the index of the scan that failed to align; every scan after it was never attempted.
+  const alignedCount = r.scans.length
+  return p.overlays.map((bitmap, i) => {
+    const info = r.aligned || i < alignedCount ? r.scans[i] : null
+    const axes = r.axes.filter((a) => a.scanIndex === i)
+    const rows: ScanCardRow[] = [
+      {
+        label: 'Fiducials',
+        value: info ? 'Found' : i > alignedCount ? 'Not analyzed' : 'Not found',
+        sev: info ? 'ok' : i > alignedCount ? 'mute' : 'warn',
+      },
+      {
+        label: 'Orientation',
+        value: info
+          ? `${info.flipped ? 'Mirrored' : 'Not mirrored'}, ` +
+            (info.rotationQuarterTurns > 0
+              ? `rotated ${info.rotationQuarterTurns * 90} degrees`
+              : 'not rotated')
+          : 'Not resolved',
+        sev: info ? 'ok' : 'mute',
+      },
+      {
+        label: 'Measures',
+        value:
+          axes.length > 0
+            ? `${axes.map((a) => a.axis.toUpperCase()).join(' and ')} axis lines`
+            : 'No axis group',
+        sev: axes.length > 0 ? 'ok' : 'mute',
+      },
+      ...axes.map((a) => ({
+        label: `${a.axis.toUpperCase()} lines`,
+        value: `${a.linesUsed} of ${a.linesTraced} used`,
+        sev: (a.linesTraced > 0 && a.linesUsed === a.linesTraced ? 'ok' : 'warn') as CardSev,
+      })),
+    ]
+    return { index: i, title: `Scan ${i + 1}`, bitmap, rows }
+  })
+})
 
 function onPickScans(e: Event): void {
   const input = e.target as HTMLInputElement
@@ -220,13 +299,13 @@ async function analyze(): Promise<void> {
   if (!fileA || !fileB || !cal || !usedSpec || analyzing.value) return
   analyzing.value = true
   scanError.value = ''
-  result.value = null
+  resetProcessing()
   try {
     const [bytesA, bytesB] = await Promise.all([readBytes(fileA), readBytes(fileB)])
     // The calibration's scale error holds across resolutions; the scan is expected at the
     // calibration DPI, so the calibration is priced at exactly that resolution.
     const scanPxPerMm = scaleReferenceAtDpi(cal, cal.dpi)
-    result.value = await analyzeIsScans(bytesA, bytesB, usedSpec, scanPxPerMm)
+    processing.value = await analyzeIsScans(bytesA, bytesB, usedSpec, scanPxPerMm)
     analyzedFirmware.value = store.selected?.firmware ?? 'Klipper'
   } catch (err) {
     console.error('Input shaper scan analysis failed', err)
@@ -541,6 +620,44 @@ async function analyze(): Promise<void> {
         :text="scanError"
         data-testid="is-scan-error"
       />
+
+      <div v-if="scanCards.length > 0" class="scan-cards mt-4" data-testid="is-scan-cards">
+        <div v-for="card in scanCards" :key="card.index" class="island" :data-testid="`is-scan-card-${card.index}`">
+          <button
+            type="button"
+            class="preview"
+            :aria-label="`Show the ${card.title} overlay full size`"
+            @click="zoomed = card.bitmap"
+          >
+            <OverlayCanvas :bitmap="card.bitmap" />
+          </button>
+          <div class="body">
+            <div class="card-title">{{ card.title }}</div>
+            <div class="status">
+              <template v-for="r in card.rows" :key="r.label">
+                <v-icon :color="CARD_COLOR[r.sev]" size="16">{{ CARD_ICON[r.sev] }}</v-icon>
+                <span class="slabel">{{ r.label }}</span>
+                <span class="sval" :class="r.sev">{{ r.value }}</span>
+              </template>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p v-if="scanCards.length > 0" class="tip mb-0" data-testid="is-overlay-legend">
+        In the overlays, green marks the lines whose ringing was measured and red marks the
+        skipped lines, each labelled with its line number. A red cross marks a line that could
+        not be traced at all.
+      </p>
+
+      <v-dialog
+        :model-value="zoomed !== null"
+        max-width="1100"
+        @update:model-value="zoomed = null"
+      >
+        <v-card class="pa-2">
+          <OverlayCanvas v-if="zoomed" :bitmap="zoomed" />
+        </v-card>
+      </v-dialog>
     </section>
 
     <!-- 6. Result -->
@@ -640,6 +757,80 @@ async function analyze(): Promise<void> {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.scan-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.island {
+  display: flex;
+  background: rgb(var(--v-theme-surface-bright));
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.09);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.preview {
+  flex: 0 0 200px;
+  background: rgb(var(--v-theme-background));
+  border: none;
+  border-right: 1px solid rgba(var(--v-theme-on-surface), 0.09);
+  min-height: 150px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: zoom-in;
+}
+.body {
+  flex: 1 1 320px;
+  padding: 14px 16px;
+  min-width: 0;
+}
+.card-title {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+.status {
+  display: grid;
+  grid-template-columns: 18px 86px 1fr;
+  row-gap: 9px;
+  column-gap: 8px;
+  align-items: center;
+}
+.slabel {
+  font-size: 12px;
+  color: rgba(var(--v-theme-on-surface), 0.62);
+}
+.sval {
+  font-size: 12.75px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.sval.ok {
+  color: rgb(var(--v-theme-success));
+}
+.sval.warn {
+  color: rgb(var(--v-theme-warning));
+}
+.sval.mute {
+  color: rgba(var(--v-theme-on-surface), 0.42);
+  font-weight: 500;
+}
+@media (max-width: 560px) {
+  .island {
+    flex-direction: column;
+  }
+  .preview {
+    flex-basis: auto;
+    border-right: none;
+    border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.09);
+    height: 220px;
+  }
+  .body {
+    flex: 0 0 auto;
+  }
 }
 .scan-files {
   display: flex;

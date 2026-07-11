@@ -32,10 +32,13 @@ function percent(v: number): string {
 }
 
 // Several lines of an axis often fail for the same reason, and the engine reports each line;
-// verbatim repetition adds no information, so identical reasons are collapsed with a count.
+// verbatim repetition adds no information, so identical reasons are collapsed. With a single
+// distinct reason the count prefix is dropped too (the skipped note already carries the
+// tally); per-reason counts only matter when the reasons differ.
 function dedupedRefusals(a: IsAxisResult): string[] {
   const counts = new Map<string, number>()
   for (const reason of a.refusals) counts.set(reason, (counts.get(reason) ?? 0) + 1)
+  if (counts.size === 1) return [...counts.keys()]
   return [...counts.entries()].map(([reason, n]) => (n > 1 ? `${n} lines: ${reason}` : reason))
 }
 

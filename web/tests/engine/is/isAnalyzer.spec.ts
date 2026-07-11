@@ -73,6 +73,13 @@ describe('analyzeIsCoupon render recovery', () => {
       expect(Math.abs(y.dampingRatio! - 0.05)).toBeLessThanOrEqual(0.02)
       expect(y.linesUsed).toBeGreaterThanOrEqual(3)
 
+      // Per-line outcomes: one per geometry line, all with image-space endpoints, and the
+      // accepted count agreeing with the pooled figure.
+      expect(y.lines).toHaveLength(baseSpec.speedsMmS.length * baseSpec.linesPerSpeed)
+      expect(y.lines.every((l) => l.traced && l.startPx !== null && l.endPx !== null)).toBe(true)
+      expect(y.lines.filter((l) => l.accepted).length).toBe(y.linesUsed)
+      expect(y.lines.map((l) => l.lineIndex)).toEqual(y.lines.map((_, i) => i))
+
       const x = axisOf(r, 'x')
       expect(x.accepted).toBe(true)
       expect(x.scanIndex).toBe(1)
@@ -104,6 +111,12 @@ describe('analyzeIsCoupon render recovery', () => {
       expect(y.accepted).toBe(false)
       expect(y.frequencyHz).toBeNull()
       expect(y.refusals.some((m) => m.includes('below the detection threshold'))).toBe(true)
+
+      // Every line is reported individually: none accepted, each with its own reason and an
+      // image-space position the overlay can point at.
+      expect(y.lines).toHaveLength(ySpec.speedsMmS.length * ySpec.linesPerSpeed)
+      expect(y.lines.every((l) => !l.accepted && l.refusalReason !== null)).toBe(true)
+      expect(y.lines.every((l) => l.startPx !== null && l.endPx !== null)).toBe(true)
     },
     240000,
   )
