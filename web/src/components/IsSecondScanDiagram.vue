@@ -9,7 +9,7 @@
     viewBox="0 0 480 200"
     class="diagram"
     role="img"
-    aria-label="Second scan: the same coupon rotated a quarter turn clockwise, so the solid corner sits at the top right and the fiducial holes at the other three corners."
+    aria-label="Second scan: the same coupon rotated a quarter turn clockwise, so the corner without a hole sits at the top right and the fiducial holes at the other three corners."
   >
     <line x1="172" y1="18" x2="300" y2="18" class="sec" stroke-width="2" />
     <polyline points="291,13 300,18 291,23" class="sec" fill="none" stroke-width="1.8" />
@@ -48,17 +48,14 @@
       class="couponFill"
       mask="url(#is-second-scan-cutout)"
     />
-    <!-- Solid origin corner: after the quarter turn it sits at the top right. -->
-    <circle cx="243" cy="69" r="2.5" class="solidDot" />
-
-    <!-- The line groups after the quarter turn: the former horizontal group is now
-         vertical on the right, the former vertical group horizontal at the top left. -->
-    <line x1="212" y1="82" x2="212" y2="150" class="green" stroke-width="1.8" />
-    <line x1="219" y1="82" x2="219" y2="150" class="green" stroke-width="1.8" />
-    <line x1="226" y1="82" x2="226" y2="150" class="green" stroke-width="1.8" />
-    <line x1="180" y1="86" x2="202" y2="86" class="green" stroke-width="1.8" />
-    <line x1="180" y1="93" x2="202" y2="93" class="green" stroke-width="1.8" />
-    <line x1="180" y1="100" x2="202" y2="100" class="green" stroke-width="1.8" />
+    <!-- The two crossing L-shaped line groups, the first diagram's art turned a quarter
+         turn clockwise: the weave now sits near the top-right of the window. -->
+    <polyline points="236,146 222,146 222,78" class="green" fill="none" stroke-width="1.8" />
+    <polyline points="236,139 215,139 215,78" class="green" fill="none" stroke-width="1.8" />
+    <polyline points="236,132 208,132 208,78" class="green" fill="none" stroke-width="1.8" />
+    <polyline points="232,76 232,90 178,90" class="green" fill="none" stroke-width="1.8" />
+    <polyline points="226,76 226,98 178,98" class="green" fill="none" stroke-width="1.8" />
+    <polyline points="220,76 220,106 178,106" class="green" fill="none" stroke-width="1.8" />
 
     <!-- Quarter-turn arrow above the solid corner. -->
     <path
@@ -127,9 +124,6 @@
 }
 .couponFill {
   fill: rgba(var(--v-theme-on-surface), 0.25);
-}
-.solidDot {
-  fill: rgba(var(--v-theme-on-surface), 0.55);
 }
 .green {
   stroke: rgb(var(--v-theme-success));

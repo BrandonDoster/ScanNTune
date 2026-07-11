@@ -10,7 +10,7 @@
     viewBox="0 0 480 200"
     class="diagram"
     role="img"
-    aria-label="First scan: the resonance coupon lies on the scanner glass with the printed top face down, the solid corner at the top left and the fiducial holes at the other three corners. The solid corner marks the origin and the ringing is read from the test lines."
+    aria-label="First scan: the resonance coupon lies on the scanner glass with the printed top face down, the corner without a hole at the top left and the fiducial holes at the other three corners. The corner without a hole marks the origin and the ringing is read from the test lines."
   >
     <line x1="172" y1="18" x2="300" y2="18" class="sec" stroke-width="2" />
     <polyline points="291,13 300,18 291,23" class="sec" fill="none" stroke-width="1.8" />
@@ -49,19 +49,17 @@
       class="couponFill"
       mask="url(#is-first-scan-cutout)"
     />
-    <!-- Solid origin corner: the top-left corner has no hole, only a marker dot. -->
-    <circle cx="159" cy="75" r="2.5" class="solidDot" />
+    <!-- The two crossing line groups inside the window: each line is one continuous
+         L (short leg from a band edge, a corner, then the long measured run), corners
+         staggered, the long runs weaving near the top-left of the window. -->
+    <polyline points="236,82 236,96 168,96" class="green" fill="none" stroke-width="1.8" />
+    <polyline points="229,82 229,103 168,103" class="green" fill="none" stroke-width="1.8" />
+    <polyline points="222,82 222,110 168,110" class="green" fill="none" stroke-width="1.8" />
+    <polyline points="166,86 180,86 180,140" class="green" fill="none" stroke-width="1.8" />
+    <polyline points="166,92 188,92 188,140" class="green" fill="none" stroke-width="1.8" />
+    <polyline points="166,98 196,98 196,140" class="green" fill="none" stroke-width="1.8" />
 
-    <!-- A hint of the two line groups inside the window. -->
-    <line x1="172" y1="92" x2="242" y2="92" class="green" stroke-width="1.8" />
-    <line x1="172" y1="99" x2="242" y2="99" class="green" stroke-width="1.8" />
-    <line x1="172" y1="106" x2="242" y2="106" class="green" stroke-width="1.8" />
-    <line x1="178" y1="116" x2="178" y2="138" class="green" stroke-width="1.8" />
-    <line x1="185" y1="116" x2="185" y2="138" class="green" stroke-width="1.8" />
-    <line x1="192" y1="116" x2="192" y2="138" class="green" stroke-width="1.8" />
-
-    <circle cx="322" cy="84" r="3" class="solidDot" />
-    <text x="336" y="88" class="lbl">solid corner marks the origin</text>
+    <text x="336" y="88" class="lbl">the corner without a hole marks the origin</text>
     <rect x="316" y="108" width="14" height="4" rx="2" class="greenFill" />
     <text x="336" y="113" class="lbl">ringing is read from the lines</text>
     <text x="316" y="136" class="lbl">printed top face lies on the glass</text>
@@ -109,9 +107,6 @@
 }
 .couponFill {
   fill: rgba(var(--v-theme-on-surface), 0.25);
-}
-.solidDot {
-  fill: rgba(var(--v-theme-on-surface), 0.55);
 }
 .green {
   stroke: rgb(var(--v-theme-success));
