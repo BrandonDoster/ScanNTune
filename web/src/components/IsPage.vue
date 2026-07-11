@@ -25,8 +25,8 @@ import { isCouponGeometry } from '../engine/is/couponGeometry'
 import { NOMINAL_WIDTH_FACTOR } from '../engine/gcode/emitter'
 import { defaultPrinterProfile } from '../engine/pa/types'
 import PrinterProfileCard from './PrinterProfileCard.vue'
-import IsGuideDiagram from './IsGuideDiagram.vue'
-import IsScanPlacementDiagram from './IsScanPlacementDiagram.vue'
+import IsFirstScanDiagram from './IsFirstScanDiagram.vue'
+import IsSecondScanDiagram from './IsSecondScanDiagram.vue'
 import IsResultsCard from './IsResultsCard.vue'
 import NumericField from './NumericField.vue'
 import OverlayCanvas from './OverlayCanvas.vue'
@@ -584,15 +584,15 @@ async function analyze(): Promise<void> {
         solid corner at the top left, then rotated a quarter turn clockwise.
       </p>
       <div class="diagram-wrap mb-3">
-        <IsScanPlacementDiagram />
+        <IsFirstScanDiagram />
+      </div>
+      <div class="diagram-wrap mb-3">
+        <IsSecondScanDiagram />
       </div>
       <p class="tip mb-3">
         These placements are a recommended starting point, not a requirement. The analysis
         resolves any orientation, and the order of the two images does not matter.
       </p>
-      <div class="diagram-wrap mb-3">
-        <IsGuideDiagram />
-      </div>
       <div class="scan-inputs mb-3">
         <label class="dropzone" :class="{ 'dropzone-disabled': !isCalibrated }">
           <input
