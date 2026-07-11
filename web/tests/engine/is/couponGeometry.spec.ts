@@ -222,7 +222,7 @@ describe('isCouponGeometry crossings and packing', () => {
   })
   it('packs per pair: the slowest lines sit nearest the crossing zone in both groups', () => {
     // A two-tier variant: the single-tier default cannot show the tier ordering.
-    const multi = isCouponGeometry({ ...spec, speedsMmS: [100, 200] })
+    const multi = isCouponGeometry({ ...spec, speedsMmS: [150, 300] })
     const yG = multi.groups.find((grp) => grp.axis === 'y')!
     const xG = multi.groups.find((grp) => grp.axis === 'x')!
     // Y group: the slowest tier's corners take the largest x (crossed earliest).
@@ -280,10 +280,10 @@ describe('isCouponGeometry footprint', () => {
     const interior = 2 * INNER_MARGIN_MM + packed + F + spec.runUpMm
     expect(g.couponWidthMm).toBeCloseTo(interior + 2 * g.frameBandMm, 9)
     expect(g.couponHeightMm).toBeCloseTo(g.couponWidthMm, 9)
-    // Documented derived size of the expert defaults (single 100 mm/s tier, 5 lines,
-    // 20 mm clean read, 8 mm run-up, 4000 mm/s^2, 75 mm/s square corner velocity): a
-    // regression inflating the layout is caught here.
-    expect(g.couponWidthMm).toBeCloseTo(78.546875, 9)
+    // Documented derived size of the expert defaults (single 150 mm/s tier, 5 lines,
+    // 30 mm clean read, 8 mm run-up, 4000 mm/s^2, 150 mm/s corner speed): a regression
+    // inflating the layout is caught here.
+    expect(g.couponWidthMm).toBeCloseTo(88, 9)
   })
   it('shrinks when any driving parameter shrinks (the formula carries no padding)', () => {
     const size = (s: IsTestSpec) => isCouponGeometry(s).couponWidthMm
@@ -291,7 +291,7 @@ describe('isCouponGeometry footprint', () => {
       size(spec),
     )
     expect(size({ ...spec, linesPerSpeed: spec.linesPerSpeed + 1 })).toBeGreaterThan(size(spec))
-    expect(size({ ...spec, speedsMmS: [100, 200, 300] })).toBeGreaterThan(size(spec))
+    expect(size({ ...spec, speedsMmS: [150, 200, 300] })).toBeGreaterThan(size(spec))
     expect(size({ ...spec, runUpMm: spec.runUpMm + 4 })).toBeGreaterThan(size(spec))
     expect(size({ ...spec, linePitchMm: spec.linePitchMm + 0.5 })).toBeGreaterThan(size(spec))
   })
@@ -308,9 +308,9 @@ describe('isCouponGeometry footprint', () => {
     expect(yOnly.couponHeightMm).toBeCloseTo(xOnly.couponWidthMm, 9)
   })
   it('grows the protected span with the tier speed and shrinks it with acceleration', () => {
-    expect(protectedSpanMm(spec, 200)).toBeGreaterThan(protectedSpanMm(spec, 100))
+    expect(protectedSpanMm(spec, 300)).toBeGreaterThan(protectedSpanMm(spec, 200))
     const stiff: IsTestSpec = { ...spec, accelMmS2: 10000 }
-    expect(protectedSpanMm(stiff, 200)).toBeLessThan(protectedSpanMm(spec, 200))
+    expect(protectedSpanMm(stiff, 300)).toBeLessThan(protectedSpanMm(spec, 300))
   })
 })
 
@@ -319,9 +319,9 @@ describe('isCouponGeometry frame band sizing', () => {
     expect(g.frameBandMm).toBeCloseTo(MIN_FRAME_BAND_MM, 9)
   })
   it('widens the band for a fast tier so the full tail plus clearance fits', () => {
-    // A 300 mm/s tier at 3000 mm/s^2 needs a 17 mm tail depth (1 mm weld + 15 mm stopping
-    // distance + 1 mm margin) plus 1 mm edge clearance.
-    const fast: IsTestSpec = { ...spec, speedsMmS: [100, 200, 300] }
+    // A 300 mm/s tier at 4000 mm/s^2 needs a 13.25 mm tail depth (1 mm weld + 11.25 mm
+    // stopping distance + 1 mm margin) plus 1 mm edge clearance.
+    const fast: IsTestSpec = { ...spec, speedsMmS: [150, 200, 300] }
     expect(isCouponGeometry(fast).frameBandMm).toBeCloseTo(
       spec.weldMm + accelRampMm(300, spec.accelMmS2) + TAIL_MARGIN_MM + TAIL_EDGE_CLEARANCE_MM,
       9,

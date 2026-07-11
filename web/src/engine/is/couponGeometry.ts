@@ -20,11 +20,11 @@ export function accelRampMm(speedMmS: number, accelMmS2: number): number {
 }
 
 /**
- * Distance a tier needs after the corner to accelerate from the square corner velocity to
- * its cruise speed: (v^2 - scv^2) / (2a).
+ * Distance a tier needs after the corner to accelerate from the corner speed (the run-up
+ * cruise the bend is taken at) to its cruise speed: (v^2 - corner^2) / (2a).
  */
 export function tierRampMm(spec: IsTestSpec, speedMmS: number): number {
-  return accelRampMm(speedMmS, spec.accelMmS2) - accelRampMm(spec.squareCornerVelocityMmS, spec.accelMmS2)
+  return accelRampMm(speedMmS, spec.accelMmS2) - accelRampMm(spec.cornerSpeedMmS, spec.accelMmS2)
 }
 
 /**
@@ -72,9 +72,9 @@ export interface IsLine {
   prime: IsSegment
   /**
    * The straight run-up leg: it starts after the prime, runs through the frame band and
-   * into the open window at the fixed run-up speed, and ends on the ringing corner. Its
-   * cruise speed equals the square corner velocity (validated), so the corner is taken
-   * with zero deceleration and the bead is continuous through it.
+   * into the open window at the corner speed, and ends on the ringing corner. The square
+   * corner velocity is validated to at least that speed, so the corner is taken with
+   * zero deceleration and the bead is continuous through it.
    */
   runUp: IsSegment
   /**
@@ -168,8 +168,8 @@ function boundingBox(lines: IsLine[]): IsBox {
  * Y-axis group, printed first: each line starts one inset above the coupon's bottom outer
  * edge, runs vertically up through the bottom band (this through-band stretch hosts the
  * travel arrival, the moving prime, and the start blob, all ironed flat by the band pass
- * printed after it), continues into the open window as the run-up, cruises at the square
- * corner velocity straight into the sharp corner, and the measured segment runs
+ * printed after it), continues into the open window as the run-up, cruises at the corner
+ * speed straight into the sharp corner, and the measured segment runs
  * +X into the right band. The corners sit near the window's left side on a descending
  * diagonal: the corner x DECREASES as the line's y increases, so a later line's vertical
  * leg always passes left of every earlier corner and never crosses an earlier measured
@@ -199,7 +199,7 @@ function buildYGroup(spec: IsTestSpec, bandMm: number, couponW: number): IsLineG
 /**
  * X-axis group, printed second: each line starts one inset inside the coupon's right
  * outer edge, runs horizontally through the right band, continues -X into the window as
- * the run-up, corners at the square corner velocity, and the measured segment runs -Y
+ * the run-up, corners at the corner speed, and the measured segment runs -Y
  * (downward) into the bottom band. The corners sit near the window's top on a diagonal
  * mirroring the Y group's packing: the FASTEST lines take the highest corners (their long
  * protected span needs the most depth above the crossing zone) and, anti-staggered, the

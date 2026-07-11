@@ -11,10 +11,7 @@ import {
   type IsLine,
 } from '../../../src/engine/is/couponGeometry'
 
-import {
-  defaultIsTestSpec,
-  RUN_UP_SPEED_MM_S,
-} from '../../../src/engine/is/types'
+import { defaultIsTestSpec } from '../../../src/engine/is/types'
 import {
   generateIsGcodeWithReport,
   IS_MEASURED_LAYERS,
@@ -27,7 +24,7 @@ const nominal = profile.nozzleDiameterMm * NOMINAL_WIDTH_FACTOR
 const g = isCouponGeometry(spec)
 const ox = (profile.bedWidthMm - g.couponWidthMm) / 2
 const oy = (profile.bedDepthMm - g.couponHeightMm) / 2
-const runUpFeed = RUN_UP_SPEED_MM_S * 60
+const runUpFeed = spec.cornerSpeedMmS * 60
 const allLines = g.groups.flatMap((grp) => grp.lines)
 
 const ePerMm = (w: number) =>
@@ -95,14 +92,14 @@ describe('generateIsGcodeWithReport (Klipper)', () => {
 
   it('emits a header, start gcode, and relative extrusion setup', () => {
     expect(lines[0]).toBe('; ScanNTune input shaper resonance test')
-    expect(lines[1]).toContain('speed tiers 100 mm/s')
+    expect(lines[1]).toContain('speed tiers 150 mm/s')
     expect(report.gcode).toContain('M83')
     expect(report.gcode).toContain('G90')
   })
 
   it('sets the test motion limits with the raised corner velocity before any extrusion', () => {
     const limit = lines.indexOf(
-      'SET_VELOCITY_LIMIT ACCEL=4000 SQUARE_CORNER_VELOCITY=75 MINIMUM_CRUISE_RATIO=0',
+      'SET_VELOCITY_LIMIT ACCEL=4000 SQUARE_CORNER_VELOCITY=150 MINIMUM_CRUISE_RATIO=0',
     )
     expect(limit).toBeGreaterThan(0)
     expect(limit).toBeLessThan(firstExtrusionIndex(lines))
@@ -142,7 +139,7 @@ describe('generateIsGcodeWithReport (Klipper)', () => {
     expect(zs).toEqual(['0.200', '0.400', '10'])
   })
 
-  it('cruises the run-up at 75 mm/s straight into every corner, continuous through it', () => {
+  it('cruises the run-up at the 150 mm/s corner speed straight into every corner, continuous through it', () => {
     const chunk = measuredChunk(lines)
     for (const line of allLines) {
       const idx = chunk.indexOf(cornerMoveStr(line))
@@ -216,19 +213,30 @@ describe('generateIsGcodeWithReport (Klipper)', () => {
     expect(g.groups[1].lines.every((l) => l.crossingsMm.length > 0)).toBe(true)
   })
 
-  it('prints the test lines before the frame band on every layer', () => {
-    // Within each layer, every corner approach must come before the band's first bare
-    // deretract (the band restores pressure after the hop from the last line's wipe).
+  it('prints band perimeters, then the test lines, then the band raster on every layer', () => {
     for (const chunk of layerChunks(lines)) {
-      const bandStart = chunk.findIndex((l) => /^G1 E[\d.]/.test(l))
-      expect(bandStart).toBeGreaterThan(0)
+      // Bare deretracts mark the phase starts: the first restores pressure for the
+      // perimeter loops, the second is the first raster strip's (its hop skips the
+      // retract because the lines left the nozzle retracted).
+      const deretracts = chunk.flatMap((l, i) => (/^G1 E[\d.]/.test(l) ? [i] : []))
+      const perimeterStart = deretracts[0]
+      // The stationary retract after the perimeters hands over to the test lines.
+      const linesStart = chunk.findIndex((l, i) => i > perimeterStart && /^G1 E-/.test(l))
+      const rasterStart = deretracts.find((i) => i > linesStart)!
+      expect(perimeterStart).toBeGreaterThanOrEqual(0)
+      expect(linesStart).toBeGreaterThan(perimeterStart)
+      expect(rasterStart).toBeGreaterThan(linesStart)
+      // Perimeter extrusions actually exist between the deretract and the lines phase.
+      expect(
+        chunk.slice(perimeterStart + 1, linesStart).some((l) => /^G1 X.*E[\d.]/.test(l)),
+      ).toBe(true)
       for (const line of allLines) {
         // The corner point is the endpoint of the run-up move only; the pedestal layer
         // caps the run-up feedrate, so match by coordinates alone.
         const coords = cornerMoveStr(line).split(' E')[0]
         const idx = chunk.findIndex((l) => l.startsWith(coords))
-        expect(idx).toBeGreaterThanOrEqual(0)
-        expect(idx).toBeLessThan(bandStart)
+        expect(idx).toBeGreaterThan(linesStart)
+        expect(idx).toBeLessThan(rasterStart)
       }
     }
   })
@@ -285,7 +293,7 @@ describe('generateIsGcodeWithReport (Klipper)', () => {
     }
   })
 
-  it('keeps the fan off on the pedestal layer and runs it at full for the measured lines', () => {
+  it('keeps the fan off on the pedestal layer and runs it at full for the measured lines only', () => {
     const zIndexes = lines.flatMap((l, i) => (/^G1 Z0\./.test(l) ? [i] : []))
     for (let k = 0; k < zIndexes.length; k++) {
       const pedestal = /^G1 Z0\.200\b/.test(lines[zIndexes[k]])
@@ -296,12 +304,17 @@ describe('generateIsGcodeWithReport (Klipper)', () => {
         continue
       }
       const off = chunk.indexOf('M107')
-      const firstMove = chunk.findIndex((l) => /^G[01] X/.test(l))
-      const bandStart = chunk.findIndex((l) => /^G1 E[\d.]/.test(l))
-      expect(on).toBeGreaterThanOrEqual(0)
-      expect(on).toBeLessThanOrEqual(firstMove)
+      // Phase markers as in the layer-order test: the fan turns on after the band
+      // perimeters (which print with the fan off, like the raster) and off before the
+      // raster starts.
+      const deretracts = chunk.flatMap((l, i) => (/^G1 E[\d.]/.test(l) ? [i] : []))
+      const linesStart = chunk.findIndex((l, i) => i > deretracts[0] && /^G1 E-/.test(l))
+      const rasterStart = deretracts.find((i) => i > linesStart)!
+      const firstCorner = chunk.indexOf(cornerMoveStr(allLines[0]))
+      expect(on).toBeGreaterThanOrEqual(linesStart)
+      expect(on).toBeLessThan(firstCorner)
       expect(off).toBeGreaterThan(on)
-      expect(off).toBeLessThan(bandStart)
+      expect(off).toBeLessThan(rasterStart)
     }
   })
 
@@ -376,7 +389,7 @@ describe('generateIsGcodeWithReport (Klipper)', () => {
   it('warns on a high-flow 200 mm/s tier instead of capping the speed', () => {
     const fast = generateIsGcodeWithReport(profile, filament, {
       ...spec,
-      speedsMmS: [100, 200],
+      speedsMmS: [150, 200],
     })
     expect(fast.warnings.some((w) => w.includes('200 mm/s') && w.includes('mm^3/s'))).toBe(true)
     expect(fast.gcode).toContain('F12000')
@@ -389,10 +402,10 @@ describe('generateIsGcodeWithReport (Marlin and RepRapFirmware)', () => {
     const gcode = generateIsGcodeWithReport(marlin, filament, spec).gcode
     expect(gcode).toContain('M204 P4000 T4000') // test limits
     expect(gcode).toContain('M204 P3000 T3000') // profile restore
-    expect(gcode).toContain('M205 X75 Y75')
-    // Junction-deviation equivalent of the 75 mm/s corner velocity, on its own line:
-    // 0.4 * 75^2 / 4000 = 0.5625 mm.
-    expect(gcode).toContain(`M205 J${((0.4 * 75 * 75) / spec.accelMmS2).toFixed(3)}`)
+    expect(gcode).toContain('M205 X150 Y150')
+    // Junction-deviation equivalent of the 150 mm/s corner velocity, on its own line:
+    // 0.4 * 150^2 / 4000 = 2.25 mm.
+    expect(gcode).toContain(`M205 J${((0.4 * 150 * 150) / spec.accelMmS2).toFixed(3)}`)
     expect(gcode).toContain('M205 J junction deviation resumes')
     expect(gcode).toContain('M593 F0')
     expect(gcode).toContain('M900 K0')
@@ -404,9 +417,9 @@ describe('generateIsGcodeWithReport (Marlin and RepRapFirmware)', () => {
     const gcode = generateIsGcodeWithReport(rrf, filament, spec).gcode
     expect(gcode).toContain('M204 P4000 T4000') // test limits
     expect(gcode).toContain('M204 P3000 T3000') // profile restore
-    // Per-axis jerk in mm/min: a 90 degree corner at 75 mm/s is a 75 mm/s per-axis
-    // velocity change, 4500 mm/min.
-    expect(gcode).toContain('M566 X4500 Y4500')
+    // Per-axis jerk in mm/min: a 90 degree corner at 150 mm/s is a 150 mm/s per-axis
+    // velocity change, 9000 mm/min.
+    expect(gcode).toContain('M566 X9000 Y9000')
     expect(gcode).toContain('M593 P"none"')
     expect(gcode).toContain('M572 D0 S0')
   })
@@ -415,7 +428,7 @@ describe('generateIsGcodeWithReport (Marlin and RepRapFirmware)', () => {
 describe('bed fitting', () => {
   it('drops a 300 mm/s tier with a note when the coupon overflows a 120 mm bed', () => {
     const small: PrinterProfile = { ...profile, bedWidthMm: 120, bedDepthMm: 120 }
-    const three = { ...spec, speedsMmS: [100, 200, 300] }
+    const three = { ...spec, speedsMmS: [150, 200, 300] }
     const r = generateIsGcodeWithReport(small, filament, three)
     expect(r.warnings.some((w) => w.includes('300 mm/s') && w.includes('removed'))).toBe(true)
     expect(r.gcode).not.toContain('F18000')
@@ -459,7 +472,7 @@ describe('validation and reporting', () => {
     expect(spec20k.accelMmS2).toBe(20000)
     const gcode = generateIsGcodeWithReport(fast, filament, spec20k).gcode
     expect(gcode).toContain(
-      'SET_VELOCITY_LIMIT ACCEL=20000 SQUARE_CORNER_VELOCITY=75 MINIMUM_CRUISE_RATIO=0',
+      'SET_VELOCITY_LIMIT ACCEL=20000 SQUARE_CORNER_VELOCITY=150 MINIMUM_CRUISE_RATIO=0',
     )
   })
 })

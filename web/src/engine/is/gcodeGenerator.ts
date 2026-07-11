@@ -1,12 +1,13 @@
 import type { FilamentProfile, PrinterProfile } from '../gcode/profileTypes'
 import { couponOrigin, EDGE_MARGIN_MM, prepareProfile, setupPreamble } from '../gcode/couponShell'
 import {
+  basePerimeters,
   type Box,
   type Emitter,
   type ExtrudeFn,
   extrude,
   extrusionMm,
-  frameBandLayer,
+  frameBandInfill,
   HIGH_FLOW_WARNING_THRESHOLD_MM3_S,
   motionLimitCommands,
   NOMINAL_WIDTH_FACTOR,
@@ -23,13 +24,7 @@ import {
   isMotionLimitCommands,
   restoreShapingCommands,
 } from './firmwareMotion'
-import {
-  fitSpecToBed,
-  type IsTestSpec,
-  rampWarnings,
-  RUN_UP_SPEED_MM_S,
-  validateIsSpec,
-} from './types'
+import { fitSpecToBed, type IsTestSpec, rampWarnings, validateIsSpec } from './types'
 
 export { EDGE_MARGIN_MM, HIGH_FLOW_WARNING_THRESHOLD_MM3_S }
 
@@ -63,9 +58,9 @@ export function generateIsGcodeWithReport(
     const flow = speed * nominal * profile.layerHeightMm
     if (flow > HIGH_FLOW_WARNING_THRESHOLD_MM3_S) {
       warnings.push(
-        `The ${speed} mm/s tier extrudes ${flow.toFixed(1)} mm^3/s; typical hotends ` +
-          `under-extrude above ${HIGH_FLOW_WARNING_THRESHOLD_MM3_S} mm^3/s. ` +
-          'Intended for high-flow hotends only.',
+        `The ${speed} mm/s tier extrudes ${flow.toFixed(1)} mm^3/s; a typical hotend melts ` +
+          `about ${HIGH_FLOW_WARNING_THRESHOLD_MM3_S} mm^3/s and thins the lines above that. ` +
+          'The ringing wavelength is still readable from slightly thinned lines.',
       )
     }
   }
@@ -194,24 +189,35 @@ function emitIsGcode(profile: PrinterProfile, filament: FilamentProfile, spec: I
   const totalLayers = PEDESTAL_LAYERS + IS_MEASURED_LAYERS
   for (let layer = 0; layer < totalLayers; layer++) {
     const z = profile.layerHeightMm * (layer + 1)
-    // Retract before the Z push; every travel until the band deretract runs retracted, and
-    // each test line restores pressure itself with its moving prime.
+    // Retract before the Z push; the travel to the band perimeters runs retracted.
     retract(e, profile, 1)
     L.push(`G1 Z${z.toFixed(3)} F600`)
 
-    // Test lines first, frame band last: the band's perimeters and raster are laid over the
-    // line ends afterwards, ironing the through-band leg stretches (travel arrival, moving
-    // prime, start blob), the weld tips, and any residual stop blobs flat so the scanned
-    // face stays flush. Pedestal width below, nominal width on the measured layers.
+    // Per-layer order: band perimeters, test lines, band raster. The perimeters come
+    // first so the nozzle primes over sacrificial geometry instead of a test line's
+    // first millimetres, and so the lines weld their tips into already-standing walls.
+    // The raster comes last: it irons the through-band leg stretches (travel arrival,
+    // moving prime, start blob), the weld tips, and any residual stop blobs flat, so the
+    // scanned face stays flush. Pedestal width below, nominal width on the measured
+    // layers.
+    const pedestal = layer < PEDESTAL_LAYERS
+    const width = pedestal ? PEDESTAL_WIDTH_FACTOR * nominal : nominal
+    travel(e, profile, ox + 0.5 * nominal, oy + 0.5 * nominal)
+    retract(e, profile, -1)
+    // Nothing of this layer exists yet under the perimeters, so they extrude plainly; the
+    // window box is the hole that turns the outline loops into a band frame.
+    basePerimeters(e, profile, filament, nominal, ox, oy, g.couponWidthMm, g.couponHeightMm,
+      [{ x0: ox + g.windowBox.x0, y0: oy + g.windowBox.y0, x1: ox + g.windowBox.x1, y1: oy + g.windowBox.y1 }])
+    // The test lines travel retracted and restore pressure with their moving primes.
+    retract(e, profile, 1)
+
     // Each line is one continuous path from the coupon outer edge through the band, into
     // the window as the run-up, through the sharp corner, and across the window as the
     // measured segment; the corner vertex gets no retract, pause, or E change, so the
     // bead is continuous and the flow constant through the corner. The run-up cruises at
-    // the square corner velocity, so the corner is taken with zero deceleration and the
-    // excitation is the per-axis velocity step at the bend (see RUN_UP_SPEED_MM_S); the
+    // the corner speed, so the corner is taken with zero deceleration and the excitation
+    // is the per-axis velocity step at the bend (see cornerSpeedMmS on IsTestSpec); the
     // measured segment is commanded at the tier speed.
-    const pedestal = layer < PEDESTAL_LAYERS
-    const width = pedestal ? PEDESTAL_WIDTH_FACTOR * nominal : nominal
     // The single beads over the open window are bridges; standard bridge practice is
     // maximum part cooling, fixed and identical across tiers so cooling never varies
     // between test lines. The pedestal layer is a first layer on the bed, so it prints
@@ -225,10 +231,10 @@ function emitIsGcode(profile: PrinterProfile, filament: FilamentProfile, spec: I
         const speed = pedestal
           ? Math.min(line.speedMmS, profile.travelSpeedMmS * RASTER_SPEED_FACTOR)
           : line.speedMmS
-        const runUpSpeed = Math.min(RUN_UP_SPEED_MM_S, speed)
+        const runUpSpeed = Math.min(spec.cornerSpeedMmS, speed)
         travel(e, profile, ox + line.prime.x0, oy + line.prime.y0)
         primeOnTheMove(e, profile, filament, width, ox + line.prime.x1, oy + line.prime.y1)
-        // Full-flow run-up straight into the corner at the square corner velocity: under
+        // Full-flow run-up straight into the corner at the corner speed: under
         // the per-firmware junction limits this test emits (see isMotionLimitCommands for
         // the Klipper SCV, Marlin classic-jerk plus junction-deviation, and
         // RepRapFirmware jerk reasoning), a 90 degree corner entered at that velocity is
@@ -254,8 +260,9 @@ function emitIsGcode(profile: PrinterProfile, filament: FilamentProfile, spec: I
     // is not restored.
     if (!pedestal) L.push('M107')
 
-    // The band is printed over the through-band leg stretches of both groups; its flow is
-    // zeroed where a pass crosses one of those beads (the leg positions are exactly known).
+    // The band raster is printed over the through-band leg stretches of both groups; its
+    // flow is zeroed where a pass crosses one of those beads (the leg positions are
+    // exactly known).
     const legBeads: PrintedBead[] = g.groups.flatMap((group) =>
       group.lines.map((line) => ({
         x0: ox + line.prime.x0,
@@ -271,12 +278,11 @@ function emitIsGcode(profile: PrinterProfile, filament: FilamentProfile, spec: I
       else extrude(e2, p2, f2, w2, x, y, s)
     }
 
-    // The band starts on its own travel; the lines left the nozzle retracted after their
-    // wipes, so the hop to the frame corner crosses the window without stringing.
-    travel(e, profile, ox + 0.5 * nominal, oy + 0.5 * nominal)
-    retract(e, profile, -1)
-    frameBandLayer(e, profile, filament, nominal, ox, oy, g.couponWidthMm, g.couponHeightMm,
-      g.frameBandMm, holes, layer % 2 === 0, bandExtrude)
+    // The lines left the nozzle retracted after their wipes, so the raster strips start
+    // on retracted hops (startRetracted skips the first strip's own retract) and cross
+    // the window without stringing.
+    frameBandInfill(e, profile, filament, nominal, ox, oy, g.couponWidthMm, g.couponHeightMm,
+      g.frameBandMm, holes, layer % 2 === 0, bandExtrude, true)
   }
 
   // Hand the printer back: the user's own shaper and pressure advance settings, then the

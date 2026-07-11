@@ -12,13 +12,16 @@ import { isCouponGeometry } from '../../../src/engine/is/couponGeometry'
 describe('defaultIsTestSpec', () => {
   it('uses the documented defaults', () => {
     const spec = defaultIsTestSpec(defaultPrinterProfile())
-    expect(spec.speedsMmS).toEqual([100])
+    expect(spec.speedsMmS).toEqual([150])
     expect(spec.linesPerSpeed).toBe(5)
-    expect(spec.measuredLineMm).toBe(20)
+    // Five wavelengths of the 25 Hz lowest resonance of interest at the 150 mm/s tier:
+    // 5 * 150 / 25 = 30 mm.
+    expect(spec.measuredLineMm).toBe(30)
     expect(spec.runUpMm).toBe(8)
     expect(spec.linePitchMm).toBe(2.5)
     expect(spec.axes).toEqual(['x', 'y'])
-    expect(spec.squareCornerVelocityMmS).toBe(75)
+    expect(spec.cornerSpeedMmS).toBe(150)
+    expect(spec.squareCornerVelocityMmS).toBe(150)
     expect(spec.weldMm).toBe(1)
     expect(spec.placement).toBe('center')
   })
@@ -40,10 +43,10 @@ describe('validateIsSpec', () => {
   })
   it('throws on zero or more than 3 speed tiers', () => {
     expect(() => validateIsSpec({ ...spec, speedsMmS: [] })).toThrow(/speed tiers/)
-    expect(() => validateIsSpec({ ...spec, speedsMmS: [50, 100, 200, 300] })).toThrow(
+    expect(() => validateIsSpec({ ...spec, speedsMmS: [150, 200, 250, 300] })).toThrow(
       /speed tiers/,
     )
-    expect(() => validateIsSpec({ ...spec, speedsMmS: [100] })).not.toThrow()
+    expect(() => validateIsSpec({ ...spec, speedsMmS: [150] })).not.toThrow()
   })
   it('throws on non-positive values', () => {
     expect(() => validateIsSpec({ ...spec, speedsMmS: [0] })).toThrow(/positive/)
@@ -52,16 +55,36 @@ describe('validateIsSpec', () => {
     expect(() => validateIsSpec({ ...spec, accelMmS2: 0 })).toThrow(/positive/)
     expect(() => validateIsSpec({ ...spec, weldMm: 0 })).toThrow(/positive/)
   })
-  it('throws when the square corner velocity sits below the run-up speed', () => {
+  it('throws when the square corner velocity sits below the corner speed', () => {
     // The zero-deceleration corner property only holds when the run-up cruise enters the
     // corner at or below the square corner velocity.
-    expect(() => validateIsSpec({ ...spec, squareCornerVelocityMmS: 74 })).toThrow(
-      /run-up\s*speed/,
+    expect(() => validateIsSpec({ ...spec, squareCornerVelocityMmS: 149 })).toThrow(
+      /corner\s*speed/,
     )
     expect(() => validateIsSpec({ ...spec, squareCornerVelocityMmS: 0 })).toThrow(
-      /run-up\s*speed/,
+      /corner\s*speed/,
     )
-    expect(() => validateIsSpec({ ...spec, squareCornerVelocityMmS: 75 })).not.toThrow()
+    expect(() => validateIsSpec({ ...spec, squareCornerVelocityMmS: 150 })).not.toThrow()
+  })
+  it('throws when the corner speed sits below the 20 mm/s floor', () => {
+    expect(() =>
+      validateIsSpec({ ...spec, cornerSpeedMmS: 19, squareCornerVelocityMmS: 19 }),
+    ).toThrow(/at least 20 mm\/s/)
+    expect(() =>
+      validateIsSpec({
+        ...spec,
+        cornerSpeedMmS: 20,
+        squareCornerVelocityMmS: 20,
+        speedsMmS: [20],
+      }),
+    ).not.toThrow()
+  })
+  it('throws when a speed tier sits below the corner speed', () => {
+    // A slower tier caps the planner's corner junction at the tier cruise speed, so the
+    // configured corner speed would never be reached.
+    expect(() => validateIsSpec({ ...spec, speedsMmS: [100] })).toThrow(/corner speed/)
+    expect(() => validateIsSpec({ ...spec, speedsMmS: [150, 149] })).toThrow(/corner speed/)
+    expect(() => validateIsSpec({ ...spec, speedsMmS: [150, 200] })).not.toThrow()
   })
   it('throws on lines per speed outside 3 to 6', () => {
     expect(() => validateIsSpec({ ...spec, linesPerSpeed: 2 })).toThrow(/Lines per speed/)
@@ -86,21 +109,22 @@ describe('rampWarnings', () => {
     expect(warnings).toHaveLength(1)
     expect(warnings[0]).toContain('Low acceleration')
   })
-  it('warns when the run-up cannot host the ramp to the 75 mm/s run-up speed', () => {
-    // At 4000 mm/s^2 the ramp from rest to 75 mm/s is 75^2 / 8000 = 0.703 mm; there is no
-    // deceleration term because the run-up cruises into the corner at the square corner
-    // velocity.
-    const warnings = rampWarnings({ ...spec, accelMmS2: 4000, runUpMm: 0.7 })
+  it('warns when the run-up cannot host the ramp to the 150 mm/s corner speed', () => {
+    // At 4000 mm/s^2 the ramp from rest to 150 mm/s is 150^2 / 8000 = 2.8125 mm; there
+    // is no deceleration term because the run-up cruises into the corner at the square
+    // corner velocity.
+    const warnings = rampWarnings({ ...spec, accelMmS2: 4000, runUpMm: 2.8 })
     expect(warnings).toHaveLength(1)
     expect(warnings[0]).toContain('run-up')
-    expect(warnings[0]).toContain('75 mm/s')
-    expect(rampWarnings({ ...spec, accelMmS2: 4000, runUpMm: 0.71 })).toEqual([])
+    expect(warnings[0]).toContain('150 mm/s')
+    expect(rampWarnings({ ...spec, accelMmS2: 4000, runUpMm: 2.82 })).toEqual([])
   })
   it('does not warn about tier ramps: the layout reserves them before the read window', () => {
-    // At 1000 mm/s^2 the 100 mm/s tier needs a 5 mm ramp; the geometry allocates it in
-    // front of the clean read length, so only the low-acceleration warning fires (the
-    // 8 mm run-up still hosts its 2.8 mm ramp to the run-up speed).
-    const warnings = rampWarnings({ ...spec, accelMmS2: 1000 })
+    // At 2000 mm/s^2 the 300 mm/s tier needs a 16.9 mm ramp past the corner; the
+    // geometry allocates it in front of the clean read length, so only the
+    // low-acceleration warning fires (the 8 mm run-up still hosts its 5.6 mm ramp to
+    // the corner speed).
+    const warnings = rampWarnings({ ...spec, accelMmS2: 2000, speedsMmS: [150, 300] })
     expect(warnings).toHaveLength(1)
     expect(warnings[0]).toContain('Low acceleration')
   })
@@ -122,11 +146,11 @@ describe('fitSpecToBed', () => {
   it('drops the fastest tier before shortening lines', () => {
     // A three-tier variant overflows a 120 mm bed; dropping the 300 mm/s tier shrinks the
     // field, the packed diagonal, and the band, back onto it at full read length.
-    const three = { ...spec, speedsMmS: [100, 200, 300] }
+    const three = { ...spec, speedsMmS: [150, 200, 300] }
     const p = { ...defaultPrinterProfile(), bedWidthMm: 120, bedDepthMm: 120 }
     const { spec: fitted, notes } = fitSpecToBed(three, p)
-    expect(fitted.speedsMmS).toEqual([100, 200])
-    expect(fitted.measuredLineMm).toBe(20)
+    expect(fitted.speedsMmS).toEqual([150, 200])
+    expect(fitted.measuredLineMm).toBe(30)
     expect(notes).toHaveLength(1)
     expect(notes[0]).toContain('300 mm/s')
   })
@@ -135,7 +159,7 @@ describe('fitSpecToBed', () => {
     const long = { ...spec, measuredLineMm: 60 }
     const p = { ...defaultPrinterProfile(), bedWidthMm: 110, bedDepthMm: 110 }
     const { spec: fitted, notes } = fitSpecToBed(long, p)
-    expect(fitted.speedsMmS).toEqual([100])
+    expect(fitted.speedsMmS).toEqual([150])
     expect(fitted.measuredLineMm).toBeLessThan(60)
     expect(fitted.measuredLineMm).toBeGreaterThanOrEqual(20)
     expect(notes).toHaveLength(1)

@@ -10,7 +10,9 @@ import {
 import {
   defaultIsTestSpec,
   fitSpecToBed,
+  MIN_CORNER_SPEED_MM_S,
   rampWarnings,
+  validateIsSpec,
   type IsAxis,
   type IsTestSpec,
 } from '../engine/is/types'
@@ -37,6 +39,8 @@ const calibrationLine = computed(() =>
 // Spec defaults follow the selected printer; the fields start prefilled with them and
 // refill whenever another printer is selected (edits between switches are one-shot).
 const specDefaults = computed(() => defaultIsTestSpec(store.selected ?? defaultPrinterProfile()))
+const tierSpeed = ref<number | null>(specDefaults.value.speedsMmS[0])
+const cornerSpeed = ref<number | null>(specDefaults.value.cornerSpeedMmS)
 const linesPerSpeed = ref<number | null>(specDefaults.value.linesPerSpeed)
 const measuredLine = ref<number | null>(specDefaults.value.measuredLineMm)
 const linePitch = ref<number | null>(specDefaults.value.linePitchMm)
@@ -51,6 +55,8 @@ const axisItems = [
 watch(
   () => store.selected?.id,
   () => {
+    tierSpeed.value = specDefaults.value.speedsMmS[0]
+    cornerSpeed.value = specDefaults.value.cornerSpeedMmS
     linesPerSpeed.value = specDefaults.value.linesPerSpeed
     measuredLine.value = specDefaults.value.measuredLineMm
     linePitch.value = specDefaults.value.linePitchMm
@@ -58,18 +64,28 @@ watch(
   },
 )
 
-const spec = computed<IsTestSpec>(() => ({
-  ...specDefaults.value,
-  linesPerSpeed: linesPerSpeed.value ?? specDefaults.value.linesPerSpeed,
-  measuredLineMm: measuredLine.value ?? specDefaults.value.measuredLineMm,
-  linePitchMm: linePitch.value ?? specDefaults.value.linePitchMm,
-  axes: (axisChoice.value === 'both' ? ['x', 'y'] : [axisChoice.value]) as IsAxis[],
-}))
+const spec = computed<IsTestSpec>(() => {
+  const corner = cornerSpeed.value ?? specDefaults.value.cornerSpeedMmS
+  return {
+    ...specDefaults.value,
+    speedsMmS: [tierSpeed.value ?? specDefaults.value.speedsMmS[0]],
+    cornerSpeedMmS: corner,
+    // The square corner velocity follows the corner speed: the corner is only taken
+    // without deceleration when the firmware allows at least that junction speed.
+    squareCornerVelocityMmS: corner,
+    linesPerSpeed: linesPerSpeed.value ?? specDefaults.value.linesPerSpeed,
+    measuredLineMm: measuredLine.value ?? specDefaults.value.measuredLineMm,
+    linePitchMm: linePitch.value ?? specDefaults.value.linePitchMm,
+    axes: (axisChoice.value === 'both' ? ['x', 'y'] : [axisChoice.value]) as IsAxis[],
+  }
+})
 
-// The spec as the generator will actually print it: shrunk to the configured bed, with a
-// user-worded note per reduction. Fitting can fail on a bed too small for any coupon.
+// The spec as the generator will actually print it: validated, then shrunk to the
+// configured bed with a user-worded note per reduction. Validation and fitting failures
+// both surface as the error text.
 const fitted = computed<{ spec: IsTestSpec; notes: string[] } | { error: string }>(() => {
   try {
+    validateIsSpec(spec.value)
     return fitSpecToBed(spec.value, store.selected ?? defaultPrinterProfile())
   } catch (e) {
     return { error: e instanceof Error ? e.message : String(e) }
@@ -88,13 +104,28 @@ const footprintText = computed(() => {
   return `coupon ${Math.round(g.couponWidthMm)} x ${Math.round(g.couponHeightMm)} mm`
 })
 const rampNotes = computed(() => (fittedSpec.value ? rampWarnings(fittedSpec.value) : []))
-const highFlow = computed(() => {
+// The acceleration is not editable here: it comes from the printer profile, floored by
+// the generator when the profile value is too weak for a readable trace.
+const accelNote = computed(() => {
+  const p = store.selected
+  if (!p || !fittedSpec.value) return ''
+  const a = fittedSpec.value.accelMmS2
+  return a > p.printAccelMmS2
+    ? `The test accelerates at ${a} mm/s^2, raised above the profile's ` +
+      `${p.printAccelMmS2} mm/s^2 because a weaker ramp leaves too faint a ringing trace.`
+    : `The test accelerates at the profile's ${a} mm/s^2 print acceleration.`
+})
+const highFlowText = computed(() => {
   const s = fittedSpec.value
   const p = store.selected
-  if (!s || !p) return false
+  if (!s || !p) return ''
   const nominal = p.nozzleDiameterMm * NOMINAL_WIDTH_FACTOR
-  return s.speedsMmS.some(
-    (v) => v * nominal * p.layerHeightMm > HIGH_FLOW_WARNING_THRESHOLD_MM3_S,
+  const flow = Math.max(...s.speedsMmS) * nominal * p.layerHeightMm
+  if (flow <= HIGH_FLOW_WARNING_THRESHOLD_MM3_S) return ''
+  return (
+    `The selected line speed extrudes ${flow.toFixed(1)} mm^3/s of filament; a typical ` +
+    `hotend melts about ${HIGH_FLOW_WARNING_THRESHOLD_MM3_S} mm^3/s and thins the lines ` +
+    'above that. The ringing wavelength is still readable from slightly thinned lines.'
   )
 })
 
@@ -190,6 +221,33 @@ function generate(): void {
         <IsGuideDiagram />
       </div>
       <div class="field-group">
+        <span class="group-label">Speeds</span>
+        <p class="tip mt-0 mb-2">
+          The corner between the run-up and the measured line is taken at the corner speed
+          without deceleration. Higher values ring the frame harder and make the waves
+          easier to read; lower the corner speed for lightly built printers. The line
+          speed is the cruise speed of the measured lines and cannot be below the corner
+          speed.
+        </p>
+        <div class="fields">
+          <NumericField
+            v-model="tierSpeed"
+            label="Line speed (mm/s)"
+            :step="10"
+            :min="cornerSpeed ?? MIN_CORNER_SPEED_MM_S"
+            data-testid="is-tier-speed"
+          />
+          <NumericField
+            v-model="cornerSpeed"
+            label="Corner speed (mm/s)"
+            :step="10"
+            :min="MIN_CORNER_SPEED_MM_S"
+            data-testid="is-corner-speed"
+          />
+        </div>
+        <p v-if="accelNote" class="tip mb-0">{{ accelNote }}</p>
+      </div>
+      <div class="field-group mt-1">
         <span class="group-label">Test lines</span>
         <p class="tip mt-0 mb-2">
           The clean read length is the guaranteed undisturbed stretch of every line after
@@ -265,13 +323,13 @@ function generate(): void {
         data-testid="is-ramp-warning"
       />
       <v-alert
-        v-if="highFlow"
+        v-if="highFlowText"
         type="warning"
         variant="tonal"
         density="compact"
         class="mt-3 soft-alert"
         data-testid="is-flow-warning"
-        text="The fastest speed tiers exceed the volumetric flow of a standard hotend. A standard hotend may under-extrude and thin the test lines."
+        :text="highFlowText"
       />
     </section>
 

@@ -255,6 +255,35 @@ export function frameBandLayer(
   angle45: boolean,
   doExtrude: ExtrudeFn = extrude,
 ): void {
+  // The interior window is a hole box: it turns the solid fill into a frame band.
+  const windowBox: Box = { x0: x0 + bandMm, y0: y0 + bandMm, x1: x0 + w - bandMm, y1: y0 + h - bandMm }
+  basePerimeters(e, p, f, lineWidthMm, x0, y0, w, h, [windowBox], doExtrude)
+  frameBandInfill(e, p, f, lineWidthMm, x0, y0, w, h, bandMm, holes, angle45, doExtrude)
+}
+
+/**
+ * The infill half of a frame-band layer: the band raster strips followed by the fiducial
+ * hole perimeters (see frameBandLayer for the reasoning behind that order). Split out so a
+ * coupon generator can print its own geometry between the band perimeters and this fill.
+ * Expects the nozzle primed on entry, like frameBandLayer after its perimeters; pass
+ * `startRetracted` when the nozzle enters retracted, so the first strip hop does not
+ * retract a second time.
+ */
+export function frameBandInfill(
+  e: Emitter,
+  p: PrinterProfile,
+  f: FilamentProfile,
+  lineWidthMm: number,
+  x0: number,
+  y0: number,
+  w: number,
+  h: number,
+  bandMm: number,
+  holes: Box[],
+  angle45: boolean,
+  doExtrude: ExtrudeFn = extrude,
+  startRetracted = false,
+): void {
   const infillInset = PERIMETER_LOOPS * lineWidthMm
   // Raster clearance around a fiducial hole: past the outermost of its perimeter loops.
   const holeClearance = HOLE_PERIMETER_LOOPS * lineWidthMm
@@ -264,9 +293,6 @@ export function frameBandLayer(
     x1: b.x1 + holeClearance,
     y1: b.y1 + holeClearance,
   }))
-  // The interior window is a hole box: it turns the solid fill into a frame band.
-  const windowBox: Box = { x0: x0 + bandMm, y0: y0 + bandMm, x1: x0 + w - bandMm, y1: y0 + h - bandMm }
-  basePerimeters(e, p, f, lineWidthMm, x0, y0, w, h, [windowBox], doExtrude)
   const strips = [
     // Top and bottom strips carry the fiducial holes; left/right span between them. The side
     // strips butt exactly against the top/bottom strips (their y ranges share a boundary at
@@ -276,12 +302,12 @@ export function frameBandLayer(
     { sx: x0 + infillInset, sy: y0 + bandMm - infillInset, w: bandMm - 2 * infillInset, h: h - 2 * bandMm + 2 * infillInset },
     { sx: x0 + w - bandMm + infillInset, sy: y0 + bandMm - infillInset, w: bandMm - 2 * infillInset, h: h - 2 * bandMm + 2 * infillInset },
   ]
-  for (const s of strips) {
-    retract(e, p, 1)
+  strips.forEach((s, i) => {
+    if (!(startRetracted && i === 0)) retract(e, p, 1)
     travel(e, p, s.sx, s.sy)
     retract(e, p, -1)
     rasterBase(e, p, f, lineWidthMm, s.sx, s.sy, s.w, s.h, angle45, expanded, doExtrude)
-  }
+  })
   for (const hole of holes) {
     for (let k = 0; k < HOLE_PERIMETER_LOOPS; k++) {
       const out = (k + 0.5) * lineWidthMm
