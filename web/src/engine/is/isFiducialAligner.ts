@@ -336,9 +336,17 @@ function selectCandidateByContent(
   const bestScore = scores[best]
   const secondScore = order.length > 1 ? scores[order[1]] : -Infinity
   if (bestScore < MIN_PROBE_SCORE) {
+    // The plate and its three corner fiducials were found and a geometrically valid
+    // orientation was solved, but the printed run-up legs are not where the configured
+    // geometry places them. The dominant cause is a coupon printed under different test
+    // settings than are configured now (most often a different number of lines per speed,
+    // which shifts every line and the whole field), so name that cause and its action.
     return fail(
-      'The coupon orientation could not be verified against the printed line pattern. Rescan ' +
-        'with the printed top face against the glass and the whole coupon visible.',
+      'The coupon in the scan does not match the configured test settings. The plate and its ' +
+        'fiducial holes were found, but the printed lines are not where the current settings ' +
+        'place them, which usually means the coupon was printed with different settings, most ' +
+        'often a different number of lines per speed. Set the same print settings that ' +
+        'generated this coupon, including lines per speed, and analyze again.',
       4,
     )
   }

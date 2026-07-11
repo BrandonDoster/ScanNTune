@@ -259,6 +259,33 @@ describe('analyzeIsCoupon render recovery', () => {
     240000,
   )
 
+  it(
+    'refuses a coupon printed with a different lines-per-speed than the configured spec',
+    async () => {
+      // The coupon is rendered at five lines per speed but analyzed with the eight-line
+      // default. The plate and its fiducials are found and an orientation solves, but the
+      // printed lines do not sit where the configured geometry expects, so the aligner must
+      // refuse pointing at the configured test settings rather than reporting no coupon.
+      const printedSpec: IsTestSpec = { ...ySpec, linesPerSpeed: 5 }
+      const configuredSpec: IsTestSpec = { ...ySpec, linesPerSpeed: 8 }
+      const truth = { y: { frequencyHz: 75, dampingRatio: 0.05, ringAmpMm: 0.25 } }
+      const cv = await getCv()
+      const a = rgbaToBgrMat(cv, renderIsScan({ spec: printedSpec, truth, quarterTurns: 0, flipped: true }))
+      const b = rgbaToBgrMat(cv, renderIsScan({ spec: printedSpec, truth, quarterTurns: 1, flipped: true }))
+      try {
+        const r = analyzeIsCoupon(cv, a, b, configuredSpec, PX_PER_MM)
+        expect(r.aligned).toBe(false)
+        expect(r.failureReason).toContain('configured test settings')
+        expect(r.failureReason).toContain('lines per speed')
+        expect(r.axes).toEqual([])
+      } finally {
+        a.delete()
+        b.delete()
+      }
+    },
+    240000,
+  )
+
   it('reports a failed alignment with a reason on a blank image', async () => {
     const cv = await getCv()
     const width = 400
