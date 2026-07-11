@@ -1,8 +1,13 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, shallowRef, watch } from 'vue'
 import { useApp } from '../stores/useApp'
 import { useCalibration } from '../stores/useCalibration'
 import { usePrinterProfiles } from '../stores/usePrinterProfiles'
+import { readBytes } from '../util/preview'
+import { scaleReferenceAtDpi } from '../engine/scannerCalibration'
+import { analyzeIsScans } from '../workerClient'
+import type { IsResult } from '../engine/is/resultTypes'
+import type { Firmware } from '../engine/gcode/profileTypes'
 import {
   generateIsGcodeWithReport,
   HIGH_FLOW_WARNING_THRESHOLD_MM3_S,
@@ -21,13 +26,14 @@ import { NOMINAL_WIDTH_FACTOR } from '../engine/gcode/emitter'
 import { defaultPrinterProfile } from '../engine/pa/types'
 import PrinterProfileCard from './PrinterProfileCard.vue'
 import IsGuideDiagram from './IsGuideDiagram.vue'
+import IsResultsCard from './IsResultsCard.vue'
 import NumericField from './NumericField.vue'
 
 const app = useApp()
 const store = usePrinterProfiles()
 
-// The scan step (arriving later) measures the ringing wavelength in true millimetres, which
-// needs the card-derived px/mm; generation itself does not depend on the calibration.
+// The scan step measures the ringing wavelength in true millimetres, which needs the
+// card-derived px/mm; generation itself does not depend on the calibration.
 const calibration = useCalibration()
 const isCalibrated = computed(() => calibration.calibration !== null)
 const calibrationLine = computed(() =>
@@ -163,6 +169,62 @@ function generate(): void {
   a.click()
   URL.revokeObjectURL(url)
 }
+
+// Scan card state: the two scans of the same printed coupon, held page-locally like the other
+// flows hold their scan state. Each axis group is only read along the scanner's sensor rows,
+// which is why the part is scanned twice, a quarter turn apart.
+const scanFileA = ref<File | null>(null)
+const scanFileB = ref<File | null>(null)
+const analyzing = ref(false)
+const scanError = ref('')
+const result = shallowRef<IsResult | null>(null)
+// The firmware the current result was analyzed under, so the snippet stays consistent even if
+// the profile selection changes afterwards.
+const analyzedFirmware = ref<Firmware>('Klipper')
+
+function onPickScan(e: Event, slot: 0 | 1): void {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0] ?? null
+  // Clear the input so picking the same file again still fires change.
+  input.value = ''
+  if (!file || analyzing.value) return
+  if (slot === 0) scanFileA.value = file
+  else scanFileB.value = file
+}
+
+const canAnalyze = computed(
+  () =>
+    scanFileA.value !== null &&
+    scanFileB.value !== null &&
+    isCalibrated.value &&
+    fittedSpec.value !== null &&
+    !analyzing.value,
+)
+
+async function analyze(): Promise<void> {
+  const fileA = scanFileA.value
+  const fileB = scanFileB.value
+  const cal = calibration.calibration
+  // The analysis measures the print as generated, so it runs against the bed-fitted spec.
+  const usedSpec = fittedSpec.value
+  if (!fileA || !fileB || !cal || !usedSpec || analyzing.value) return
+  analyzing.value = true
+  scanError.value = ''
+  result.value = null
+  try {
+    const [bytesA, bytesB] = await Promise.all([readBytes(fileA), readBytes(fileB)])
+    // The calibration's scale error holds across resolutions; the scan is expected at the
+    // calibration DPI, so the calibration is priced at exactly that resolution.
+    const scanPxPerMm = scaleReferenceAtDpi(cal, cal.dpi)
+    result.value = await analyzeIsScans(bytesA, bytesB, usedSpec, scanPxPerMm)
+    analyzedFirmware.value = store.selected?.firmware ?? 'Klipper'
+  } catch (err) {
+    console.error('Input shaper scan analysis failed', err)
+    scanError.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    analyzing.value = false
+  }
+}
 </script>
 
 <template>
@@ -170,9 +232,9 @@ function generate(): void {
     <header class="mb-4">
       <h1 class="text-h5 font-weight-bold">Input shaper calibration</h1>
       <p class="text-body-2 text-medium-emphasis mt-1">
-        Print a resonance test coupon whose lines record the ringing after a sharp corner. A
-        scan of the coupon will measure the resonance frequency per axis; this flow currently
-        generates the test print, and the scan analysis arrives in a later update.
+        Print a resonance test coupon whose lines record the ringing after a sharp corner.
+        Two scans of the coupon measure the resonance frequency and damping per axis and
+        give the input shaper values to set.
       </p>
     </header>
 
@@ -199,9 +261,9 @@ function generate(): void {
         </v-btn>
       </div>
       <p v-if="!isCalibrated" class="text-body-2 text-medium-emphasis mt-2 mb-0">
-        Needed before the scan step. The analysis measures the ringing in millimetres, which
-        needs the true scanner resolution from the card calibration. Generating the test
-        print works without it.
+        Required before the scan step. The analysis measures the ringing in millimetres,
+        which needs the true scanner resolution from the card calibration. Generating the
+        test print works without it.
       </p>
     </section>
 
@@ -380,10 +442,89 @@ function generate(): void {
       />
     </section>
 
+    <!-- 5. Scan the print -->
+    <section class="step mb-3">
+      <div class="step-head mb-1">
+        <span class="num">5</span><span class="step-title">Scan the print</span>
+      </div>
+      <p class="tip mb-3">
+        Scan the coupon face down, then rotate the part a quarter turn on the glass and scan
+        again. Both scans are needed because each line group is only read along the
+        scanner's accurate axis. Scan at the calibrated resolution with the lid closed.
+      </p>
+      <div class="scan-inputs mb-3">
+        <label class="dropzone" :class="{ 'dropzone-disabled': !isCalibrated }">
+          <input
+            type="file"
+            accept="image/*"
+            class="file-input"
+            :disabled="!isCalibrated || analyzing"
+            data-testid="is-scan-input-0"
+            @change="onPickScan($event, 0)"
+          />
+          <v-icon size="28" :color="scanFileA ? 'success' : isCalibrated ? 'primary' : undefined">
+            {{ scanFileA ? 'mdi-check-circle' : 'mdi-image-plus' }}
+          </v-icon>
+          <span class="dz-label">Upright scan (0 degrees)</span>
+          <span class="dz-sub">{{ scanFileA?.name ?? 'Choose the scan image' }}</span>
+        </label>
+        <label class="dropzone" :class="{ 'dropzone-disabled': !isCalibrated }">
+          <input
+            type="file"
+            accept="image/*"
+            class="file-input"
+            :disabled="!isCalibrated || analyzing"
+            data-testid="is-scan-input-90"
+            @change="onPickScan($event, 1)"
+          />
+          <v-icon size="28" :color="scanFileB ? 'success' : isCalibrated ? 'primary' : undefined">
+            {{ scanFileB ? 'mdi-check-circle' : 'mdi-image-plus' }}
+          </v-icon>
+          <span class="dz-label">Quarter-turned scan (90 degrees)</span>
+          <span class="dz-sub">{{ scanFileB?.name ?? 'Choose the scan image' }}</span>
+        </label>
+      </div>
+      <p v-if="!isCalibrated" class="tip" data-testid="is-scan-needs-calibration">
+        Calibrate the scanner first (step 1); the analysis needs the scanner's true
+        resolution.
+      </p>
+      <div class="gen-row">
+        <v-btn
+          color="primary"
+          prepend-icon="mdi-waveform"
+          :disabled="!canAnalyze"
+          data-testid="is-analyze"
+          @click="analyze"
+        >
+          Analyze scans
+        </v-btn>
+        <div v-if="analyzing" class="d-flex align-center ga-2">
+          <v-progress-circular indeterminate size="20" width="2" color="primary" />
+          <span class="tip mt-0" data-testid="is-progress">Analyzing the scans...</span>
+        </div>
+      </div>
+      <v-alert
+        v-if="scanError"
+        type="error"
+        variant="tonal"
+        class="mt-3"
+        :text="scanError"
+        data-testid="is-scan-error"
+      />
+    </section>
+
+    <!-- 6. Result -->
+    <section v-if="result" class="step mb-3">
+      <div class="step-head mb-3">
+        <span class="num">6</span><span class="step-title">Result</span>
+      </div>
+      <IsResultsCard :result="result" :firmware="analyzedFirmware" />
+    </section>
+
     <p class="tip">
       <v-icon size="14" class="mr-1">mdi-information-outline</v-icon>
-      Print the coupon with the downloaded file and keep the finished part flat. A later
-      update adds the scan step that reads the resonance frequency from it.
+      Print the coupon with the downloaded file and keep the finished part flat until it is
+      scanned.
     </p>
   </v-container>
 </template>
@@ -464,5 +605,54 @@ function generate(): void {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+}
+.scan-inputs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 22px;
+  border: 1.5px dashed rgba(var(--v-theme-primary), 0.5);
+  border-radius: 12px;
+  background: rgb(var(--v-theme-surface-bright));
+  cursor: pointer;
+  position: relative;
+  transition: border-color 0.15s ease;
+}
+.dropzone:hover {
+  border-color: rgb(var(--v-theme-primary));
+}
+.dropzone-disabled {
+  border-color: rgba(var(--v-theme-on-surface), 0.25);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.dropzone-disabled:hover {
+  border-color: rgba(var(--v-theme-on-surface), 0.25);
+}
+.file-input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.file-input:disabled {
+  cursor: not-allowed;
+}
+.dz-label {
+  font-weight: 500;
+  font-size: 14px;
+}
+.dz-sub {
+  font-size: 12px;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  overflow-wrap: anywhere;
+  text-align: center;
 }
 </style>

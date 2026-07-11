@@ -4,6 +4,8 @@ import type { CouponSpec, ScaleReferenceResult } from './engine/types'
 import type { ScaleReference } from './engine/scannerCalibration'
 import type { PaProgressCallback, PaTestSpec } from './engine/pa/types'
 import type { EmProgressCallback, EmTestSpec } from './engine/em/types'
+import type { IsResult } from './engine/is/resultTypes'
+import type { IsTestSpec } from './engine/is/types'
 
 // Lazily create the analysis worker (which pulls in OpenCV.js) only when the user first analyzes a
 // scan, so the wasm is not loaded on the initial page paint.
@@ -57,6 +59,19 @@ export async function analyzeEmScan(
     scanPxPerMm,
     onProgress ? Comlink.proxy(onProgress) : undefined,
   )
+}
+
+// Analyse the two input shaper scans (upright and quarter-turned) in one worker call; the engine
+// measures each axis from the scan in which its lines run along the scanner's sensor rows.
+export async function analyzeIsScans(
+  bytesA: Uint8Array,
+  bytesB: Uint8Array,
+  spec: IsTestSpec,
+  scanPxPerMm: ScaleReference,
+): Promise<IsResult> {
+  const a = bytesA.slice().buffer
+  const b = bytesB.slice().buffer
+  return getApi().analyzeIsScans(Comlink.transfer(a, [a]), Comlink.transfer(b, [b]), spec, scanPxPerMm)
 }
 
 export async function measureCardScan(

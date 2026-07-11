@@ -22,6 +22,9 @@ import type { EmResult } from '../engine/em/emAnalyzer'
 import { renderEmOverlayMat } from '../engine/em/emOverlayRenderer'
 import type { EmAlignment } from '../engine/em/fiducialAligner'
 import type { EmProgressCallback, EmTestSpec } from '../engine/em/types'
+import { analyzeIsCoupon } from '../engine/is/isAnalyzer'
+import type { IsResult } from '../engine/is/resultTypes'
+import type { IsTestSpec } from '../engine/is/types'
 import type { ScaleReference } from '../engine/scannerCalibration'
 import { decodeToBgr, matToImageBitmap, grayMatToImageBitmap } from './decode'
 
@@ -230,6 +233,30 @@ async function renderEmOverlayBitmap(
   }
 }
 
+// Analyse the two input shaper scans (the coupon upright and turned a quarter turn on the glass) in
+// one call: both are decoded here and handed to the engine together, which picks per axis the scan
+// whose line group runs along the scanner's sensor rows. The IsResult is plain data (numbers,
+// strings, arrays), so it crosses the worker boundary by structured clone with nothing to transfer.
+async function analyzeIsScans(
+  bytesA: ArrayBuffer,
+  bytesB: ArrayBuffer,
+  spec: IsTestSpec,
+  scanPxPerMm: ScaleReference,
+): Promise<IsResult> {
+  const cv = await loadOpenCv()
+  const imgA = await decodeToBgr(cv, bytesA)
+  try {
+    const imgB = await decodeToBgr(cv, bytesB)
+    try {
+      return analyzeIsCoupon(cv, imgA, imgB, spec, scanPxPerMm)
+    } finally {
+      imgB.delete()
+    }
+  } finally {
+    imgA.delete()
+  }
+}
+
 async function measureCardScan(
   bytes: ArrayBuffer,
   knownLongSideMm: number,
@@ -244,7 +271,7 @@ async function measureCardScan(
   }
 }
 
-const api = { analyzeScan, analyzePaScan, analyzeEmScan, measureCardScan }
+const api = { analyzeScan, analyzePaScan, analyzeEmScan, analyzeIsScans, measureCardScan }
 export type AnalysisApi = typeof api
 
 Comlink.expose(api)
