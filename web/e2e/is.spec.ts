@@ -68,6 +68,10 @@ test('input shaper: a small bed shows fit notes and shortens the clean read leng
   // The default coupon fits a 120 mm bed; a much longer clean read overflows it, and the
   // fit machinery shortens the lines back onto the bed with a user-worded note.
   await openIsPageWithProfile(page, { bedWidthMm: 120, bedDepthMm: 120 })
+  await page
+    .getByTestId('is-advanced-panel')
+    .getByRole('button', { name: /Advanced/ })
+    .click()
   await page.getByLabel('Clean read length (mm)').fill('70')
 
   await expect(page.getByTestId('is-fit-notes')).toBeVisible()

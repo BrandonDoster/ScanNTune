@@ -400,57 +400,41 @@ async function analyze(): Promise<void> {
       <div class="step-head mb-2">
         <span class="num">3</span><span class="step-title">Test settings</span>
       </div>
-      <div class="diagram-wrap mb-3">
-        <IsGuideDiagram />
-      </div>
       <div class="field-group">
         <span class="group-label">Speeds</span>
-        <p class="tip mt-0 mb-2">
-          The corner between the run-up and the measured line is taken at the corner speed
-          without deceleration; higher values ring the frame harder and make the waves
-          easier to read. Lower the corner speed if the print shifts layers: a corner
-          taken too fast for the machine skips motor steps.
-        </p>
-        <p class="tip mt-0 mb-2">
-          The line speed is the cruise speed of the measured lines and cannot be below the
-          corner speed. The printer profile's travel speed only applies to moves between
-          lines and does not affect the measurement.
-        </p>
         <div class="fields">
-          <NumericField
-            v-model="tierSpeed"
-            label="Line speed (mm/s)"
-            :step="10"
-            :min="cornerSpeed ?? MIN_CORNER_SPEED_MM_S"
-            data-testid="is-tier-speed"
-          />
-          <NumericField
-            v-model="cornerSpeed"
-            label="Corner speed (mm/s)"
-            :step="10"
-            :min="MIN_CORNER_SPEED_MM_S"
-            data-testid="is-corner-speed"
-          />
+          <div class="field-col">
+            <NumericField
+              v-model="tierSpeed"
+              label="Line speed (mm/s)"
+              :step="10"
+              :min="cornerSpeed ?? MIN_CORNER_SPEED_MM_S"
+              data-testid="is-tier-speed"
+            />
+            <v-alert
+              v-if="highFlowText"
+              type="info"
+              variant="tonal"
+              density="compact"
+              class="soft-alert"
+              data-testid="is-flow-warning"
+              :text="highFlowText"
+            />
+          </div>
+          <div class="field-col">
+            <NumericField
+              v-model="cornerSpeed"
+              label="Corner speed (mm/s)"
+              :step="10"
+              :min="MIN_CORNER_SPEED_MM_S"
+              data-testid="is-corner-speed"
+            />
+            <p class="tip mt-0 mb-0">
+              <strong>Lower this if the print skips layers.</strong>
+            </p>
+          </div>
         </div>
         <p v-if="accelNote" class="tip mb-0">{{ accelNote }}</p>
-      </div>
-      <div class="field-group mt-1">
-        <span class="group-label">Test lines</span>
-        <p class="tip mt-0 mb-2">
-          The clean read length is the guaranteed undisturbed stretch of every line after
-          the corner's acceleration ramp. It should cover at least five wavelengths of the
-          lowest resonance of interest at the tier speed. The printed lines are longer:
-          they continue into the zone where the two axis groups cross.
-        </p>
-        <p class="tip mt-0 mb-2">
-          The line pitch only needs raising when neighbouring lines touch on a strongly
-          ringing printer: it must exceed twice the ringing amplitude plus the line width.
-        </p>
-        <div class="fields">
-          <NumericField v-model="linesPerSpeed" label="Lines per speed" :step="1" :min="3" />
-          <NumericField v-model="measuredLine" label="Clean read length (mm)" :step="5" :min="20" />
-          <NumericField v-model="linePitch" label="Line pitch (mm)" :step="0.1" :min="0.1" :precision="2" />
-        </div>
       </div>
       <div class="field-group mt-1">
         <span class="group-label">Axes</span>
@@ -488,6 +472,33 @@ async function analyze(): Promise<void> {
         </div>
         <p class="tip mb-0" data-testid="is-scan-plan-note">{{ scanPlanNote }}</p>
       </div>
+      <v-expansion-panels flat class="advanced-panels mt-1">
+        <v-expansion-panel data-testid="is-advanced-panel">
+          <v-expansion-panel-title class="adv-title">
+            Advanced: line pitch, read length, lines per speed
+          </v-expansion-panel-title>
+          <v-expansion-panel-text>
+            <div class="fields">
+              <NumericField
+                v-model="linePitch"
+                label="Line pitch (mm)"
+                :step="0.1"
+                :min="0.1"
+                :precision="2"
+                hint="Raise only if neighbouring lines touch on a strongly ringing printer."
+              />
+              <NumericField
+                v-model="measuredLine"
+                label="Clean read length (mm)"
+                :step="5"
+                :min="20"
+                hint="Cover at least five wavelengths of the lowest resonance of interest."
+              />
+              <NumericField v-model="linesPerSpeed" label="Lines per speed" :step="1" :min="3" />
+            </div>
+          </v-expansion-panel-text>
+        </v-expansion-panel>
+      </v-expansion-panels>
       <div class="facts mt-2">
         <v-chip
           v-if="tiersText"
@@ -519,15 +530,6 @@ async function analyze(): Promise<void> {
         data-testid="is-fit-error"
       />
       <v-alert
-        v-if="fitNotes.length > 0"
-        type="info"
-        variant="tonal"
-        density="compact"
-        class="mt-3 soft-alert"
-        :text="fitNotes.join(' ')"
-        data-testid="is-fit-notes"
-      />
-      <v-alert
         v-if="rampNotes.length > 0"
         type="warning"
         variant="tonal"
@@ -537,13 +539,13 @@ async function analyze(): Promise<void> {
         data-testid="is-ramp-warning"
       />
       <v-alert
-        v-if="highFlowText"
-        type="warning"
+        v-if="fitNotes.length > 0"
+        type="info"
         variant="tonal"
         density="compact"
         class="mt-3 soft-alert"
-        data-testid="is-flow-warning"
-        :text="highFlowText"
+        :text="fitNotes.join(' ')"
+        data-testid="is-fit-notes"
       />
     </section>
 
@@ -605,6 +607,9 @@ async function analyze(): Promise<void> {
         scanner's accurate axis; the order of the two images does not matter. Scan at the
         calibrated resolution with the lid closed.
       </p>
+      <div class="diagram-wrap mb-3">
+        <IsGuideDiagram />
+      </div>
       <div class="scan-inputs mb-3">
         <label class="dropzone" :class="{ 'dropzone-disabled': !isCalibrated }">
           <input
@@ -787,6 +792,26 @@ async function analyze(): Promise<void> {
 }
 .fields > * {
   flex: 1 1 160px;
+}
+.field-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.advanced-panels :deep(.v-expansion-panel) {
+  background: transparent;
+}
+.advanced-panels :deep(.v-expansion-panel-title) {
+  padding: 8px 4px;
+  min-height: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+.advanced-panels :deep(.v-expansion-panel-text__wrapper) {
+  padding: 8px 4px 12px;
 }
 .field-group .group-label {
   display: block;
