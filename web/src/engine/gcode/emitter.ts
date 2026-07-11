@@ -93,6 +93,16 @@ export const RASTER_STEP_FACTOR = 0.9
 export const RASTER_SPEED_FACTOR = 1 / 3
 /** Concentric perimeter loops around the part outline and each fiducial hole. */
 export const PERIMETER_LOOPS = 2
+/** Loops around each fiducial hole; one more than elsewhere so raster ends stay clear. */
+export const HOLE_PERIMETER_LOOPS = 3
+/** Nominal single-bead width as a fraction of the nozzle diameter (standard slicer default). */
+export const NOMINAL_WIDTH_FACTOR = 1.05
+/** First-layer lines print narrower so z-offset squish is absorbed below the measured layers. */
+export const PEDESTAL_WIDTH_FACTOR = 0.72
+export const PEDESTAL_LAYERS = 1
+export const MEASURED_LAYERS = 2
+/** Volumetric flow above which typical hotends under-extrude; generators warn past it. */
+export const HIGH_FLOW_WARNING_THRESHOLD_MM3_S = 12
 
 /** One closed rectangular loop: travel to a corner, then four extrude moves. */
 export function rectLoop(
@@ -203,6 +213,62 @@ export function rasterBase(
       extrude(e, p, f, lineWidthMm, bx + b * ux, by + b * uy, p.travelSpeedMmS * RASTER_SPEED_FACTOR)
     }
     scanIndex++
+  }
+}
+
+/**
+ * One frame-band layer shared by the open-window coupons: outline and window perimeters, the
+ * band infill rastered as four strips so no scanline (or its connecting travel) ever crosses
+ * the open window, then the fiducial hole perimeters. The hole loops are drawn after the
+ * raster so they seal its ragged line-ends under a clean continuous bead (a frayed edge
+ * biases the centroid the aligner reads). Each strip hop is retract-bracketed.
+ */
+export function frameBandLayer(
+  e: Emitter,
+  p: PrinterProfile,
+  f: FilamentProfile,
+  lineWidthMm: number,
+  x0: number,
+  y0: number,
+  w: number,
+  h: number,
+  bandMm: number,
+  holes: Box[],
+  angle45: boolean,
+): void {
+  const infillInset = PERIMETER_LOOPS * lineWidthMm
+  // Raster clearance around a fiducial hole: past the outermost of its perimeter loops.
+  const holeClearance = HOLE_PERIMETER_LOOPS * lineWidthMm
+  const expanded = holes.map((b) => ({
+    x0: b.x0 - holeClearance,
+    y0: b.y0 - holeClearance,
+    x1: b.x1 + holeClearance,
+    y1: b.y1 + holeClearance,
+  }))
+  // The interior window is a hole box: it turns the solid fill into a frame band.
+  const windowBox: Box = { x0: x0 + bandMm, y0: y0 + bandMm, x1: x0 + w - bandMm, y1: y0 + h - bandMm }
+  basePerimeters(e, p, f, lineWidthMm, x0, y0, w, h, [windowBox])
+  const strips = [
+    // Top and bottom strips carry the fiducial holes; left/right span between them. The side
+    // strips butt exactly against the top/bottom strips (their y ranges share a boundary at
+    // bandMm - infillInset) so the corner seams have no unfilled sliver.
+    { sx: x0 + infillInset, sy: y0 + infillInset, w: w - 2 * infillInset, h: bandMm - 2 * infillInset },
+    { sx: x0 + infillInset, sy: y0 + h - bandMm + infillInset, w: w - 2 * infillInset, h: bandMm - 2 * infillInset },
+    { sx: x0 + infillInset, sy: y0 + bandMm - infillInset, w: bandMm - 2 * infillInset, h: h - 2 * bandMm + 2 * infillInset },
+    { sx: x0 + w - bandMm + infillInset, sy: y0 + bandMm - infillInset, w: bandMm - 2 * infillInset, h: h - 2 * bandMm + 2 * infillInset },
+  ]
+  for (const s of strips) {
+    retract(e, p, 1)
+    travel(e, p, s.sx, s.sy)
+    retract(e, p, -1)
+    rasterBase(e, p, f, lineWidthMm, s.sx, s.sy, s.w, s.h, angle45, expanded)
+  }
+  for (const hole of holes) {
+    for (let k = 0; k < HOLE_PERIMETER_LOOPS; k++) {
+      const out = (k + 0.5) * lineWidthMm
+      rectLoop(e, p, f, lineWidthMm, hole.x0 - out, hole.y0 - out, hole.x1 + out, hole.y1 + out,
+        p.travelSpeedMmS * RASTER_SPEED_FACTOR)
+    }
   }
 }
 

@@ -1,14 +1,16 @@
 import type { PrinterProfile } from '../pa/types'
+import {
+  MEASURED_LAYERS,
+  NOMINAL_WIDTH_FACTOR,
+  PEDESTAL_LAYERS,
+  PEDESTAL_WIDTH_FACTOR,
+} from '../gcode/emitter'
 
-export const PEDESTAL_WIDTH_FACTOR = 0.72
-export const PEDESTAL_LAYERS = 1
-export const MEASURED_LAYERS = 2
+export { MEASURED_LAYERS, PEDESTAL_LAYERS, PEDESTAL_WIDTH_FACTOR }
 export const FRAME_BAND_MM = 12
 export const RAIL_WIDTH_MM = 4
 export const BLOCK_GAP_MM = 2
 export const INNER_MARGIN_MM = 3
-/** Nominal single-bead width as a fraction of the nozzle diameter (standard slicer default). */
-const NOMINAL_WIDTH_FACTOR = 1.05
 /**
  * Default pitch sweep as fractions of the nominal width. All pitches sit well above the
  * bead width, so every gap stays open and wide enough for a flatbed scanner to read

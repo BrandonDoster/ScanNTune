@@ -1,10 +1,12 @@
 import type { FilamentProfile, PrinterProfile } from '../gcode/profileTypes'
-import { couponOrigin, prepareProfile, setupPreamble } from '../gcode/couponShell'
+import { couponOrigin, EDGE_MARGIN_MM, prepareProfile, setupPreamble } from '../gcode/couponShell'
 import {
   BASE_LAYERS,
   basePerimeters,
   type Emitter,
   extrude,
+  frameBandLayer,
+  HIGH_FLOW_WARNING_THRESHOLD_MM3_S,
   PERIMETER_LOOPS,
   RASTER_SPEED_FACTOR,
   rasterBase,
@@ -23,13 +25,9 @@ import {
   volumetricFlowMm3S,
 } from './types'
 
-export const HIGH_FLOW_WARNING_THRESHOLD_MM3_S = 12
-/** Clearance from the bed edge for the 'front'/'back' placements. */
-export const EDGE_MARGIN_MM = 10
+export { EDGE_MARGIN_MM, HIGH_FLOW_WARNING_THRESHOLD_MM3_S }
 /** How far each comb line runs past its row boundary onto the band/rail perimeters. */
 export const ANCHOR_OVERLAP_MM = 1
-/** Loops around each fiducial hole; one more than elsewhere so raster ends stay clear. */
-const HOLE_PERIMETER_LOOPS = 3
 export function generateEmGcode(
   profile: PrinterProfile,
   filament: FilamentProfile,
@@ -92,14 +90,6 @@ function emitEmGcode(profile: PrinterProfile, filament: FilamentProfile, spec: E
     x1: ox + f.xMm + g.fiducialSizeMm / 2,
     y1: oy + f.yMm + g.fiducialSizeMm / 2,
   }))
-  // The interior window is a hole box: it turns the solid-base fill into a frame band.
-  const windowBox: Box = {
-    x0: ox + g.frameBandMm,
-    y0: oy + g.frameBandMm,
-    x1: ox + g.couponWidthMm - g.frameBandMm,
-    y1: oy + g.couponHeightMm - g.frameBandMm,
-  }
-
   const e: Emitter = { lines: [], x: 0, y: 0 }
   const L = e.lines
   L.push(
@@ -111,14 +101,6 @@ function emitEmGcode(profile: PrinterProfile, filament: FilamentProfile, spec: E
 
   const totalLayers = PEDESTAL_LAYERS + MEASURED_LAYERS
   const infillInset = PERIMETER_LOOPS * nominal
-  // Raster clearance around a fiducial hole: past the outermost of its perimeter loops.
-  const holeClearance = HOLE_PERIMETER_LOOPS * nominal
-  const expandHole = (b: Box): Box => ({
-    x0: b.x0 - holeClearance,
-    y0: b.y0 - holeClearance,
-    x1: b.x1 + holeClearance,
-    y1: b.y1 + holeClearance,
-  })
 
   // Contrasting-color base: two solid layers over the full coupon rectangle (the window is
   // backed, not open; only the fiducial holes stay open), then a filament-change pause.
@@ -160,48 +142,10 @@ function emitEmGcode(profile: PrinterProfile, filament: FilamentProfile, spec: E
       retract(e, profile, -1)
     }
 
-    // Frame band: outline + window perimeters first. The fiducial hole perimeters are
-    // deliberately NOT drawn here; they come after the band raster so the loops seal the
-    // raster's ragged line-ends under a clean bead (a rough hole edge shifts the centroid
-    // the aligner reads).
-    basePerimeters(e, profile, filament, nominal, ox, oy, g.couponWidthMm, g.couponHeightMm,
-      [windowBox])
-    // The band infill rasters as four strips so no scanline (or its connecting travel) ever
-    // crosses the open window; one raster over the whole rectangle would ooze strings across
-    // the measured combs on every scanline. Each strip hop is retract-bracketed.
-    const W = g.couponWidthMm
-    const H = g.couponHeightMm
-    const band = g.frameBandMm
-    const strips: { x0: number; y0: number; w: number; h: number; holes: Box[] }[] = [
-      // Top and bottom strips carry the fiducial holes; left/right span between them.
-      { x0: ox + infillInset, y0: oy + infillInset, w: W - 2 * infillInset, h: band - 2 * infillInset,
-        holes: holes.map(expandHole) },
-      { x0: ox + infillInset, y0: oy + H - band + infillInset, w: W - 2 * infillInset,
-        h: band - 2 * infillInset, holes: holes.map(expandHole) },
-      // The side strips butt exactly against the top/bottom strips (their y ranges share a
-      // boundary at band - infillInset) so the corner seams have no unfilled sliver.
-      { x0: ox + infillInset, y0: oy + band - infillInset, w: band - 2 * infillInset,
-        h: H - 2 * band + 2 * infillInset, holes: [] },
-      { x0: ox + W - band + infillInset, y0: oy + band - infillInset, w: band - 2 * infillInset,
-        h: H - 2 * band + 2 * infillInset, holes: [] },
-    ]
-    for (const s of strips) {
-      retract(e, profile, 1)
-      travel(e, profile, s.x0, s.y0)
-      retract(e, profile, -1)
-      rasterBase(e, profile, filament, nominal, s.x0, s.y0, s.w, s.h, layer % 2 === 0, s.holes)
-    }
-
-    // Fiducial hole perimeters, drawn after the raster so the loops seal its ragged
-    // line-ends under clean continuous beads: the aligner reads the hole centroids, and a
-    // frayed edge biases them. All travels here stay within the band ring.
-    for (const hole of holes) {
-      for (let k = 0; k < HOLE_PERIMETER_LOOPS; k++) {
-        const out = (k + 0.5) * nominal
-        rectLoop(e, profile, filament, nominal, hole.x0 - out, hole.y0 - out,
-          hole.x1 + out, hole.y1 + out, profile.travelSpeedMmS * RASTER_SPEED_FACTOR)
-      }
-    }
+    // Frame band: outline + window perimeters, four band raster strips (never crossing the
+    // open window), then the fiducial hole perimeters sealing the raster's ragged line-ends.
+    frameBandLayer(e, profile, filament, nominal, ox, oy, g.couponWidthMm, g.couponHeightMm,
+      g.frameBandMm, holes, layer % 2 === 0)
 
     // Center rail: perimeter loops flush with its edges give the comb line ends a continuous
     // bead to anchor into (a bare raster edge is a sawtooth the thin lines pull out of), with

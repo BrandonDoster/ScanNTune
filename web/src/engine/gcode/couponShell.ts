@@ -40,6 +40,9 @@ export function prepareProfile(
 
 export type CouponPlacement = 'center' | 'front' | 'back'
 
+/** Clearance from the bed edge for the 'front'/'back' placements. */
+export const EDGE_MARGIN_MM = 10
+
 /**
  * Bed origin (min-x, min-y) of the coupon: centered on X, placed on Y per `placement`
  * ('front'/'back' sit `edgeMarginMm` from the bed edge). Throws when the coupon overhangs
