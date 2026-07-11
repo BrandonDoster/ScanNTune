@@ -14,6 +14,13 @@ const form = useProfileForm()
 
 const firmwares: Firmware[] = ['Klipper', 'Marlin', 'RepRapFirmware']
 
+// Marlin's ZV shaper has no selectable type, so only Klipper and RepRapFirmware get a type field.
+const SHAPER_TYPES: Partial<Record<Firmware, string[]>> = {
+  Klipper: ['zv', 'mzv', 'zvd', 'ei', '2hump_ei', '3hump_ei'],
+  RepRapFirmware: ['zvd', 'zvdd', 'zvddd', 'ei2', 'ei3', 'mzv'],
+}
+const shaperTypes = computed(() => SHAPER_TYPES[form.firmware.value] ?? [])
+
 const editedId = app.profilePayload?.profileId ?? null
 const existing = editedId === null ? null : store.profiles.find((p) => p.id === editedId) ?? null
 if (existing) {
@@ -179,6 +186,81 @@ function save(): void {
               label="Square corner velocity (mm/s)"
               :step="1"
               :min="1"
+            />
+          </div>
+
+          <div class="group-caption">Input shaping</div>
+          <p class="group-note">
+            These are the printer's current values. The resonance test disables them during the
+            print and restores them afterwards.
+          </p>
+          <div v-if="form.firmware.value === 'Klipper'" class="row">
+            <v-select
+              v-model="form.inputShaperTypeX.value"
+              :items="shaperTypes"
+              label="Shaper type X"
+              density="comfortable"
+              clearable
+              data-testid="profile-shaper-type-x"
+            />
+            <v-select
+              v-model="form.inputShaperTypeY.value"
+              :items="shaperTypes"
+              label="Shaper type Y"
+              density="comfortable"
+              clearable
+              data-testid="profile-shaper-type-y"
+            />
+          </div>
+          <div v-else-if="form.firmware.value === 'RepRapFirmware'" class="row">
+            <v-select
+              v-model="form.inputShaperTypeX.value"
+              :items="shaperTypes"
+              label="Shaper type"
+              density="comfortable"
+              clearable
+              data-testid="profile-shaper-type-x"
+            />
+          </div>
+          <div class="row">
+            <NumericField
+              v-model="form.inputShaperFreqXHz.value"
+              label="Shaper frequency X (Hz)"
+              :step="1"
+              :min="0"
+              :precision="1"
+            />
+            <NumericField
+              v-model="form.inputShaperFreqYHz.value"
+              label="Shaper frequency Y (Hz)"
+              :step="1"
+              :min="0"
+              :precision="1"
+            />
+          </div>
+          <div class="row">
+            <NumericField
+              v-model="form.inputShaperDampingX.value"
+              label="Damping ratio X"
+              :step="0.01"
+              :min="0"
+              :precision="3"
+            />
+            <NumericField
+              v-model="form.inputShaperDampingY.value"
+              label="Damping ratio Y"
+              :step="0.01"
+              :min="0"
+              :precision="3"
+            />
+          </div>
+          <div class="row">
+            <NumericField
+              v-model="form.pressureAdvance.value"
+              label="Pressure advance"
+              :step="0.005"
+              :min="0"
+              :precision="4"
             />
           </div>
         </div>
@@ -360,6 +442,11 @@ function save(): void {
   font-size: 12px;
   color: rgba(var(--v-theme-on-surface), 0.6);
   margin: 6px 0 4px;
+}
+.group-note {
+  font-size: 12px;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  margin: 0 0 8px;
 }
 .mono :deep(textarea) {
   font-family: 'Roboto Mono', ui-monospace, monospace;

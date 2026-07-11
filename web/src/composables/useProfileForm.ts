@@ -80,6 +80,16 @@ export function useProfileForm() {
   const pauseGcode = ref('')
   const endGcode = ref('')
 
+  // The printer's current input shaper and pressure advance settings. All optional: null or an
+  // empty string means the value is unknown and stays absent from the saved profile.
+  const inputShaperTypeX = ref<string | null>(null)
+  const inputShaperTypeY = ref<string | null>(null)
+  const inputShaperFreqXHz = ref<number | null>(null)
+  const inputShaperFreqYHz = ref<number | null>(null)
+  const inputShaperDampingX = ref<number | null>(null)
+  const inputShaperDampingY = ref<number | null>(null)
+  const pressureAdvance = ref<number | null>(null)
+
   const filaments = ref<EditableFilament[]>([])
   const filamentIndex = ref(0)
   const currentFilament = computed<EditableFilament | undefined>(
@@ -107,6 +117,13 @@ export function useProfileForm() {
       startGcode: startGcode.value,
       pauseGcode: pauseGcode.value,
       endGcode: endGcode.value,
+      inputShaperTypeX: inputShaperTypeX.value,
+      inputShaperTypeY: inputShaperTypeY.value,
+      inputShaperFreqXHz: inputShaperFreqXHz.value,
+      inputShaperFreqYHz: inputShaperFreqYHz.value,
+      inputShaperDampingX: inputShaperDampingX.value,
+      inputShaperDampingY: inputShaperDampingY.value,
+      pressureAdvance: pressureAdvance.value,
       filaments: filaments.value,
       filamentIndex: filamentIndex.value,
     })
@@ -130,6 +147,13 @@ export function useProfileForm() {
     startGcode.value = p.startGcode
     pauseGcode.value = p.pauseGcode
     endGcode.value = p.endGcode
+    inputShaperTypeX.value = p.inputShaperTypeX ?? null
+    inputShaperTypeY.value = p.inputShaperTypeY ?? null
+    inputShaperFreqXHz.value = p.inputShaperFreqXHz ?? null
+    inputShaperFreqYHz.value = p.inputShaperFreqYHz ?? null
+    inputShaperDampingX.value = p.inputShaperDampingX ?? null
+    inputShaperDampingY.value = p.inputShaperDampingY ?? null
+    pressureAdvance.value = p.pressureAdvance ?? null
     filaments.value = p.filaments.map((f) => ({ ...f }))
     const selectedAt = p.filaments.findIndex((f) => f.id === p.selectedFilamentId)
     filamentIndex.value = selectedAt === -1 ? 0 : selectedAt
@@ -385,6 +409,16 @@ export function useProfileForm() {
     }
   }
 
+  /** A nullable optional field, mapped to "absent" when cleared. */
+  function optionalNumber(value: number | null): number | undefined {
+    return value === null ? undefined : value
+  }
+
+  function optionalText(value: string | null): string | undefined {
+    const trimmed = value?.trim() ?? ''
+    return trimmed === '' ? undefined : trimmed
+  }
+
   /** The finished profile. Only valid while `canSave` is true. */
   function toProfile(): PrinterProfile {
     const savedFilaments = filaments.value.map(toFilamentProfile)
@@ -406,6 +440,13 @@ export function useProfileForm() {
       startGcode: startGcode.value,
       pauseGcode: pauseGcode.value,
       endGcode: endGcode.value,
+      inputShaperTypeX: optionalText(inputShaperTypeX.value),
+      inputShaperTypeY: optionalText(inputShaperTypeY.value),
+      inputShaperFreqXHz: optionalNumber(inputShaperFreqXHz.value),
+      inputShaperFreqYHz: optionalNumber(inputShaperFreqYHz.value),
+      inputShaperDampingX: optionalNumber(inputShaperDampingX.value),
+      inputShaperDampingY: optionalNumber(inputShaperDampingY.value),
+      pressureAdvance: optionalNumber(pressureAdvance.value),
     }
   }
 
@@ -428,6 +469,13 @@ export function useProfileForm() {
     startGcode,
     pauseGcode,
     endGcode,
+    inputShaperTypeX,
+    inputShaperTypeY,
+    inputShaperFreqXHz,
+    inputShaperFreqYHz,
+    inputShaperDampingX,
+    inputShaperDampingY,
+    pressureAdvance,
     filaments,
     filamentIndex,
     currentFilament,

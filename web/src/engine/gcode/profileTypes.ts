@@ -29,6 +29,14 @@ export interface PrinterProfile {
   startGcode: string
   pauseGcode: string
   endGcode: string
+  /** The printer's current input shaper and pressure advance settings; absent means unknown. */
+  inputShaperTypeX?: string
+  inputShaperTypeY?: string
+  inputShaperFreqXHz?: number
+  inputShaperFreqYHz?: number
+  inputShaperDampingX?: number
+  inputShaperDampingY?: number
+  pressureAdvance?: number
 }
 
 export function defaultFilamentProfile(): FilamentProfile {

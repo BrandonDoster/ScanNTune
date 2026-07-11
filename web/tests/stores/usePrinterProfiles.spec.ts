@@ -108,6 +108,30 @@ describe('usePrinterProfiles', () => {
     expect(store.profiles[0].selectedFilamentId).toBe('f1')
   })
 
+  it('keeps the optional input shaper and pressure advance fields across a reload', () => {
+    const a = usePrinterProfiles()
+    a.upsert({
+      ...defaultPrinterProfile(),
+      name: 'Shaped',
+      inputShaperTypeX: 'mzv',
+      inputShaperFreqXHz: 52.4,
+      inputShaperFreqYHz: 38.1,
+      inputShaperDampingY: 0.1,
+      pressureAdvance: 0.045,
+    })
+    setActivePinia(createPinia())
+    const b = usePrinterProfiles()
+    expect(b.profiles[0]).toMatchObject({
+      inputShaperTypeX: 'mzv',
+      inputShaperFreqXHz: 52.4,
+      inputShaperFreqYHz: 38.1,
+      inputShaperDampingY: 0.1,
+      pressureAdvance: 0.045,
+    })
+    expect(b.profiles[0].inputShaperTypeY).toBeUndefined()
+    expect(b.profiles[0].inputShaperDampingX).toBeUndefined()
+  })
+
   it('drops corrupt storage without throwing', () => {
     localStorage.setItem('scanntune.printerProfiles', '{nope')
     const store = usePrinterProfiles()
