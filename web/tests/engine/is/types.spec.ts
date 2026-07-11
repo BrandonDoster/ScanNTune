@@ -43,7 +43,6 @@ describe('validateIsSpec', () => {
   })
   it('throws on non-positive values', () => {
     expect(() => validateIsSpec({ ...spec, speedsMmS: [0, 100] })).toThrow(/positive/)
-    expect(() => validateIsSpec({ ...spec, measuredLineMm: 0 })).toThrow(/positive/)
     expect(() => validateIsSpec({ ...spec, runUpMm: -1 })).toThrow(/positive/)
     expect(() => validateIsSpec({ ...spec, linePitchMm: 0 })).toThrow(/positive/)
     expect(() => validateIsSpec({ ...spec, accelMmS2: 0 })).toThrow(/positive/)
@@ -53,6 +52,10 @@ describe('validateIsSpec', () => {
   it('throws on lines per speed outside 4 to 6', () => {
     expect(() => validateIsSpec({ ...spec, linesPerSpeed: 3 })).toThrow(/Lines per speed/)
     expect(() => validateIsSpec({ ...spec, linesPerSpeed: 7 })).toThrow(/Lines per speed/)
+  })
+  it('throws when the measured line is shorter than the 60 mm floor', () => {
+    expect(() => validateIsSpec({ ...spec, measuredLineMm: 59 })).toThrow(/at least 60 mm/)
+    expect(() => validateIsSpec({ ...spec, measuredLineMm: 60 })).not.toThrow()
   })
   it('throws on empty axes', () => {
     expect(() => validateIsSpec({ ...spec, axes: [] })).toThrow(/axis/)

@@ -3,6 +3,7 @@ import { defaultPrinterProfile } from '../../../src/engine/gcode/profileTypes'
 import { defaultIsTestSpec, type IsTestSpec } from '../../../src/engine/is/types'
 import {
   BLOCK_GAP_MM,
+  INNER_MARGIN_MM,
   isCouponGeometry,
   type IsLineGroup,
 } from '../../../src/engine/is/couponGeometry'
@@ -51,16 +52,32 @@ describe('isCouponGeometry groups', () => {
 })
 
 describe('isCouponGeometry line placement', () => {
-  it('keeps every run-up leg inside the coupon bounds', () => {
-    for (const group of g.groups) {
-      for (const { runUp } of group.lines) {
-        for (const x of [runUp.x0, runUp.x1]) {
-          expect(x).toBeGreaterThanOrEqual(0)
-          expect(x).toBeLessThanOrEqual(g.couponWidthMm)
-        }
-        for (const y of [runUp.y0, runUp.y1]) {
-          expect(y).toBeGreaterThanOrEqual(0)
-          expect(y).toBeLessThanOrEqual(g.couponHeightMm)
+  it('keeps every run-up leg inside the open window in every axis configuration', () => {
+    const specs: IsTestSpec[] = [
+      spec,
+      { ...spec, axes: ['x'] },
+      { ...spec, axes: ['y'] },
+      { ...spec, axes: ['x'], speedsMmS: [100, 200], linesPerSpeed: 4 },
+      { ...spec, axes: ['y'], speedsMmS: [100, 200], linesPerSpeed: 4 },
+      { ...spec, measuredLineMm: 60 },
+    ]
+    for (const s of specs) {
+      const geo = isCouponGeometry(s)
+      for (const group of geo.groups) {
+        for (const { runUp } of group.lines) {
+          // Along the travel direction the leg starts inside the window with the inner
+          // margin; across it the leg rides the band edge, one weld length into the band.
+          const [start, end, ride] =
+            group.axis === 'x'
+              ? [runUp.x0, runUp.x1, runUp.y0]
+              : [runUp.y0, runUp.y1, runUp.x0]
+          const [lo, hi, rideLo] =
+            group.axis === 'x'
+              ? [geo.windowBox.x0, geo.windowBox.x1, geo.windowBox.y0]
+              : [geo.windowBox.y0, geo.windowBox.y1, geo.windowBox.x0]
+          expect(start).toBeGreaterThanOrEqual(lo + INNER_MARGIN_MM)
+          expect(end).toBeLessThanOrEqual(hi)
+          expect(ride).toBeCloseTo(rideLo - s.weldMm, 9)
         }
       }
     }

@@ -56,7 +56,9 @@ export function validateIsSpec(spec: IsTestSpec): void {
       `Lines per speed must be between ${MIN_LINES_PER_SPEED} and ${MAX_LINES_PER_SPEED}`,
     )
   }
-  if (spec.measuredLineMm <= 0) throw new Error('Measured line length must be positive')
+  if (spec.measuredLineMm < MIN_MEASURED_LINE_MM) {
+    throw new Error(`The measured line length must be at least ${MIN_MEASURED_LINE_MM} mm`)
+  }
   if (spec.runUpMm <= 0) throw new Error('Run-up length must be positive')
   if (spec.linePitchMm <= 0) throw new Error('Line pitch must be positive')
   if (spec.accelMmS2 <= 0) throw new Error('Acceleration must be positive')

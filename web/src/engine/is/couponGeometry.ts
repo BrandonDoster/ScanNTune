@@ -65,9 +65,12 @@ export function fieldExtentMm(spec: IsTestSpec): number {
   return offsets[offsets.length - 1]
 }
 
-/** Clear space a group needs before its first line, so the run-up legs stay on the coupon. */
+/**
+ * Clear space a group needs before its first line, so every run-up leg starts inside the
+ * open window with the inner margin between the leg start and the window edge.
+ */
 function leadMm(spec: IsTestSpec): number {
-  return Math.max(INNER_MARGIN_MM, spec.runUpMm + INNER_MARGIN_MM - FRAME_BAND_MM)
+  return spec.runUpMm + INNER_MARGIN_MM
 }
 
 /** Perpendicular room a group's field claims, including the lead and the trailing margin. */
