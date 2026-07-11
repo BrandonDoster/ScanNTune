@@ -1,8 +1,12 @@
 <script setup lang="ts">
 // Diagram: the first scan of the resonance coupon on the flatbed, in the shared scanner
 // pictogram style (device body, scan-direction arrow, dashed scan bed, side legend). The
-// coupon lies with the solid origin corner at the top left, fiducial holes at the other
-// three corners, and a hint of the two line groups inside the open window.
+// coupon miniature is computed from the engine's real coupon geometry (plate, window,
+// fiducial holes, and every test line), so it matches the actual print by construction;
+// the solid origin corner lands at the top left.
+import { isCouponMiniature } from './isCouponMiniature'
+
+const m = isCouponMiniature(206, 112, 92)
 </script>
 
 <template>
@@ -32,32 +36,50 @@
       <!-- The window and the three fiducial holes are cut out of the band, so the coupon
            renders as one object with holes. -->
       <mask id="is-first-scan-cutout">
-        <rect x="150" y="66" width="112" height="92" rx="5" fill="#fff" />
-        <rect x="166" y="82" width="80" height="60" rx="3" fill="#000" />
-        <rect x="248" y="71" width="9" height="9" rx="2" fill="#000" />
-        <rect x="248" y="144" width="9" height="9" rx="2" fill="#000" />
-        <rect x="155" y="144" width="9" height="9" rx="2" fill="#000" />
+        <rect
+          :x="m.plate.x"
+          :y="m.plate.y"
+          :width="m.plate.width"
+          :height="m.plate.height"
+          fill="#fff"
+        />
+        <rect
+          :x="m.window.x"
+          :y="m.window.y"
+          :width="m.window.width"
+          :height="m.window.height"
+          fill="#000"
+        />
+        <rect
+          v-for="(f, i) in m.fiducials"
+          :key="i"
+          :x="f.x"
+          :y="f.y"
+          :width="f.width"
+          :height="f.height"
+          fill="#000"
+        />
       </mask>
     </defs>
 
     <rect
-      x="150"
-      y="66"
-      width="112"
-      height="92"
-      rx="5"
+      :x="m.plate.x"
+      :y="m.plate.y"
+      :width="m.plate.width"
+      :height="m.plate.height"
       class="couponFill"
       mask="url(#is-first-scan-cutout)"
     />
-    <!-- The two crossing line groups inside the window: each line is one continuous
-         L (short leg from a band edge, a corner, then the long measured run), corners
-         staggered, the long runs weaving near the top-left of the window. -->
-    <polyline points="236,82 236,96 168,96" class="green" fill="none" stroke-width="1.8" />
-    <polyline points="229,82 229,103 168,103" class="green" fill="none" stroke-width="1.8" />
-    <polyline points="222,82 222,110 168,110" class="green" fill="none" stroke-width="1.8" />
-    <polyline points="166,86 180,86 180,140" class="green" fill="none" stroke-width="1.8" />
-    <polyline points="166,92 188,92 188,140" class="green" fill="none" stroke-width="1.8" />
-    <polyline points="166,98 196,98 196,140" class="green" fill="none" stroke-width="1.8" />
+    <!-- The two crossing line groups, straight from the engine geometry: each line is one
+         continuous L (run-up leg, ringing corner, measured run into the opposite band). -->
+    <polyline
+      v-for="(pts, i) in m.linePoints"
+      :key="i"
+      :points="pts"
+      class="green"
+      fill="none"
+      :stroke-width="m.pitchPx * 0.35"
+    />
 
     <text x="336" y="88" class="lbl">the corner without a hole marks the origin</text>
     <rect x="316" y="108" width="14" height="4" rx="2" class="greenFill" />

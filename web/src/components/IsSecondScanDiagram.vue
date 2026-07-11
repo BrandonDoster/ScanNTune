@@ -1,7 +1,12 @@
 <script setup lang="ts">
 // Diagram: the second scan of the resonance coupon, in the shared scanner pictogram style.
-// The same part is rotated a quarter turn clockwise relative to the first scan, so the
-// solid origin corner moves to the top right and the two line groups swap directions.
+// The coupon miniature is the same engine-computed geometry as the first diagram, rotated
+// a quarter turn clockwise as a whole, so the solid origin corner moves to the top right
+// and the two line groups swap directions.
+import { isCouponMiniature } from './isCouponMiniature'
+
+const m = isCouponMiniature(206, 116, 92)
+const turn = 'rotate(90 206 116)'
 </script>
 
 <template>
@@ -28,34 +33,57 @@
     <polyline points="144,110 151,117 144,124" class="sweepStroke" fill="none" stroke-width="1.5" />
 
     <defs>
-      <!-- The quarter-turned coupon: portrait, with the window and the three fiducial
-           holes cut out of the band. -->
+      <!-- The quarter-turned coupon: the first diagram's engine-computed geometry with the
+           window and the three fiducial holes cut out of the band, rotated as a whole. -->
+      <!-- Mask content is evaluated in the user space of the element referencing it, which
+           already sits inside the rotated group, so the cutouts stay unrotated here. -->
       <mask id="is-second-scan-cutout">
-        <rect x="160" y="60" width="92" height="112" rx="5" fill="#fff" />
-        <rect x="176" y="76" width="60" height="80" rx="3" fill="#000" />
-        <rect x="165" y="65" width="9" height="9" rx="2" fill="#000" />
-        <rect x="165" y="158" width="9" height="9" rx="2" fill="#000" />
-        <rect x="238" y="158" width="9" height="9" rx="2" fill="#000" />
+        <rect
+          :x="m.plate.x"
+          :y="m.plate.y"
+          :width="m.plate.width"
+          :height="m.plate.height"
+          fill="#fff"
+        />
+        <rect
+          :x="m.window.x"
+          :y="m.window.y"
+          :width="m.window.width"
+          :height="m.window.height"
+          fill="#000"
+        />
+        <rect
+          v-for="(f, i) in m.fiducials"
+          :key="i"
+          :x="f.x"
+          :y="f.y"
+          :width="f.width"
+          :height="f.height"
+          fill="#000"
+        />
       </mask>
     </defs>
 
-    <rect
-      x="160"
-      y="60"
-      width="92"
-      height="112"
-      rx="5"
-      class="couponFill"
-      mask="url(#is-second-scan-cutout)"
-    />
-    <!-- The two crossing L-shaped line groups, the first diagram's art turned a quarter
-         turn clockwise: the weave now sits near the top-right of the window. -->
-    <polyline points="236,146 222,146 222,78" class="green" fill="none" stroke-width="1.8" />
-    <polyline points="236,139 215,139 215,78" class="green" fill="none" stroke-width="1.8" />
-    <polyline points="236,132 208,132 208,78" class="green" fill="none" stroke-width="1.8" />
-    <polyline points="232,76 232,90 178,90" class="green" fill="none" stroke-width="1.8" />
-    <polyline points="226,76 226,98 178,98" class="green" fill="none" stroke-width="1.8" />
-    <polyline points="220,76 220,106 178,106" class="green" fill="none" stroke-width="1.8" />
+    <g :transform="turn">
+      <rect
+        :x="m.plate.x"
+        :y="m.plate.y"
+        :width="m.plate.width"
+        :height="m.plate.height"
+        class="couponFill"
+        mask="url(#is-second-scan-cutout)"
+      />
+      <!-- The two crossing line groups from the engine geometry, turned with the coupon:
+           the weave now sits near the top-right of the window. -->
+      <polyline
+        v-for="(pts, i) in m.linePoints"
+        :key="i"
+        :points="pts"
+        class="green"
+        fill="none"
+        :stroke-width="m.pitchPx * 0.35"
+      />
+    </g>
 
     <!-- Quarter-turn arrow above the solid corner. -->
     <path
