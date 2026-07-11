@@ -31,10 +31,13 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci
-      - run: npm run build
+      - uses: actions/configure-pages@v5
+        id: pages
+      # The Pages config decides the base: a custom domain serves at the root (empty base_path),
+      # while a plain fork serves under /<repo>/, so the same workflow deploys both.
+      - run: npm run build -- --base=${{ steps.pages.outputs.base_path }}/
       - name: Disable Jekyll
         run: touch dist/.nojekyll
-      - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
           path: web/dist
