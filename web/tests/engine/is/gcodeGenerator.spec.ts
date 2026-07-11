@@ -9,6 +9,7 @@ import {
   PEDESTAL_WIDTH_FACTOR,
 } from '../../../src/engine/gcode/emitter'
 import { isCouponGeometry } from '../../../src/engine/is/couponGeometry'
+
 import { defaultIsTestSpec } from '../../../src/engine/is/types'
 import { generateIsGcodeWithReport } from '../../../src/engine/is/gcodeGenerator'
 
@@ -118,6 +119,71 @@ describe('generateIsGcodeWithReport (Klipper)', () => {
     }
   })
 
+  it('prints the test lines before the frame band on every layer', () => {
+    // Within each layer, every measured segment must come before the band's first bare
+    // deretract (the band restores pressure after the hop from the last line's wipe).
+    const measuredE = measuredEValue(nominal)
+    const pedestalE = measuredEValue(PEDESTAL_WIDTH_FACTOR * nominal)
+    const zIndexes = lines.flatMap((l, i) => (/^G1 Z0\./.test(l) ? [i] : []))
+    for (let k = 0; k < zIndexes.length; k++) {
+      const chunk = lines.slice(zIndexes[k] + 1, zIndexes[k + 1] ?? lines.length)
+      const bandStart = chunk.findIndex((l) => /^G1 E[\d.]/.test(l))
+      expect(bandStart).toBeGreaterThan(0)
+      for (let i = bandStart; i < chunk.length; i++) {
+        expect(chunk[i]).not.toContain(`E${measuredE}`)
+        expect(chunk[i]).not.toContain(`E${pedestalE}`)
+      }
+    }
+  })
+
+  it('primes on the move over the approach leg start instead of a stationary un-retract', () => {
+    const measuredE = measuredEValue(nominal)
+    for (let i = 0; i < lines.length; i++) {
+      if (!lines[i].includes(`E${measuredE}`)) continue
+      // Backwards from the measured segment: run-up, moving prime, retracted travel.
+      expect(lines[i - 2], `prime before ${lines[i]}`).toMatch(/^G1 X.* E[\d.]+ F1800$/)
+      expect(lines[i - 3]).toMatch(/^G0 X/)
+      const primeE = Number(lines[i - 2].match(/E([\d.]+)/)![1])
+      expect(primeE).toBeGreaterThan(profile.retractMm)
+    }
+  })
+
+  it('extrudes a decel tail scaling with speed squared, then coasts and wipe-retracts', () => {
+    const g = isCouponGeometry(spec)
+    const measuredE = measuredEValue(nominal)
+    const coastMm = 1.5 * profile.nozzleDiameterMm
+    for (let i = 0; i < lines.length; i++) {
+      if (!lines[i].includes(`E${measuredE}`)) continue
+      const speed = Number(lines[i].match(/F(\d+)$/)![1]) / 60
+      // Tail length past the weld: the full kinematic stopping distance plus the margin.
+      const tailLen = speed ** 2 / (2 * spec.accelMmS2) + 1
+      const tailE = extrusionMm(
+        tailLen - coastMm,
+        nominal,
+        profile.layerHeightMm,
+        filament.filamentDiameterMm,
+      ).toFixed(5)
+      expect(lines[i + 1], `tail after ${lines[i]}`).toMatch(
+        new RegExp(`^G1 X.* E${tailE.replace('.', '\\.')} F${speed * 60}$`),
+      )
+      // Coast: a zero-E move at the same feedrate finishing the tail.
+      expect(lines[i + 2]).toMatch(new RegExp(`^G1 X-?[\\d.]+ Y-?[\\d.]+ F${speed * 60}$`))
+      // Wipe on retract: the retract runs over a move back along the tail.
+      expect(lines[i + 3]).toMatch(
+        new RegExp(`^G1 X.* E${(-profile.retractMm).toFixed(3)} F\\d+$`),
+      )
+    }
+    // Distinct tail lengths per tier: every tier gets its full stopping distance.
+    const xLines = g.groups[0].lines
+    const tailOf = (s: number) => {
+      const l = xLines.find((ln) => ln.speedMmS === s)!
+      return Math.hypot(l.tail.x1 - l.tail.x0, l.tail.y1 - l.tail.y0)
+    }
+    for (const s of spec.speedsMmS) {
+      expect(tailOf(s)).toBeCloseTo(s ** 2 / (2 * spec.accelMmS2) + 1, 9)
+    }
+  })
+
   it('never travels far across the open window without retracting first', () => {
     const g = isCouponGeometry(spec)
     const ox = (profile.bedWidthMm - g.couponWidthMm) / 2
@@ -135,8 +201,9 @@ describe('generateIsGcodeWithReport (Klipper)', () => {
     let y = 0
     let retracted = false
     for (const l of lines) {
-      if (/^G1 E-/.test(l)) retracted = true
-      else if (/^G1 E[^-]/.test(l)) retracted = false
+      // Both stationary retracts and the moving wipe/prime variants carry the E state.
+      if (/^G1 .*E-/.test(l)) retracted = true
+      else if (/^G1 .*E[\d.]/.test(l)) retracted = false
       const m = l.match(/^G([01]) X(-?[\d.]+) Y(-?[\d.]+)/)
       if (!m) continue
       const nx = Number(m[2])

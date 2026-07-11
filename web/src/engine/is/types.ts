@@ -1,6 +1,8 @@
 import type { PrinterProfile } from '../gcode/profileTypes'
 import type { CouponPlacement } from '../gcode/couponShell'
-import { FRAME_BAND_MM, isCouponGeometry } from './couponGeometry'
+import { accelRampMm, frameBandMm, isCouponGeometry } from './couponGeometry'
+
+export { accelRampMm }
 
 export type IsAxis = 'x' | 'y'
 
@@ -70,11 +72,6 @@ export function validateIsSpec(spec: IsTestSpec): void {
   if (spec.axes.length === 0) throw new Error('At least one axis must be selected')
 }
 
-/** Distance needed to reach `speedMmS` from rest at `accelMmS2`: v^2 / (2a). */
-export function accelRampMm(speedMmS: number, accelMmS2: number): number {
-  return (speedMmS * speedMmS) / (2 * accelMmS2)
-}
-
 /**
  * Warns (does not throw) for every speed tier the run-up leg is too short to reach before
  * the ringing corner; a corner taken below the commanded speed rings weaker than intended.
@@ -128,13 +125,15 @@ export function fitSpecToBed(
 
   if (!fits(fitted)) {
     // A measured span fixes the coupon size along its travel direction; solve the longest
-    // measured line each constrained bed dimension allows and take the tighter one.
+    // measured line each constrained bed dimension allows and take the tighter one. The
+    // band width depends on the speed tiers, not the line length, so it is a constant here.
+    const band = frameBandMm(fitted)
     const limits: number[] = []
     if (fitted.axes.includes('y')) {
-      limits.push(profile.bedWidthMm - 2 * FRAME_BAND_MM + 2 * fitted.weldMm)
+      limits.push(profile.bedWidthMm - 2 * band + 2 * fitted.weldMm)
     }
     if (fitted.axes.includes('x')) {
-      limits.push(profile.bedDepthMm - 2 * FRAME_BAND_MM + 2 * fitted.weldMm)
+      limits.push(profile.bedDepthMm - 2 * band + 2 * fitted.weldMm)
     }
     const target = Math.max(MIN_MEASURED_LINE_MM, Math.floor(Math.min(...limits)))
     if (target < fitted.measuredLineMm) {
