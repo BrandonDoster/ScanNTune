@@ -3,6 +3,7 @@ import { defaultPrinterProfile } from '../../../src/engine/gcode/profileTypes'
 import type { Firmware, PrinterProfile } from '../../../src/engine/gcode/profileTypes'
 import {
   isMotionLimitCommands,
+  restoreMotionLimitNote,
   restoreShapingCommands,
 } from '../../../src/engine/is/firmwareMotion'
 
@@ -44,5 +45,19 @@ describe('restoreShapingCommands', () => {
     expect(lines).toHaveLength(2)
     expect(lines[0]).toMatch(/^; input shaping resumes/)
     expect(lines[1]).toMatch(/^; pressure advance resumes/)
+  })
+})
+
+describe('restoreMotionLimitNote', () => {
+  it('names the per-firmware way to bring the configured limits back, as a comment only', () => {
+    expect(restoreMotionLimitNote(profileWith('Klipper'))).toEqual([
+      '; run FIRMWARE_RESTART to restore your configured motion limits',
+    ])
+    expect(restoreMotionLimitNote(profileWith('Marlin'))).toEqual([
+      '; restart the printer or run M501 to restore your configured motion limits',
+    ])
+    expect(restoreMotionLimitNote(profileWith('RepRapFirmware'))).toEqual([
+      '; run M98 P"config.g" or restart the printer to restore your configured motion limits',
+    ])
   })
 })

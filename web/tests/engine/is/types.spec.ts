@@ -20,8 +20,7 @@ describe('defaultIsTestSpec', () => {
     expect(spec.runUpMm).toBe(8)
     expect(spec.linePitchMm).toBe(2.5)
     expect(spec.axes).toEqual(['x', 'y'])
-    expect(spec.cornerSpeedMmS).toBe(150)
-    expect(spec.squareCornerVelocityMmS).toBe(150)
+    expect(spec.cornerSpeedMmS).toBe(100)
     expect(spec.weldMm).toBe(1)
     expect(spec.placement).toBe('center')
   })
@@ -55,35 +54,17 @@ describe('validateIsSpec', () => {
     expect(() => validateIsSpec({ ...spec, accelMmS2: 0 })).toThrow(/positive/)
     expect(() => validateIsSpec({ ...spec, weldMm: 0 })).toThrow(/positive/)
   })
-  it('throws when the square corner velocity sits below the corner speed', () => {
-    // The zero-deceleration corner property only holds when the run-up cruise enters the
-    // corner at or below the square corner velocity.
-    expect(() => validateIsSpec({ ...spec, squareCornerVelocityMmS: 149 })).toThrow(
-      /corner\s*speed/,
-    )
-    expect(() => validateIsSpec({ ...spec, squareCornerVelocityMmS: 0 })).toThrow(
-      /corner\s*speed/,
-    )
-    expect(() => validateIsSpec({ ...spec, squareCornerVelocityMmS: 150 })).not.toThrow()
-  })
   it('throws when the corner speed sits below the 20 mm/s floor', () => {
+    expect(() => validateIsSpec({ ...spec, cornerSpeedMmS: 19 })).toThrow(/at least 20 mm\/s/)
     expect(() =>
-      validateIsSpec({ ...spec, cornerSpeedMmS: 19, squareCornerVelocityMmS: 19 }),
-    ).toThrow(/at least 20 mm\/s/)
-    expect(() =>
-      validateIsSpec({
-        ...spec,
-        cornerSpeedMmS: 20,
-        squareCornerVelocityMmS: 20,
-        speedsMmS: [20],
-      }),
+      validateIsSpec({ ...spec, cornerSpeedMmS: 20, speedsMmS: [20] }),
     ).not.toThrow()
   })
   it('throws when a speed tier sits below the corner speed', () => {
     // A slower tier caps the planner's corner junction at the tier cruise speed, so the
     // configured corner speed would never be reached.
-    expect(() => validateIsSpec({ ...spec, speedsMmS: [100] })).toThrow(/corner speed/)
-    expect(() => validateIsSpec({ ...spec, speedsMmS: [150, 149] })).toThrow(/corner speed/)
+    expect(() => validateIsSpec({ ...spec, speedsMmS: [99] })).toThrow(/corner speed/)
+    expect(() => validateIsSpec({ ...spec, speedsMmS: [150, 99] })).toThrow(/corner speed/)
     expect(() => validateIsSpec({ ...spec, speedsMmS: [150, 200] })).not.toThrow()
   })
   it('throws on lines per speed outside 3 to 6', () => {
@@ -109,20 +90,20 @@ describe('rampWarnings', () => {
     expect(warnings).toHaveLength(1)
     expect(warnings[0]).toContain('Low acceleration')
   })
-  it('warns when the run-up cannot host the ramp to the 150 mm/s corner speed', () => {
-    // At 4000 mm/s^2 the ramp from rest to 150 mm/s is 150^2 / 8000 = 2.8125 mm; there
-    // is no deceleration term because the run-up cruises into the corner at the square
-    // corner velocity.
-    const warnings = rampWarnings({ ...spec, accelMmS2: 4000, runUpMm: 2.8 })
+  it('warns when the run-up cannot host the ramp to the 100 mm/s corner speed', () => {
+    // At 4000 mm/s^2 the ramp from rest to 100 mm/s is 100^2 / 8000 = 1.25 mm; there
+    // is no deceleration term because the run-up cruises into the corner at the emitted
+    // corner limit.
+    const warnings = rampWarnings({ ...spec, accelMmS2: 4000, runUpMm: 1.2 })
     expect(warnings).toHaveLength(1)
     expect(warnings[0]).toContain('run-up')
-    expect(warnings[0]).toContain('150 mm/s')
-    expect(rampWarnings({ ...spec, accelMmS2: 4000, runUpMm: 2.82 })).toEqual([])
+    expect(warnings[0]).toContain('100 mm/s')
+    expect(rampWarnings({ ...spec, accelMmS2: 4000, runUpMm: 1.3 })).toEqual([])
   })
   it('does not warn about tier ramps: the layout reserves them before the read window', () => {
-    // At 2000 mm/s^2 the 300 mm/s tier needs a 16.9 mm ramp past the corner; the
+    // At 2000 mm/s^2 the 300 mm/s tier needs a long ramp past the corner; the
     // geometry allocates it in front of the clean read length, so only the
-    // low-acceleration warning fires (the 8 mm run-up still hosts its 5.6 mm ramp to
+    // low-acceleration warning fires (the 8 mm run-up still hosts its 2.5 mm ramp to
     // the corner speed).
     const warnings = rampWarnings({ ...spec, accelMmS2: 2000, speedsMmS: [150, 300] })
     expect(warnings).toHaveLength(1)

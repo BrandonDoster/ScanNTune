@@ -99,7 +99,7 @@ describe('generateIsGcodeWithReport (Klipper)', () => {
 
   it('sets the test motion limits with the raised corner velocity before any extrusion', () => {
     const limit = lines.indexOf(
-      'SET_VELOCITY_LIMIT ACCEL=4000 SQUARE_CORNER_VELOCITY=150 MINIMUM_CRUISE_RATIO=0',
+      'SET_VELOCITY_LIMIT ACCEL=4000 SQUARE_CORNER_VELOCITY=100 MINIMUM_CRUISE_RATIO=0',
     )
     expect(limit).toBeGreaterThan(0)
     expect(limit).toBeLessThan(firstExtrusionIndex(lines))
@@ -123,9 +123,14 @@ describe('generateIsGcodeWithReport (Klipper)', () => {
     expect(pa).toBeGreaterThan(last)
   })
 
-  it('restores the profile motion limits after the test', () => {
-    const restore = lines.lastIndexOf('SET_VELOCITY_LIMIT ACCEL=3000 SQUARE_CORNER_VELOCITY=5')
-    expect(restore).toBeGreaterThan(lastExtrusionIndex(lines))
+  it('replaces the numeric motion limit restore with the firmware restart note', () => {
+    // No profile values are re-applied: the only SET_VELOCITY_LIMIT is the test's own.
+    const velocityLimits = lines.filter((l) => l.startsWith('SET_VELOCITY_LIMIT'))
+    expect(velocityLimits).toHaveLength(1)
+    const note = lines.indexOf('; run FIRMWARE_RESTART to restore your configured motion limits')
+    expect(note).toBeGreaterThan(lastExtrusionIndex(lines))
+    // The old separate MINIMUM_CRUISE_RATIO note is folded into the restart note.
+    expect(report.gcode).not.toContain('MINIMUM_CRUISE_RATIO resumes')
   })
 
   it('never pauses (single color print)', () => {
@@ -139,7 +144,7 @@ describe('generateIsGcodeWithReport (Klipper)', () => {
     expect(zs).toEqual(['0.200', '0.400', '10'])
   })
 
-  it('cruises the run-up at the 150 mm/s corner speed straight into every corner, continuous through it', () => {
+  it('cruises the run-up at the 100 mm/s corner speed straight into every corner, continuous through it', () => {
     const chunk = measuredChunk(lines)
     for (const line of allLines) {
       const idx = chunk.indexOf(cornerMoveStr(line))
@@ -401,12 +406,16 @@ describe('generateIsGcodeWithReport (Marlin and RepRapFirmware)', () => {
     const marlin: PrinterProfile = { ...profile, firmware: 'Marlin' }
     const gcode = generateIsGcodeWithReport(marlin, filament, spec).gcode
     expect(gcode).toContain('M204 P4000 T4000') // test limits
-    expect(gcode).toContain('M204 P3000 T3000') // profile restore
-    expect(gcode).toContain('M205 X150 Y150')
-    // Junction-deviation equivalent of the 150 mm/s corner velocity, on its own line:
-    // 0.4 * 150^2 / 4000 = 2.25 mm.
-    expect(gcode).toContain(`M205 J${((0.4 * 150 * 150) / spec.accelMmS2).toFixed(3)}`)
-    expect(gcode).toContain('M205 J junction deviation resumes')
+    // No numeric restore: the restart note replaces the profile-value block.
+    expect(gcode).not.toContain('M204 P3000 T3000')
+    expect(gcode).toContain('M205 X100 Y100')
+    // Junction-deviation equivalent of the 100 mm/s corner speed, on its own line:
+    // 0.4 * 100^2 / 4000 = 1.000 mm.
+    expect(gcode).toContain(`M205 J${((0.4 * 100 * 100) / spec.accelMmS2).toFixed(3)}`)
+    expect(gcode).toContain(
+      '; restart the printer or run M501 to restore your configured motion limits',
+    )
+    expect(gcode).not.toContain('M205 J junction deviation resumes')
     expect(gcode).toContain('M593 F0')
     expect(gcode).toContain('M900 K0')
     expect(gcode).not.toContain('SET_VELOCITY_LIMIT')
@@ -416,10 +425,14 @@ describe('generateIsGcodeWithReport (Marlin and RepRapFirmware)', () => {
     const rrf: PrinterProfile = { ...profile, firmware: 'RepRapFirmware' }
     const gcode = generateIsGcodeWithReport(rrf, filament, spec).gcode
     expect(gcode).toContain('M204 P4000 T4000') // test limits
-    expect(gcode).toContain('M204 P3000 T3000') // profile restore
-    // Per-axis jerk in mm/min: a 90 degree corner at 150 mm/s is a 150 mm/s per-axis
-    // velocity change, 9000 mm/min.
-    expect(gcode).toContain('M566 X9000 Y9000')
+    // No numeric restore: the restart note replaces the profile-value block.
+    expect(gcode).not.toContain('M204 P3000 T3000')
+    // Per-axis jerk in mm/min: a 90 degree corner at 100 mm/s is a 100 mm/s per-axis
+    // velocity change, 6000 mm/min.
+    expect(gcode).toContain('M566 X6000 Y6000')
+    expect(gcode).toContain(
+      '; run M98 P"config.g" or restart the printer to restore your configured motion limits',
+    )
     expect(gcode).toContain('M593 P"none"')
     expect(gcode).toContain('M572 D0 S0')
   })
@@ -472,7 +485,7 @@ describe('validation and reporting', () => {
     expect(spec20k.accelMmS2).toBe(20000)
     const gcode = generateIsGcodeWithReport(fast, filament, spec20k).gcode
     expect(gcode).toContain(
-      'SET_VELOCITY_LIMIT ACCEL=20000 SQUARE_CORNER_VELOCITY=150 MINIMUM_CRUISE_RATIO=0',
+      'SET_VELOCITY_LIMIT ACCEL=20000 SQUARE_CORNER_VELOCITY=100 MINIMUM_CRUISE_RATIO=0',
     )
   })
 })

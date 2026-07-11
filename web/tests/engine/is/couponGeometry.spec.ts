@@ -281,9 +281,10 @@ describe('isCouponGeometry footprint', () => {
     expect(g.couponWidthMm).toBeCloseTo(interior + 2 * g.frameBandMm, 9)
     expect(g.couponHeightMm).toBeCloseTo(g.couponWidthMm, 9)
     // Documented derived size of the expert defaults (single 150 mm/s tier, 5 lines,
-    // 30 mm clean read, 8 mm run-up, 4000 mm/s^2, 150 mm/s corner speed): a regression
-    // inflating the layout is caught here.
-    expect(g.couponWidthMm).toBeCloseTo(88, 9)
+    // 30 mm clean read, 8 mm run-up, 4000 mm/s^2, 100 mm/s corner speed): a regression
+    // inflating the layout is caught here. The 1.5625 mm over the former 88 mm is the
+    // corner-to-tier ramp (150^2 - 100^2) / (2 * 4000).
+    expect(g.couponWidthMm).toBeCloseTo(89.5625, 9)
   })
   it('shrinks when any driving parameter shrinks (the formula carries no padding)', () => {
     const size = (s: IsTestSpec) => isCouponGeometry(s).couponWidthMm

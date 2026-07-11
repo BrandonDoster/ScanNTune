@@ -32,8 +32,8 @@ export interface IsTestSpec {
   accelMmS2: number
   /**
    * Cruise speed of the run-up leg, fixed across all tiers, and the size of the ringing
-   * excitation. The square corner velocity is validated to at least this value, so the
-   * planner takes the 90 degree corner at the full corner speed with zero deceleration:
+   * excitation. The emitted motion limits set the firmware's corner limit to this value,
+   * so the planner takes the 90 degree corner at the full corner speed with zero deceleration:
    * the pressure dump K * (v_in - v_corner) is zero by construction and the bead stays
    * continuous. The excitation is the per-axis velocity step at the corner (the run-up
    * axis stops, the measured axis starts, each by this speed); the residual ring
@@ -41,7 +41,6 @@ export interface IsTestSpec {
    * frame proportionally harder.
    */
   cornerSpeedMmS: number
-  squareCornerVelocityMmS: number
   /** How far each measured segment extends into the frame band at both ends. */
   weldMm: number
   /** Where the coupon sits on the bed: centered, or pushed to the front/back edge. */
@@ -56,11 +55,14 @@ export const MAX_LINES_PER_SPEED = 6
  *  (five wavelengths of the lowest resonance of interest: 5 * tierSpeed / 25 Hz). */
 export const MIN_MEASURED_LINE_MM = 20
 /**
- * Default corner (run-up) speed. At 150 mm/s the per-axis velocity step at the corner
- * leaves a residual ring amplitude of approximately delta-v over omega: 0.95 mm at 25 Hz
- * down to 0.40 mm at 60 Hz, several scanner pixels at 600 dpi even on stiff frames.
+ * Default corner (run-up) speed. The per-axis velocity step at the corner leaves a
+ * residual ring amplitude of approximately delta-v over omega: at 100 mm/s about
+ * 0.64 mm at 25 Hz down to 0.27 mm at 60 Hz, several scanner pixels at 600 dpi even
+ * on stiff frames. A 150 mm/s corner step skipped steps and shifted layers on a
+ * sturdy CoreXY test machine, so the default stays at 100; users with stiff machines
+ * can raise it.
  */
-export const DEFAULT_CORNER_SPEED_MM_S = 150
+export const DEFAULT_CORNER_SPEED_MM_S = 100
 /** Below this corner speed the excitation is too weak to leave a readable trace. */
 export const MIN_CORNER_SPEED_MM_S = 20
 /** Below this acceleration the ringing trace is often too weak to measure. */
@@ -71,28 +73,24 @@ const MIN_ACCEL_MM_S2 = LOW_ACCEL_MM_S2
 
 export function defaultIsTestSpec(profile: PrinterProfile): IsTestSpec {
   return {
-    // One tier at the corner speed: the ringing frequency is speed-independent, so extra
-    // tiers are only replicates; the replicates come from linesPerSpeed instead, which
-    // costs less coupon width than a second tier's ramp and block gap.
-    speedsMmS: [DEFAULT_CORNER_SPEED_MM_S],
+    // One tier: the ringing frequency is speed-independent, so extra tiers are only
+    // replicates; the replicates come from linesPerSpeed instead, which costs less
+    // coupon width than a second tier's ramp and block gap.
+    speedsMmS: [150],
     linesPerSpeed: 5,
     // Five ringing wavelengths of the lowest resonance of interest at the tier speed:
     // 5 * tierSpeed / 25 Hz, so 30 mm at the 150 mm/s default tier.
     measuredLineMm: 30,
-    // Hosts the ramp to the 150 mm/s default corner speed (about 2.8 mm at 4000 mm/s^2)
+    // Hosts the ramp to the 100 mm/s default corner speed (about 1.25 mm at 4000 mm/s^2)
     // with cruise to spare; the through-band leg stretch is extra.
     runUpMm: 8,
     // The pitch must exceed twice the expected residual ring amplitude plus the bead
-    // width; the worst case is about 0.95 mm of amplitude at the default corner speed
+    // width; the worst case is about 0.64 mm of amplitude at the default corner speed
     // (see DEFAULT_CORNER_SPEED_MM_S), so 2.5 mm keeps neighbouring traces apart.
     linePitchMm: 2.5,
     axes: ['x', 'y'],
     accelMmS2: Math.max(profile.printAccelMmS2, MIN_ACCEL_MM_S2),
     cornerSpeedMmS: DEFAULT_CORNER_SPEED_MM_S,
-    // Equal to the corner speed: the corner is taken at the square corner velocity with
-    // zero deceleration, so no pressure dumps at the bend, and the full per-axis
-    // velocity step excites the ringing (see cornerSpeedMmS on IsTestSpec).
-    squareCornerVelocityMmS: DEFAULT_CORNER_SPEED_MM_S,
     weldMm: 1,
     placement: 'center',
   }
@@ -121,12 +119,6 @@ export function validateIsSpec(spec: IsTestSpec): void {
         'corner excitation is too weak to leave a readable trace.',
     )
   }
-  if (spec.squareCornerVelocityMmS < spec.cornerSpeedMmS) {
-    throw new Error(
-      `The square corner velocity must be at least the ${spec.cornerSpeedMmS} mm/s corner ` +
-        'speed; only then is the corner taken without deceleration.',
-    )
-  }
   if (spec.speedsMmS.some((v) => v < spec.cornerSpeedMmS)) {
     throw new Error(
       `Every speed tier must be at least the ${spec.cornerSpeedMmS} mm/s corner speed; a ` +
@@ -139,8 +131,8 @@ export function validateIsSpec(spec: IsTestSpec): void {
 
 /**
  * Warns (does not throw) on spec combinations that weaken the ringing signal. The run-up
- * leg only needs to reach the corner speed before the corner: it cruises straight into
- * the bend at the square corner velocity, so there is no deceleration term. The
+ * leg only needs to reach the corner speed before the corner: the emitted corner limit
+ * equals that speed, so it cruises straight into the bend with no deceleration term. The
  * acceleration ramp from the corner to each tier speed is reserved by the layout in
  * front of the clean read length, so a long ramp grows the coupon instead of eating the
  * measured line; no per-tier warning is needed for it.

@@ -65,14 +65,10 @@ watch(
 )
 
 const spec = computed<IsTestSpec>(() => {
-  const corner = cornerSpeed.value ?? specDefaults.value.cornerSpeedMmS
   return {
     ...specDefaults.value,
     speedsMmS: [tierSpeed.value ?? specDefaults.value.speedsMmS[0]],
-    cornerSpeedMmS: corner,
-    // The square corner velocity follows the corner speed: the corner is only taken
-    // without deceleration when the firmware allows at least that junction speed.
-    squareCornerVelocityMmS: corner,
+    cornerSpeedMmS: cornerSpeed.value ?? specDefaults.value.cornerSpeedMmS,
     linesPerSpeed: linesPerSpeed.value ?? specDefaults.value.linesPerSpeed,
     measuredLineMm: measuredLine.value ?? specDefaults.value.measuredLineMm,
     linePitchMm: linePitch.value ?? specDefaults.value.linePitchMm,
@@ -224,10 +220,14 @@ function generate(): void {
         <span class="group-label">Speeds</span>
         <p class="tip mt-0 mb-2">
           The corner between the run-up and the measured line is taken at the corner speed
-          without deceleration. Higher values ring the frame harder and make the waves
-          easier to read; lower the corner speed for lightly built printers. The line
-          speed is the cruise speed of the measured lines and cannot be below the corner
-          speed.
+          without deceleration; higher values ring the frame harder and make the waves
+          easier to read. Lower the corner speed if the print shifts layers: a corner
+          taken too fast for the machine skips motor steps.
+        </p>
+        <p class="tip mt-0 mb-2">
+          The line speed is the cruise speed of the measured lines and cannot be below the
+          corner speed. The printer profile's travel speed only applies to moves between
+          lines and does not affect the measurement.
         </p>
         <div class="fields">
           <NumericField
@@ -350,6 +350,10 @@ function generate(): void {
         </v-btn>
         <span v-if="filename" class="tip mt-0">{{ filename }}</span>
       </div>
+      <p class="tip mb-0" data-testid="is-restart-note">
+        Restart the firmware after the print finishes. The test overrides the printer's
+        motion limits, and the restart restores the configured values.
+      </p>
       <v-alert
         v-if="generateError"
         type="error"

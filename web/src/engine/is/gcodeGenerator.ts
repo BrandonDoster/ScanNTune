@@ -9,7 +9,6 @@ import {
   extrusionMm,
   frameBandInfill,
   HIGH_FLOW_WARNING_THRESHOLD_MM3_S,
-  motionLimitCommands,
   NOMINAL_WIDTH_FACTOR,
   PEDESTAL_LAYERS,
   PEDESTAL_WIDTH_FACTOR,
@@ -22,6 +21,7 @@ import { dipsForMove, extrudeWithDips, type PrintedBead } from './crossings'
 import {
   disableShapingCommands,
   isMotionLimitCommands,
+  restoreMotionLimitNote,
   restoreShapingCommands,
 } from './firmwareMotion'
 import { fitSpecToBed, type IsTestSpec, rampWarnings, validateIsSpec } from './types'
@@ -177,9 +177,9 @@ function emitIsGcode(profile: PrinterProfile, filament: FilamentProfile, spec: I
         '; ScanNTune input shaper resonance test',
         `; speed tiers ${spec.speedsMmS.join(', ')} mm/s, acceleration ${spec.accelMmS2} mm/s^2`,
       ],
-      // The test rings the frame on purpose: the spec's acceleration and square corner
-      // velocity replace the profile's limits for the whole print.
-      { motionLines: isMotionLimitCommands(profile, spec.accelMmS2, spec.squareCornerVelocityMmS) },
+      // The test rings the frame on purpose: the spec's acceleration and corner speed
+      // replace the profile's limits for the whole print.
+      { motionLines: isMotionLimitCommands(profile, spec.accelMmS2, spec.cornerSpeedMmS) },
     ),
   )
   // Input shaping and pressure advance both mask ringing; switch them off before any
@@ -285,18 +285,11 @@ function emitIsGcode(profile: PrinterProfile, filament: FilamentProfile, spec: I
       g.frameBandMm, holes, layer % 2 === 0, bandExtrude, true)
   }
 
-  // Hand the printer back: the user's own shaper and pressure advance settings, then the
-  // profile's own motion limits.
+  // Hand the printer back: nothing is re-applied numerically. The user's own shaper,
+  // pressure advance, and motion limit settings all come back with a firmware restart or
+  // saved configuration, so no printer settings need to be stored for the restore.
   L.push(...restoreShapingCommands(profile))
-  L.push(...motionLimitCommands(profile))
-  if (profile.firmware === 'Klipper') {
-    L.push('; MINIMUM_CRUISE_RATIO resumes with the next firmware restart or saved configuration')
-  }
-  if (profile.firmware === 'Marlin') {
-    // The test's M205 J is not restored in G-code: only junction-deviation builds honor
-    // it, and their configured value returns the same way the shaper settings do.
-    L.push('; M205 J junction deviation resumes with the next firmware restart or saved configuration')
-  }
+  L.push(...restoreMotionLimitNote(profile))
   retract(e, profile, 1)
   L.push(...profile.endGcode.split('\n'))
   return L.join('\n') + '\n'
