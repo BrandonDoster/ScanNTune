@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, shallowRef } from 'vue'
 import type { CouponSpec, MultiPlaneResult } from '../engine/types'
 
-export type Screen = 'scan' | 'calibration' | 'pa' | 'profile' | 'em'
+export type Screen = 'scan' | 'calibration' | 'pa' | 'profile' | 'em' | 'is'
 
 export interface ResultPayload {
   result: MultiPlaneResult
@@ -36,6 +36,9 @@ export const useApp = defineStore('app', () => {
   function goEm(): void {
     screen.value = 'em'
   }
+  function goIs(): void {
+    screen.value = 'is'
+  }
   function goProfile(p: ProfilePayload): void {
     profilePayload.value = p
     profileReturnScreen.value = screen.value === 'profile' ? profileReturnScreen.value : screen.value
@@ -59,6 +62,7 @@ export const useApp = defineStore('app', () => {
     goCalibration,
     goPa,
     goEm,
+    goIs,
     goProfile,
     closeProfile,
     setResults,

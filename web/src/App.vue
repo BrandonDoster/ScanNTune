@@ -4,6 +4,7 @@ import ScanPage from './components/ScanPage.vue'
 import CalibrationPage from './components/CalibrationPage.vue'
 import PaPage from './components/PaPage.vue'
 import EmPage from './components/EmPage.vue'
+import IsPage from './components/IsPage.vue'
 import ProfilePage from './components/ProfilePage.vue'
 import AppLogo from './components/AppLogo.vue'
 
@@ -41,6 +42,9 @@ const version = __APP_VERSION__
         <v-btn variant="text" size="small" :active="app.screen === 'em'" data-testid="nav-em" @click="app.goEm()">
           Flow
         </v-btn>
+        <v-btn variant="text" size="small" :active="app.screen === 'is'" data-testid="nav-is" @click="app.goIs()">
+          Input shaper
+        </v-btn>
       </nav>
       <v-spacer />
       <v-btn
@@ -58,6 +62,7 @@ const version = __APP_VERSION__
       <ScanPage v-if="app.screen === 'scan'" />
       <PaPage v-else-if="app.screen === 'pa'" />
       <EmPage v-else-if="app.screen === 'em'" />
+      <IsPage v-else-if="app.screen === 'is'" />
       <ProfilePage v-else-if="app.screen === 'profile'" />
       <CalibrationPage v-else />
     </v-main>
