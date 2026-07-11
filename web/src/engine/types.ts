@@ -268,6 +268,14 @@ export interface ScaleReferenceResult {
   rejectedLongSidePx?: number | null
 }
 
+/**
+ * How the scanner's scale error distributes over the two image axes. A CIS scanner distorts both
+ * axes equally, so the card-measured px/mm applies isotropically. A CCD scanner is accurate along
+ * the carriage (vertical) axis and mis-scaled along the sensor (horizontal) axis, so the card
+ * measurement applies to the horizontal axis only and the vertical axis stays at the nominal DPI.
+ */
+export type ScannerType = 'CIS' | 'CCD'
+
 /** A stored scanner calibration; the true px/mm recovered from a known-length reference. */
 export interface ScannerCalibration {
   pxPerMm: number
@@ -278,6 +286,8 @@ export interface ScannerCalibration {
   parallelismDegrees: number
   /** ISO-8601 UTC timestamp. */
   calibratedUtc: string
+  /** Absent on calibrations stored before the toggle existed; treated as CIS. */
+  scannerType?: ScannerType
 }
 
 /** A ready-to-apply firmware/slicer correction: the snippet to copy and a note on where it goes. */
