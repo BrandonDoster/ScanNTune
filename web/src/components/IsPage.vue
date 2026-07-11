@@ -206,6 +206,9 @@ function generate(): void {
 const scanFiles = ref<File[]>([])
 const scanPickHint = ref('')
 const analyzing = ref(false)
+// True once "Analyze scans" was clicked; the per-file delete buttons give way to the
+// "Start over" reset until the step is cleared again.
+const analysisStarted = ref(false)
 const scanError = ref('')
 const processing = shallowRef<IsProcessing | null>(null)
 const result = computed(() => processing.value?.result ?? null)
@@ -243,6 +246,7 @@ interface ScanCardRow {
 interface ScanCard {
   index: number
   title: string
+  fileName: string
   bitmap: ImageBitmap
   rows: ScanCardRow[]
 }
@@ -286,7 +290,13 @@ const scanCards = computed<ScanCard[]>(() => {
         sev: (a.linesTraced > 0 && a.linesUsed === a.linesTraced ? 'ok' : 'warn') as CardSev,
       })),
     ]
-    return { index: i, title: `Scan ${i + 1}`, bitmap, rows }
+    return {
+      index: i,
+      title: `Scan ${i + 1}`,
+      fileName: scanFiles.value[i]?.name ?? '',
+      bitmap,
+      rows,
+    }
   })
 })
 
@@ -295,7 +305,7 @@ function onPickScans(e: Event): void {
   const picked = Array.from(input.files ?? [])
   // Clear the input so picking the same file again still fires change.
   input.value = ''
-  if (picked.length === 0 || analyzing.value) return
+  if (picked.length === 0 || analyzing.value || analysisStarted.value) return
   scanPickHint.value = ''
   const room = 2 - scanFiles.value.length
   if (picked.length > room) {
@@ -306,9 +316,20 @@ function onPickScans(e: Event): void {
 }
 
 function removeScan(index: number): void {
-  if (analyzing.value) return
+  if (analyzing.value || analysisStarted.value) return
   scanFiles.value = scanFiles.value.filter((_, i) => i !== index)
   scanPickHint.value = ''
+}
+
+// Clears the whole scan step (files, result, overlays, and errors) so a new pair of scans
+// can be picked and analyzed from a clean slate.
+function startOver(): void {
+  if (analyzing.value) return
+  resetProcessing()
+  scanFiles.value = []
+  scanPickHint.value = ''
+  scanError.value = ''
+  analysisStarted.value = false
 }
 
 const canAnalyze = computed(
@@ -326,6 +347,7 @@ async function analyze(): Promise<void> {
   const usedSpec = fittedSpec.value
   if (!fileA || !fileB || !cal || !usedSpec || analyzing.value) return
   analyzing.value = true
+  analysisStarted.value = true
   scanError.value = ''
   resetProcessing()
   try {
@@ -588,17 +610,17 @@ async function analyze(): Promise<void> {
         <IsSecondScanDiagram />
       </div>
       <p class="tip mb-3">
-        The placements are a suggested starting point. The analysis resolves any
-        orientation, and the order of the two images does not matter.
+        The placements are a suggested starting point, and the order of the two images
+        does not matter.
       </p>
       <div class="scan-inputs mb-3">
-        <label class="dropzone" :class="{ 'dropzone-disabled': !isCalibrated }">
+        <label class="dropzone" :class="{ 'dropzone-disabled': !isCalibrated || analysisStarted }">
           <input
             type="file"
             accept="image/*"
             multiple
             class="file-input"
-            :disabled="!isCalibrated || analyzing"
+            :disabled="!isCalibrated || analyzing || analysisStarted"
             data-testid="is-scan-input"
             @change="onPickScans($event)"
           />
@@ -611,7 +633,7 @@ async function analyze(): Promise<void> {
           <span class="dz-label">Scan images</span>
           <span class="dz-sub">Choose both scans of the coupon</span>
         </label>
-        <div v-if="scanFiles.length > 0" class="scan-files">
+        <div v-if="scanFiles.length > 0 && scanCards.length === 0" class="scan-files">
           <div
             v-for="(file, i) in scanFiles"
             :key="`${file.name}-${i}`"
@@ -621,10 +643,10 @@ async function analyze(): Promise<void> {
             <v-icon size="16" color="success">mdi-image-check</v-icon>
             <span class="scan-file-name">{{ file.name }}</span>
             <v-btn
+              v-if="!analysisStarted"
               icon="mdi-close"
               size="x-small"
               variant="text"
-              :disabled="analyzing"
               :aria-label="`Remove ${file.name}`"
               :data-testid="`is-scan-remove-${i}`"
               @click="removeScan(i)"
@@ -650,6 +672,16 @@ async function analyze(): Promise<void> {
           @click="analyze"
         >
           Analyze scans
+        </v-btn>
+        <v-btn
+          v-if="analysisStarted"
+          variant="tonal"
+          prepend-icon="mdi-restart"
+          :disabled="analyzing"
+          data-testid="is-start-over"
+          @click="startOver"
+        >
+          Start over
         </v-btn>
         <div v-if="analyzing" class="d-flex align-center ga-2">
           <v-progress-circular indeterminate size="20" width="2" color="primary" />
@@ -677,6 +709,13 @@ async function analyze(): Promise<void> {
           </button>
           <div class="body">
             <div class="card-title">{{ card.title }}</div>
+            <div
+              v-if="card.fileName"
+              class="card-subtitle"
+              :data-testid="`is-scan-card-file-${card.index}`"
+            >
+              {{ card.fileName }}
+            </div>
             <div class="status">
               <template v-for="r in card.rows" :key="r.label">
                 <v-icon :color="CARD_COLOR[r.sev]" size="16">{{ CARD_ICON[r.sev] }}</v-icon>
@@ -849,6 +888,13 @@ async function analyze(): Promise<void> {
 .card-title {
   font-weight: 600;
   font-size: 13px;
+  margin-bottom: 10px;
+}
+.card-subtitle {
+  font-size: 12px;
+  color: rgba(var(--v-theme-on-surface), 0.62);
+  overflow-wrap: anywhere;
+  margin-top: -8px;
   margin-bottom: 10px;
 }
 .status {
