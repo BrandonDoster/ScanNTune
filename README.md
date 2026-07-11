@@ -3,8 +3,8 @@
 [![Web CI](https://github.com/jaak0b/ScanNTune/actions/workflows/web-ci.yml/badge.svg)](https://github.com/jaak0b/ScanNTune/actions/workflows/web-ci.yml)
 [![License: MIT](https://img.shields.io/github/license/jaak0b/ScanNTune)](LICENSE)
 
-**Caliper-free 3D printer calibration from a flatbed scanner: skew, shrinkage, pressure advance, and
-extrusion multiplier.**
+**Caliper-free 3D printer calibration from a flatbed scanner: skew, shrinkage, pressure advance, input
+shaper, and extrusion multiplier.**
 Print a coupon, scan it on an ordinary office scanner, and get ready-to-paste firmware or slicer
 corrections. No calipers, no measuring, no eyeballing test prints, no typing numbers into a calculator.
 
@@ -58,6 +58,23 @@ lines and picking the one that "looks best".
 
 The result is ready to paste: Klipper `SET_PRESSURE_ADVANCE`, Marlin `M900`, or RepRapFirmware `M572`.
 On Klipper there's an optional follow-up coupon that sweeps `smooth_time` the same way.
+
+## Input shaper
+
+ScanNTune also calibrates input shaping from a scan, instead of running the accelerometer-based tuning
+built into Klipper or eyeballing which shaper setting reduces ringing on a test print.
+
+1. **Print the coupon:** a small crossing-line coupon, about 105 mm with the default settings, that
+   excites each axis with sharp corners so any resonance shows up as ringing in the printed lines.
+2. **Scan it twice,** flat and then quarter-turned, the same way as the skew and shrinkage flow.
+   ScanNTune reads the printed ringing along each axis and fits its frequency and damping with
+   established estimation methods. A scan that cannot be read reliably is refused with a worded reason
+   instead of a guessed result.
+3. **Get the corrections back:** a recommended shaper type, chosen for robustness across a frequency
+   tolerance band, plus the resulting maximum usable acceleration.
+
+The result is ready to paste: Klipper `SET_INPUT_SHAPER`, Marlin `M593`, or RepRapFirmware `M593`. Like
+the other absolute-scale flows, it requires the one-time scanner card calibration.
 
 ## Extrusion multiplier / flow
 
