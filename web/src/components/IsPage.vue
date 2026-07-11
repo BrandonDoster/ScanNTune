@@ -491,7 +491,13 @@ async function analyze(): Promise<void> {
                 :min="20"
                 hint="Cover at least five wavelengths of the lowest resonance of interest."
               />
-              <NumericField v-model="linesPerSpeed" label="Lines per speed" :step="1" :min="3" />
+              <NumericField
+                v-model="linesPerSpeed"
+                label="Lines per speed"
+                :step="1"
+                :min="3"
+                hint="More lines tolerate damaged or unreadable lines in the scan."
+              />
             </div>
           </v-expansion-panel-text>
         </v-expansion-panel>

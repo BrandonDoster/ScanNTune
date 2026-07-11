@@ -60,7 +60,9 @@ export interface IsTestSpec {
 export const MIN_SPEED_TIERS = 1
 export const MAX_SPEED_TIERS = 3
 export const MIN_LINES_PER_SPEED = 3
-export const MAX_LINES_PER_SPEED = 6
+/** Extra replicate lines cost little coupon area and raise the chance that at least the
+ *  required three lines per axis survive print damage and scan artifacts. */
+export const MAX_LINES_PER_SPEED = 15
 /** Hard floor of the clean read length; the default is derived per tier speed instead
  *  (five wavelengths of the lowest resonance of interest: 5 * tierSpeed / 25 Hz). */
 export const MIN_MEASURED_LINE_MM = 20
@@ -87,7 +89,10 @@ export function defaultIsTestSpec(profile: PrinterProfile): IsTestSpec {
     // replicates; the replicates come from linesPerSpeed instead, which costs less
     // coupon width than a second tier's ramp and block gap.
     speedsMmS: [150],
-    linesPerSpeed: 5,
+    // Eight replicates cost two pitches of coupon width per extra line over five (the
+    // field extent enters the two-axis footprint once per group) and leave headroom over
+    // the three-line analyzer floor when lines are damaged or unreadable.
+    linesPerSpeed: 8,
     // Five ringing wavelengths of the lowest resonance of interest at the tier speed:
     // 5 * tierSpeed / 25 Hz, so 30 mm at the 150 mm/s default tier.
     measuredLineMm: 30,

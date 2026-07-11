@@ -13,7 +13,7 @@ describe('defaultIsTestSpec', () => {
   it('uses the documented defaults', () => {
     const spec = defaultIsTestSpec(defaultPrinterProfile())
     expect(spec.speedsMmS).toEqual([150])
-    expect(spec.linesPerSpeed).toBe(5)
+    expect(spec.linesPerSpeed).toBe(8)
     // Five wavelengths of the 25 Hz lowest resonance of interest at the 150 mm/s tier:
     // 5 * 150 / 25 = 30 mm.
     expect(spec.measuredLineMm).toBe(30)
@@ -68,9 +68,10 @@ describe('validateIsSpec', () => {
     expect(() => validateIsSpec({ ...spec, speedsMmS: [150, 99] })).toThrow(/corner speed/)
     expect(() => validateIsSpec({ ...spec, speedsMmS: [150, 200] })).not.toThrow()
   })
-  it('throws on lines per speed outside 3 to 6', () => {
+  it('throws on lines per speed outside 3 to 15', () => {
     expect(() => validateIsSpec({ ...spec, linesPerSpeed: 2 })).toThrow(/Lines per speed/)
-    expect(() => validateIsSpec({ ...spec, linesPerSpeed: 7 })).toThrow(/Lines per speed/)
+    expect(() => validateIsSpec({ ...spec, linesPerSpeed: 16 })).toThrow(/Lines per speed/)
+    expect(() => validateIsSpec({ ...spec, linesPerSpeed: 15 })).not.toThrow()
   })
   it('throws when the clean read length is shorter than the 20 mm floor', () => {
     expect(() => validateIsSpec({ ...spec, measuredLineMm: 19 })).toThrow(/at least 20 mm/)
@@ -125,11 +126,26 @@ describe('fitSpecToBed', () => {
       expect(notes).toEqual([])
     }
   })
+  it('keeps the maximum line count unchanged on the default 220 mm bed', () => {
+    // Fifteen lines widen the two-axis coupon to 139.5625 mm, well inside 220 mm.
+    const max = { ...spec, linesPerSpeed: 15 }
+    const { spec: fitted, notes } = fitSpecToBed(max, defaultPrinterProfile())
+    expect(fitted).toEqual(max)
+    expect(notes).toEqual([])
+  })
+  it('refuses the maximum line count on a 120 mm bed', () => {
+    // The field extent enters the two-axis footprint twice, so fifteen lines cost
+    // 139.5625 mm; even at the 20 mm read floor the coupon is 129.5625 mm wide, and a
+    // single tier leaves nothing else to drop.
+    const max = { ...spec, linesPerSpeed: 15 }
+    const p = { ...defaultPrinterProfile(), bedWidthMm: 120, bedDepthMm: 120 }
+    expect(() => fitSpecToBed(max, p)).toThrow(/does not fit/)
+  })
   it('drops the fastest tier before shortening lines', () => {
-    // A three-tier variant overflows a 120 mm bed; dropping the 300 mm/s tier shrinks the
+    // A three-tier variant overflows a 160 mm bed; dropping the 300 mm/s tier shrinks the
     // field, the packed diagonal, and the band, back onto it at full read length.
     const three = { ...spec, speedsMmS: [150, 200, 300] }
-    const p = { ...defaultPrinterProfile(), bedWidthMm: 120, bedDepthMm: 120 }
+    const p = { ...defaultPrinterProfile(), bedWidthMm: 160, bedDepthMm: 160 }
     const { spec: fitted, notes } = fitSpecToBed(three, p)
     expect(fitted.speedsMmS).toEqual([150, 200])
     expect(fitted.measuredLineMm).toBe(30)

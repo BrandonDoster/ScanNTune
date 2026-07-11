@@ -280,11 +280,16 @@ describe('isCouponGeometry footprint', () => {
     const interior = 2 * INNER_MARGIN_MM + packed + F + spec.runUpMm
     expect(g.couponWidthMm).toBeCloseTo(interior + 2 * g.frameBandMm, 9)
     expect(g.couponHeightMm).toBeCloseTo(g.couponWidthMm, 9)
-    // Documented derived size of the expert defaults (single 150 mm/s tier, 5 lines,
+    // Documented derived size of the expert defaults (single 150 mm/s tier, 8 lines,
     // 30 mm clean read, 8 mm run-up, 4000 mm/s^2, 100 mm/s corner speed): a regression
-    // inflating the layout is caught here. The 1.5625 mm over the former 88 mm is the
+    // inflating the layout is caught here. The field extent enters the two-axis
+    // footprint twice (once per group), so each extra line costs two pitches (5 mm)
+    // over the former 5-line default's 89.5625 mm; the 1.5625 mm fraction is the
     // corner-to-tier ramp (150^2 - 100^2) / (2 * 4000).
-    expect(g.couponWidthMm).toBeCloseTo(89.5625, 9)
+    expect(g.couponWidthMm).toBeCloseTo(104.5625, 9)
+    // The 15-line maximum adds seven more line pairs on the same formula.
+    const max = isCouponGeometry({ ...spec, linesPerSpeed: 15 })
+    expect(max.couponWidthMm).toBeCloseTo(139.5625, 9)
   })
   it('shrinks when any driving parameter shrinks (the formula carries no padding)', () => {
     const size = (s: IsTestSpec) => isCouponGeometry(s).couponWidthMm
@@ -312,6 +317,65 @@ describe('isCouponGeometry footprint', () => {
     expect(protectedSpanMm(spec, 300)).toBeGreaterThan(protectedSpanMm(spec, 200))
     const stiff: IsTestSpec = { ...spec, accelMmS2: 10000 }
     expect(protectedSpanMm(stiff, 300)).toBeLessThan(protectedSpanMm(spec, 300))
+  })
+})
+
+describe('isCouponGeometry at the maximum line count', () => {
+  // The default spec (8 lines) drives every invariant above; the 15-line maximum widens
+  // the field the most, so the containment and crossing legality are re-proven here.
+  const maxSpec: IsTestSpec = { ...spec, linesPerSpeed: 15 }
+  const gm = isCouponGeometry(maxSpec)
+
+  it('keeps every segment of every line inside the coupon outline', () => {
+    for (const group of gm.groups) {
+      for (const line of group.lines) {
+        for (const s of segsOf(line)) {
+          for (const x of [s.x0, s.x1]) {
+            expect(x).toBeGreaterThanOrEqual(0)
+            expect(x).toBeLessThanOrEqual(gm.couponWidthMm)
+          }
+          for (const y of [s.y0, s.y1]) {
+            expect(y).toBeGreaterThanOrEqual(0)
+            expect(y).toBeLessThanOrEqual(gm.couponHeightMm)
+          }
+        }
+      }
+    }
+  })
+  it('keeps every X/Y crossing point outside both lines protected spans (per pair)', () => {
+    const xGroup = gm.groups.find((grp) => grp.axis === 'x')!
+    const yGroup = gm.groups.find((grp) => grp.axis === 'y')!
+    for (const xl of xGroup.lines) {
+      for (const yl of yGroup.lines) {
+        const crossX = xl.measured.x0
+        const crossY = yl.measured.y0
+        expect(crossY).toBeLessThan(xl.measured.y0)
+        expect(crossY).toBeGreaterThan(xl.measured.y1)
+        expect(crossX).toBeGreaterThan(yl.measured.x0)
+        expect(crossX).toBeLessThan(yl.measured.x1)
+        expect(xl.measured.y0 - crossY).toBeGreaterThanOrEqual(
+          xl.protectedMm + INNER_MARGIN_MM - 1e-9,
+        )
+        expect(crossX - yl.measured.x0).toBeGreaterThanOrEqual(
+          yl.protectedMm + INNER_MARGIN_MM - 1e-9,
+        )
+      }
+    }
+  })
+  it('places every corner inside the open window with at least the run-up before it', () => {
+    for (const group of gm.groups) {
+      for (const line of group.lines) {
+        const cornerX = line.measured.x0
+        const cornerY = line.measured.y0
+        expect(cornerX).toBeGreaterThan(gm.windowBox.x0)
+        expect(cornerX).toBeLessThan(gm.windowBox.x1)
+        expect(cornerY).toBeGreaterThan(gm.windowBox.y0)
+        expect(cornerY).toBeLessThan(gm.windowBox.y1)
+        const inWindow =
+          group.axis === 'y' ? cornerY - gm.windowBox.y0 : gm.windowBox.x1 - cornerX
+        expect(inWindow).toBeGreaterThanOrEqual(maxSpec.runUpMm - 1e-9)
+      }
+    }
   })
 })
 

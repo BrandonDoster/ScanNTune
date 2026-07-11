@@ -596,8 +596,8 @@ describe('contrastBase', () => {
 })
 
 describe('bed fitting', () => {
-  it('drops a 300 mm/s tier with a note when the coupon overflows a 120 mm bed', () => {
-    const small: PrinterProfile = { ...profile, bedWidthMm: 120, bedDepthMm: 120 }
+  it('drops a 300 mm/s tier with a note when the coupon overflows a 160 mm bed', () => {
+    const small: PrinterProfile = { ...profile, bedWidthMm: 160, bedDepthMm: 160 }
     const three = { ...spec, speedsMmS: [150, 200, 300] }
     const r = generateIsGcodeWithReport(small, filament, three)
     expect(r.warnings.some((w) => w.includes('300 mm/s') && w.includes('removed'))).toBe(true)
