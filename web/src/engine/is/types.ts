@@ -26,9 +26,10 @@ export const MAX_SPEED_TIERS = 3
 export const MIN_LINES_PER_SPEED = 4
 export const MAX_LINES_PER_SPEED = 6
 export const MIN_MEASURED_LINE_MM = 40
-/** Default acceleration bounds: high enough to ring the frame, low enough for any printer. */
+/** Default acceleration floor: high enough to ring the frame on any printer. */
 const MIN_ACCEL_MM_S2 = 3000
-const MAX_ACCEL_MM_S2 = 6000
+/** Below this acceleration the ringing trace is often too weak to measure. */
+const LOW_ACCEL_MM_S2 = 4000
 
 export function defaultIsTestSpec(profile: PrinterProfile): IsTestSpec {
   return {
@@ -38,7 +39,7 @@ export function defaultIsTestSpec(profile: PrinterProfile): IsTestSpec {
     runUpMm: 20,
     linePitchMm: 2.5,
     axes: ['x', 'y'],
-    accelMmS2: Math.min(Math.max(profile.printAccelMmS2, MIN_ACCEL_MM_S2), MAX_ACCEL_MM_S2),
+    accelMmS2: Math.max(profile.printAccelMmS2, MIN_ACCEL_MM_S2),
     squareCornerVelocityMmS: 5,
     weldMm: 1,
     placement: 'center',
@@ -80,6 +81,12 @@ export function accelRampMm(speedMmS: number, accelMmS2: number): number {
  */
 export function rampWarnings(spec: IsTestSpec): string[] {
   const warnings: string[] = []
+  if (spec.accelMmS2 < LOW_ACCEL_MM_S2) {
+    warnings.push(
+      'Low acceleration weakens the ringing signal; the test works best at the ' +
+        "printer's true maximum acceleration.",
+    )
+  }
   for (const speed of spec.speedsMmS) {
     const ramp = accelRampMm(speed, spec.accelMmS2)
     if (ramp > spec.runUpMm) {

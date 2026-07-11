@@ -22,10 +22,10 @@ describe('defaultIsTestSpec', () => {
     expect(spec.weldMm).toBe(1)
     expect(spec.placement).toBe('center')
   })
-  it('clamps the profile acceleration into [3000, 6000]', () => {
+  it('floors the profile acceleration at 3000 and never caps it', () => {
     const p = defaultPrinterProfile()
-    expect(defaultIsTestSpec({ ...p, printAccelMmS2: 1000 }).accelMmS2).toBe(3000)
-    expect(defaultIsTestSpec({ ...p, printAccelMmS2: 10000 }).accelMmS2).toBe(6000)
+    expect(defaultIsTestSpec({ ...p, printAccelMmS2: 2000 }).accelMmS2).toBe(3000)
+    expect(defaultIsTestSpec({ ...p, printAccelMmS2: 20000 }).accelMmS2).toBe(20000)
     expect(defaultIsTestSpec({ ...p, printAccelMmS2: 4500 }).accelMmS2).toBe(4500)
   })
 })
@@ -65,14 +65,21 @@ describe('validateIsSpec', () => {
 describe('rampWarnings', () => {
   const spec = defaultIsTestSpec(defaultPrinterProfile())
   it('is silent when every tier reaches speed inside the run-up', () => {
-    // 300^2 / (2 * 3000) = 15 mm, inside the 20 mm run-up.
-    expect(rampWarnings({ ...spec, accelMmS2: 3000 })).toEqual([])
+    // 300^2 / (2 * 4000) = 11.25 mm, inside the 20 mm run-up.
+    expect(rampWarnings({ ...spec, accelMmS2: 4000 })).toEqual([])
+  })
+  it('warns when the acceleration is below 4000 mm/s^2', () => {
+    // 300^2 / (2 * 3000) = 15 mm fits the run-up, so only the low-accel warning fires.
+    const warnings = rampWarnings({ ...spec, accelMmS2: 3000 })
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('Low acceleration')
   })
   it('warns for a tier whose ramp exceeds the run-up', () => {
     // 300^2 / (2 * 2000) = 22.5 mm, beyond the 20 mm run-up; lower tiers still fit.
     const warnings = rampWarnings({ ...spec, accelMmS2: 2000 })
-    expect(warnings).toHaveLength(1)
-    expect(warnings[0]).toContain('300 mm/s')
+    expect(warnings).toHaveLength(2)
+    expect(warnings[0]).toContain('Low acceleration')
+    expect(warnings[1]).toContain('300 mm/s')
   })
   it('computes the ramp distance v^2 / (2a)', () => {
     expect(accelRampMm(100, 5000)).toBeCloseTo(1.0, 9)

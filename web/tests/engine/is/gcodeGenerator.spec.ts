@@ -237,11 +237,11 @@ describe('validation and reporting', () => {
     expect(r.warnings.some((w) => w.includes('sets no temperatures'))).toBe(true)
   })
 
-  it('uses the spec acceleration clamped by the default spec builder', () => {
+  it('uses the profile acceleration without an upper cap', () => {
     const fast: PrinterProfile = { ...profile, printAccelMmS2: 20000 }
-    const clamped = defaultIsTestSpec(fast)
-    expect(clamped.accelMmS2).toBe(6000)
-    const g = generateIsGcodeWithReport(fast, filament, clamped).gcode
-    expect(g).toContain('SET_VELOCITY_LIMIT ACCEL=6000 SQUARE_CORNER_VELOCITY=5 MINIMUM_CRUISE_RATIO=0')
+    const spec20k = defaultIsTestSpec(fast)
+    expect(spec20k.accelMmS2).toBe(20000)
+    const g = generateIsGcodeWithReport(fast, filament, spec20k).gcode
+    expect(g).toContain('SET_VELOCITY_LIMIT ACCEL=20000 SQUARE_CORNER_VELOCITY=5 MINIMUM_CRUISE_RATIO=0')
   })
 })
