@@ -73,8 +73,22 @@ export function validateIsSpec(spec: IsTestSpec): void {
 }
 
 /**
- * Warns (does not throw) for every speed tier the run-up leg is too short to reach before
- * the ringing corner; a corner taken below the commanded speed rings weaker than intended.
+ * Feedrate of the run-up leg, fixed across all tiers. Melt pressure with pressure advance
+ * off scales with speed, and the planner drops to the square corner velocity at the sharp
+ * corner, so a fast approach dumps its stored pressure there as a blob. The ringing
+ * excitation is the acceleration ramp from the square corner velocity up to the tier speed
+ * inside the measured segment, not the approach speed, so a slow approach removes the
+ * corner pressure dump without touching the excitation; this mirrors how Klipper's ringing
+ * tower excites its corners.
+ */
+export const RUN_UP_SPEED_MM_S = 50
+
+/**
+ * Warns (does not throw) on spec combinations that weaken the ringing signal. The run-up
+ * leg only needs to reach the fixed approach speed before the corner. The acceleration
+ * ramp to each tier speed lives in the measured segment itself (it always did: the corner
+ * is taken at the square corner velocity), so a tier whose ramp outruns the measured line
+ * never reaches its commanded speed at all.
  */
 export function rampWarnings(spec: IsTestSpec): string[] {
   const warnings: string[] = []
@@ -84,13 +98,23 @@ export function rampWarnings(spec: IsTestSpec): string[] {
         "printer's true maximum acceleration.",
     )
   }
+  if (accelRampMm(RUN_UP_SPEED_MM_S, spec.accelMmS2) > spec.runUpMm) {
+    warnings.push(
+      `The ${spec.runUpMm} mm run-up is too short to reach the ${RUN_UP_SPEED_MM_S} mm/s ` +
+        `approach speed at ${spec.accelMmS2} mm/s^2. Lengthen the run-up.`,
+    )
+  }
   for (const speed of spec.speedsMmS) {
-    const ramp = accelRampMm(speed, spec.accelMmS2)
-    if (ramp > spec.runUpMm) {
+    // Ramp from the square corner velocity to the tier speed: (v^2 - scv^2) / (2a).
+    const ramp =
+      accelRampMm(speed, spec.accelMmS2) -
+      accelRampMm(spec.squareCornerVelocityMmS, spec.accelMmS2)
+    if (ramp >= spec.measuredLineMm) {
       warnings.push(
-        `The ${spec.runUpMm} mm run-up is too short to reach ${speed} mm/s at ` +
-          `${spec.accelMmS2} mm/s^2; the corner is taken below the commanded speed. ` +
-          'Lengthen the run-up or raise the acceleration.',
+        `The ${speed} mm/s tier needs ${ramp.toFixed(1)} mm to reach its speed at ` +
+          `${spec.accelMmS2} mm/s^2, longer than the ${spec.measuredLineMm} mm measured ` +
+          'line; the tier never reaches the commanded speed. Raise the acceleration or ' +
+          'remove the tier.',
       )
     }
   }

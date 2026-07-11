@@ -64,22 +64,29 @@ describe('validateIsSpec', () => {
 
 describe('rampWarnings', () => {
   const spec = defaultIsTestSpec(defaultPrinterProfile())
-  it('is silent when every tier reaches speed inside the run-up', () => {
-    // 300^2 / (2 * 4000) = 11.25 mm, inside the 20 mm run-up.
+  it('is silent at a healthy acceleration', () => {
     expect(rampWarnings({ ...spec, accelMmS2: 4000 })).toEqual([])
   })
   it('warns when the acceleration is below 4000 mm/s^2', () => {
-    // 300^2 / (2 * 3000) = 15 mm fits the run-up, so only the low-accel warning fires.
     const warnings = rampWarnings({ ...spec, accelMmS2: 3000 })
     expect(warnings).toHaveLength(1)
     expect(warnings[0]).toContain('Low acceleration')
   })
-  it('warns for a tier whose ramp exceeds the run-up', () => {
-    // 300^2 / (2 * 2000) = 22.5 mm, beyond the 20 mm run-up; lower tiers still fit.
-    const warnings = rampWarnings({ ...spec, accelMmS2: 2000 })
+  it('warns when the run-up is too short for the fixed approach speed', () => {
+    // 50^2 / (2 * 4000) = 0.3125 mm, beyond a 0.2 mm run-up.
+    const warnings = rampWarnings({ ...spec, accelMmS2: 4000, runUpMm: 0.2 })
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('run-up')
+    expect(warnings[0]).toContain('50 mm/s')
+  })
+  it('warns for a tier whose acceleration ramp outruns the measured line', () => {
+    // (300^2 - 5^2) / (2 * 600) = 75.0 mm, beyond the 60 mm measured line; the 100 and
+    // 200 mm/s tiers still reach their speed, and the low-accel warning also fires.
+    const warnings = rampWarnings({ ...spec, accelMmS2: 600 })
     expect(warnings).toHaveLength(2)
     expect(warnings[0]).toContain('Low acceleration')
     expect(warnings[1]).toContain('300 mm/s')
+    expect(warnings[1]).toContain('measured')
   })
   it('computes the ramp distance v^2 / (2a)', () => {
     expect(accelRampMm(100, 5000)).toBeCloseTo(1.0, 9)

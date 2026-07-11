@@ -9,7 +9,7 @@
     viewBox="0 0 480 210"
     class="diagram"
     role="img"
-    aria-label="The resonance coupon: a frame with three corner holes and a solid origin corner; each test line accelerates along a run-up leg, turns a sharp 90 degree corner, and the ringing is recorded as a wiggle on the measured segment"
+    aria-label="The resonance coupon: a frame with three corner holes and a solid origin corner; each test line approaches along a slow run-up leg, turns a sharp 90 degree corner, accelerates to the test speed, and the ringing is recorded as a wiggle on the measured segment"
   >
     <!-- Coupon frame: outer edge and open window. -->
     <rect x="40" y="24" width="220" height="164" rx="6" class="couponFill" />
@@ -43,7 +43,7 @@
 
     <line x1="112" y1="148" x2="112" y2="118" class="callout" />
     <line x1="112" y1="118" x2="286" y2="118" class="callout" />
-    <text x="290" y="122" class="lbl">run-up leg reaches the test speed</text>
+    <text x="290" y="122" class="lbl">slow run-up leg approaches the corner</text>
 
     <line x1="152" y1="158" x2="200" y2="196" class="callout" />
     <line x1="200" y1="196" x2="286" y2="196" class="callout" />

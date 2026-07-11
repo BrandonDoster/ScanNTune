@@ -3,15 +3,17 @@ import { defaultFilamentProfile, defaultPrinterProfile } from '../../../src/engi
 import type { PrinterProfile } from '../../../src/engine/gcode/profileTypes'
 import {
   extrusionMm,
-  MEASURED_LAYERS,
   NOMINAL_WIDTH_FACTOR,
   PEDESTAL_LAYERS,
   PEDESTAL_WIDTH_FACTOR,
 } from '../../../src/engine/gcode/emitter'
 import { isCouponGeometry } from '../../../src/engine/is/couponGeometry'
 
-import { defaultIsTestSpec } from '../../../src/engine/is/types'
-import { generateIsGcodeWithReport } from '../../../src/engine/is/gcodeGenerator'
+import { defaultIsTestSpec, RUN_UP_SPEED_MM_S } from '../../../src/engine/is/types'
+import {
+  generateIsGcodeWithReport,
+  IS_MEASURED_LAYERS,
+} from '../../../src/engine/is/gcodeGenerator'
 
 const profile = defaultPrinterProfile()
 const filament = defaultFilamentProfile()
@@ -79,18 +81,18 @@ describe('generateIsGcodeWithReport (Klipper)', () => {
     expect(report.gcode).not.toContain('PAUSE')
   })
 
-  it('prints one pedestal layer and two measured layers', () => {
+  it('prints one pedestal layer and one measured layer', () => {
     const zMoves = lines.filter((l) => l.startsWith('G1 Z'))
     const zs = [...new Set(zMoves.map((l) => l.match(/Z([\d.]+)/)![1]))]
-    expect(PEDESTAL_LAYERS + MEASURED_LAYERS).toBe(3)
-    expect(zs).toEqual(['0.200', '0.400', '0.600', '10'])
+    expect(PEDESTAL_LAYERS + IS_MEASURED_LAYERS).toBe(2)
+    expect(zs).toEqual(['0.200', '0.400', '10'])
   })
 
   it('emits one measured segment per line per layer at each tier speed', () => {
     const measuredE = measuredEValue(nominal)
     for (const speed of spec.speedsMmS) {
       const moves = lines.filter((l) => l.includes(`E${measuredE} F${speed * 60}`))
-      expect(moves.length).toBe(MEASURED_LAYERS * spec.axes.length * spec.linesPerSpeed)
+      expect(moves.length).toBe(IS_MEASURED_LAYERS * spec.axes.length * spec.linesPerSpeed)
     }
     const pedestalE = measuredEValue(PEDESTAL_WIDTH_FACTOR * nominal)
     const pedestalMoves = lines.filter((l) => l.includes(`E${pedestalE}`))
@@ -108,14 +110,37 @@ describe('generateIsGcodeWithReport (Klipper)', () => {
     }
   })
 
-  it('extrudes through the corner continuously (run-up directly before each measured segment)', () => {
+  it('extrudes through the corner continuously with a slow fixed-speed run-up', () => {
     const measuredE = measuredEValue(nominal)
+    const runUpF = RUN_UP_SPEED_MM_S * 60
+    let seen = 0
     for (let i = 0; i < lines.length; i++) {
       if (!lines[i].includes(`E${measuredE}`)) continue
-      const speed = lines[i].match(/F(\d+)$/)![1]
       expect(lines[i - 1], `line before ${lines[i]}`).toMatch(
-        new RegExp(`^G1 X-?[\\d.]+ Y-?[\\d.]+ E[\\d.]+ F${speed}$`),
+        new RegExp(`^G1 X-?[\\d.]+ Y-?[\\d.]+ E[\\d.]+ F${runUpF}$`),
       )
+      seen++
+    }
+    expect(seen).toBeGreaterThan(0)
+  })
+
+  it('keeps the fan off on the pedestal layer and runs it at full for the measured lines', () => {
+    const zIndexes = lines.flatMap((l, i) => (/^G1 Z0\./.test(l) ? [i] : []))
+    for (let k = 0; k < zIndexes.length; k++) {
+      const pedestal = /^G1 Z0\.200\b/.test(lines[zIndexes[k]])
+      const chunk = lines.slice(zIndexes[k] + 1, zIndexes[k + 1] ?? lines.length)
+      const on = chunk.indexOf('M106 S255')
+      if (pedestal) {
+        expect(on).toBe(-1)
+        continue
+      }
+      const off = chunk.indexOf('M107')
+      const firstMove = chunk.findIndex((l) => /^G[01] X/.test(l))
+      const bandStart = chunk.findIndex((l) => /^G1 E[\d.]/.test(l))
+      expect(on).toBeGreaterThanOrEqual(0)
+      expect(on).toBeLessThanOrEqual(firstMove)
+      expect(off).toBeGreaterThan(on)
+      expect(off).toBeLessThan(bandStart)
     }
   })
 

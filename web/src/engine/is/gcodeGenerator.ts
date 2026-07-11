@@ -7,7 +7,6 @@ import {
   extrusionMm,
   frameBandLayer,
   HIGH_FLOW_WARNING_THRESHOLD_MM3_S,
-  MEASURED_LAYERS,
   motionLimitCommands,
   NOMINAL_WIDTH_FACTOR,
   PEDESTAL_LAYERS,
@@ -22,7 +21,13 @@ import {
   isMotionLimitCommands,
   restoreShapingCommands,
 } from './firmwareMotion'
-import { fitSpecToBed, type IsTestSpec, rampWarnings, validateIsSpec } from './types'
+import {
+  fitSpecToBed,
+  type IsTestSpec,
+  rampWarnings,
+  RUN_UP_SPEED_MM_S,
+  validateIsSpec,
+} from './types'
 
 export { EDGE_MARGIN_MM, HIGH_FLOW_WARNING_THRESHOLD_MM3_S }
 
@@ -72,6 +77,13 @@ const PRIME_SPEED_MM_S = 30
 const COAST_NOZZLE_FACTOR = 1.5
 /** Length of the wipe move the retract runs over. */
 const WIPE_MM = 2
+
+/**
+ * Measured layers above the pedestal, deliberately fewer than the shared default: overhang
+ * curl of the unsupported wave crest is cumulative per stacked layer, so one measured layer
+ * halves the proud height while a single 0.2 mm bead still defines the silhouette edge.
+ */
+export const IS_MEASURED_LAYERS = 1
 
 /**
  * Prime on the move: the deretract is spread over the first stretch of the approach leg at
@@ -177,7 +189,7 @@ function emitIsGcode(profile: PrinterProfile, filament: FilamentProfile, spec: I
   // extrusion so the measured corners carry the raw machine response.
   L.push(...disableShapingCommands(profile))
 
-  const totalLayers = PEDESTAL_LAYERS + MEASURED_LAYERS
+  const totalLayers = PEDESTAL_LAYERS + IS_MEASURED_LAYERS
   for (let layer = 0; layer < totalLayers; layer++) {
     const z = profile.layerHeightMm * (layer + 1)
     // Retract before the Z push; every travel until the band deretract runs retracted, and
@@ -189,10 +201,18 @@ function emitIsGcode(profile: PrinterProfile, filament: FilamentProfile, spec: I
     // line ends afterwards, ironing the weld tips and any residual stop blobs flat so the
     // scanned face stays flush. Pedestal width below, nominal width on the measured layers.
     // Each line is one continuous extrusion from the run-up leg through the sharp corner
-    // into the measured segment, at the tier's cruise speed; the corner vertex gets no
-    // retract, pause, or speed change, so the axis rings freely into the measured segment.
+    // into the measured segment; the corner vertex gets no retract, pause, or E change, so
+    // the axis rings freely into the measured segment. The run-up approaches at the fixed
+    // slow speed and the measured segment is commanded at the tier speed, so the planner
+    // takes the corner at the square corner velocity and the acceleration ramp to the tier
+    // speed (the ringing excitation) lives at the start of the measured segment.
     const pedestal = layer < PEDESTAL_LAYERS
     const width = pedestal ? PEDESTAL_WIDTH_FACTOR * nominal : nominal
+    // The single beads over the open window are bridges; standard bridge practice is
+    // maximum part cooling, fixed and identical across tiers so cooling never varies
+    // between test lines. The pedestal layer is a first layer on the bed, so it prints
+    // with the fan off, per standard first-layer practice.
+    if (!pedestal) L.push('M106 S255')
     for (const group of g.groups) {
       for (const line of group.lines) {
         // The pedestal layer only needs to stick: its lines are capped to the same speed the
@@ -201,13 +221,17 @@ function emitIsGcode(profile: PrinterProfile, filament: FilamentProfile, spec: I
         const speed = pedestal
           ? Math.min(line.speedMmS, profile.travelSpeedMmS * RASTER_SPEED_FACTOR)
           : line.speedMmS
+        const runUpSpeed = Math.min(RUN_UP_SPEED_MM_S, speed)
         travel(e, profile, ox + line.prime.x0, oy + line.prime.y0)
         primeOnTheMove(e, profile, filament, width, ox + line.prime.x1, oy + line.prime.y1)
-        extrude(e, profile, filament, width, ox + line.runUp.x1, oy + line.runUp.y1, speed)
+        extrude(e, profile, filament, width, ox + line.runUp.x1, oy + line.runUp.y1, runUpSpeed)
         extrude(e, profile, filament, width, ox + line.measured.x1, oy + line.measured.y1, speed)
         finishLine(e, profile, filament, width, line.tail, ox, oy, speed)
       }
     }
+    // M107 forces the fan off for the band; any fan state the user's start G-code set
+    // is not restored.
+    if (!pedestal) L.push('M107')
 
     // The band starts on its own travel; the lines left the nozzle retracted after their
     // wipes, so the hop to the frame corner crosses the window without stringing.
