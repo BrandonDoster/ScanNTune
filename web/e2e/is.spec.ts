@@ -65,10 +65,10 @@ test('input shaper: generate downloads a Klipper resonance test coupon', async (
 test('input shaper: a small bed shows fit notes and shortens the clean read length', async ({
   page,
 }) => {
-  // The default coupon fits a 120 mm bed; a longer clean read overflows it, and the fit
-  // machinery shortens the lines back onto the bed with a user-worded note.
+  // The default coupon fits a 120 mm bed; a much longer clean read overflows it, and the
+  // fit machinery shortens the lines back onto the bed with a user-worded note.
   await openIsPageWithProfile(page, { bedWidthMm: 120, bedDepthMm: 120 })
-  await page.getByLabel('Clean read length (mm)').fill('60')
+  await page.getByLabel('Clean read length (mm)').fill('70')
 
   await expect(page.getByTestId('is-fit-notes')).toBeVisible()
   await expect(page.getByTestId('is-fit-notes')).toContainText('shortened')
@@ -76,7 +76,7 @@ test('input shaper: a small bed shows fit notes and shortens the clean read leng
 })
 
 test('input shaper: a bed too small for any coupon shows a fit error', async ({ page }) => {
-  await openIsPageWithProfile(page, { bedWidthMm: 100, bedDepthMm: 100 })
+  await openIsPageWithProfile(page, { bedWidthMm: 70, bedDepthMm: 70 })
 
   await expect(page.getByTestId('is-fit-error')).toBeVisible()
 })

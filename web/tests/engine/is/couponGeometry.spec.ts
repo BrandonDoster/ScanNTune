@@ -3,7 +3,6 @@ import { defaultPrinterProfile } from '../../../src/engine/gcode/profileTypes'
 import { defaultIsTestSpec, type IsTestSpec } from '../../../src/engine/is/types'
 import {
   accelRampMm,
-  APPROACH_MM,
   BLOCK_GAP_MM,
   FIDUCIAL_INSET_MM,
   FIDUCIAL_SIZE_MM,
@@ -26,7 +25,7 @@ const g = isCouponGeometry(spec)
 
 const segLen = (s: { x0: number; y0: number; x1: number; y1: number }) =>
   Math.hypot(s.x1 - s.x0, s.y1 - s.y0)
-const segsOf = (l: IsLine) => [l.prime, l.runUp, l.approach, l.measured, l.tail]
+const segsOf = (l: IsLine) => [l.prime, l.runUp, l.measured, l.tail]
 
 function perpendicularPositions(group: IsLineGroup): number[] {
   return group.lines.map((l) => (group.axis === 'x' ? l.measured.x0 : l.measured.y0))
@@ -104,19 +103,18 @@ describe('isCouponGeometry line paths', () => {
       }
     }
   })
-  it('chains prime, run-up, approach, measured, and tail as one connected path per line', () => {
+  it('chains prime, run-up, measured, and tail as one connected path per line', () => {
     for (const group of g.groups) {
-      for (const { prime, runUp, approach, measured, tail } of group.lines) {
+      for (const { prime, runUp, measured, tail } of group.lines) {
         expect(prime.x1).toBeCloseTo(runUp.x0, 9)
         expect(prime.y1).toBeCloseTo(runUp.y0, 9)
-        expect(runUp.x1).toBeCloseTo(approach.x0, 9)
-        expect(runUp.y1).toBeCloseTo(approach.y0, 9)
-        expect(approach.x1).toBeCloseTo(measured.x0, 9)
-        expect(approach.y1).toBeCloseTo(measured.y0, 9)
+        // The run-up ends exactly on the ringing corner: there is no slow approach
+        // stretch, the cruise runs at the square corner velocity straight into the bend.
+        expect(runUp.x1).toBeCloseTo(measured.x0, 9)
+        expect(runUp.y1).toBeCloseTo(measured.y0, 9)
         expect(measured.x1).toBeCloseTo(tail.x0, 9)
         expect(measured.y1).toBeCloseTo(tail.y0, 9)
         expect(segLen(prime)).toBeCloseTo(PRIME_MM, 9)
-        expect(segLen(approach)).toBeCloseTo(APPROACH_MM, 9)
       }
     }
   })
@@ -223,15 +221,19 @@ describe('isCouponGeometry crossings and packing', () => {
     }
   })
   it('packs per pair: the slowest lines sit nearest the crossing zone in both groups', () => {
+    // A two-tier variant: the single-tier default cannot show the tier ordering.
+    const multi = isCouponGeometry({ ...spec, speedsMmS: [100, 200] })
+    const yG = multi.groups.find((grp) => grp.axis === 'y')!
+    const xG = multi.groups.find((grp) => grp.axis === 'x')!
     // Y group: the slowest tier's corners take the largest x (crossed earliest).
-    const yFirst = yGroup.lines[0]
-    const yLast = yGroup.lines[yGroup.lines.length - 1]
+    const yFirst = yG.lines[0]
+    const yLast = yG.lines[yG.lines.length - 1]
     expect(yFirst.speedMmS).toBeLessThan(yLast.speedMmS)
     expect(yFirst.measured.x0).toBeGreaterThan(yLast.measured.x0)
     // X group: the fastest tier's corners sit highest (deepest protected span above the
     // crossing zone), the slowest lowest.
-    const xFirst = xGroup.lines[0]
-    const xLast = xGroup.lines[xGroup.lines.length - 1]
+    const xFirst = xG.lines[0]
+    const xLast = xG.lines[xG.lines.length - 1]
     expect(xFirst.speedMmS).toBeLessThan(xLast.speedMmS)
     expect(xFirst.measured.y0).toBeLessThan(xLast.measured.y0)
   })
@@ -278,9 +280,10 @@ describe('isCouponGeometry footprint', () => {
     const interior = 2 * INNER_MARGIN_MM + packed + F + spec.runUpMm
     expect(g.couponWidthMm).toBeCloseTo(interior + 2 * g.frameBandMm, 9)
     expect(g.couponHeightMm).toBeCloseTo(g.couponWidthMm, 9)
-    // Documented derived size of the expert defaults (tiers 100/200, 3 lines, 40 mm clean
-    // read, 8 mm run-up, 4000 mm/s^2): a regression inflating the layout is caught here.
-    expect(g.couponWidthMm).toBeCloseTo(108.171875, 9)
+    // Documented derived size of the expert defaults (single 100 mm/s tier, 5 lines,
+    // 20 mm clean read, 8 mm run-up, 4000 mm/s^2, 75 mm/s square corner velocity): a
+    // regression inflating the layout is caught here.
+    expect(g.couponWidthMm).toBeCloseTo(78.546875, 9)
   })
   it('shrinks when any driving parameter shrinks (the formula carries no padding)', () => {
     const size = (s: IsTestSpec) => isCouponGeometry(s).couponWidthMm

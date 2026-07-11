@@ -24,7 +24,6 @@ import {
   restoreShapingCommands,
 } from './firmwareMotion'
 import {
-  APPROACH_SPEED_MM_S,
   fitSpecToBed,
   type IsTestSpec,
   rampWarnings,
@@ -89,7 +88,7 @@ const WIPE_MM = 2
 export const IS_MEASURED_LAYERS = 1
 
 /**
- * Prime on the move: the deretract is spread over the first stretch of the approach leg at
+ * Prime on the move: the deretract is spread over the first stretch of the run-up leg at
  * a slow feedrate instead of a stationary un-retract, which piles a blob at the line start.
  */
 function primeOnTheMove(
@@ -207,11 +206,10 @@ function emitIsGcode(profile: PrinterProfile, filament: FilamentProfile, spec: I
     // Each line is one continuous path from the coupon outer edge through the band, into
     // the window as the run-up, through the sharp corner, and across the window as the
     // measured segment; the corner vertex gets no retract, pause, or E change, so the
-    // bead is continuous and the axis rings freely into the measured segment. The run-up
-    // travels at the fixed slow speed, slows further to the corner approach over its last
-    // stretch, and the measured segment is commanded at the tier speed, so the
-    // acceleration ramp to the tier speed (the ringing excitation) lives at the start of
-    // the measured segment.
+    // bead is continuous and the flow constant through the corner. The run-up cruises at
+    // the square corner velocity, so the corner is taken with zero deceleration and the
+    // excitation is the per-axis velocity step at the bend (see RUN_UP_SPEED_MM_S); the
+    // measured segment is commanded at the tier speed.
     const pedestal = layer < PEDESTAL_LAYERS
     const width = pedestal ? PEDESTAL_WIDTH_FACTOR * nominal : nominal
     // The single beads over the open window are bridges; standard bridge practice is
@@ -230,18 +228,13 @@ function emitIsGcode(profile: PrinterProfile, filament: FilamentProfile, spec: I
         const runUpSpeed = Math.min(RUN_UP_SPEED_MM_S, speed)
         travel(e, profile, ox + line.prime.x0, oy + line.prime.y0)
         primeOnTheMove(e, profile, filament, width, ox + line.prime.x1, oy + line.prime.y1)
+        // Full-flow run-up straight into the corner at the square corner velocity: under
+        // the per-firmware junction limits this test emits (see isMotionLimitCommands for
+        // the Klipper SCV, Marlin classic-jerk plus junction-deviation, and
+        // RepRapFirmware jerk reasoning), a 90 degree corner entered at that velocity is
+        // taken without deceleration, so the corner dumps no pressure and the bead stays
+        // continuous through it.
         extrude(e, profile, filament, width, ox + line.runUp.x1, oy + line.runUp.y1, runUpSpeed)
-        // Full-flow corner approach below the square corner velocity (see APPROACH_MM and
-        // APPROACH_SPEED_MM_S): under the per-firmware junction limits this test emits
-        // (see isMotionLimitCommands for the Klipper SCV, Marlin classic-jerk plus
-        // junction-deviation, and RepRapFirmware jerk reasoning), a 90 degree corner
-        // entered below that velocity is taken without deceleration, so the corner dumps
-        // no pressure and the bead stays continuous through it.
-        extrude(
-          e, profile, filament, width,
-          ox + line.approach.x1, oy + line.approach.y1,
-          Math.min(APPROACH_SPEED_MM_S, speed),
-        )
         // Groups printed earlier this layer leave beads across this line's path; the flow
         // is zeroed over each crossing. The geometry guarantees every crossing (and its
         // flow ramps) lies beyond the protected span, so the read window sees none of it.
@@ -267,8 +260,8 @@ function emitIsGcode(profile: PrinterProfile, filament: FilamentProfile, spec: I
       group.lines.map((line) => ({
         x0: ox + line.prime.x0,
         y0: oy + line.prime.y0,
-        x1: ox + line.approach.x1,
-        y1: oy + line.approach.y1,
+        x1: ox + line.runUp.x1,
+        y1: oy + line.runUp.y1,
         widthMm: width,
       })),
     )

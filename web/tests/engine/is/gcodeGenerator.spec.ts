@@ -7,13 +7,11 @@ import {
   PEDESTAL_LAYERS,
 } from '../../../src/engine/gcode/emitter'
 import {
-  APPROACH_MM,
   isCouponGeometry,
   type IsLine,
 } from '../../../src/engine/is/couponGeometry'
 
 import {
-  APPROACH_SPEED_MM_S,
   defaultIsTestSpec,
   RUN_UP_SPEED_MM_S,
 } from '../../../src/engine/is/types'
@@ -30,16 +28,18 @@ const g = isCouponGeometry(spec)
 const ox = (profile.bedWidthMm - g.couponWidthMm) / 2
 const oy = (profile.bedDepthMm - g.couponHeightMm) / 2
 const runUpFeed = RUN_UP_SPEED_MM_S * 60
-const approachFeed = APPROACH_SPEED_MM_S * 60
 const allLines = g.groups.flatMap((grp) => grp.lines)
 
 const ePerMm = (w: number) =>
   extrusionMm(1, w, profile.layerHeightMm, filament.filamentDiameterMm)
 
-/** The full-flow corner approach move, ending exactly on the line's corner. */
-const cornerApproachStr = (line: IsLine) =>
+const runUpLen = (line: IsLine) =>
+  Math.hypot(line.runUp.x1 - line.runUp.x0, line.runUp.y1 - line.runUp.y0)
+
+/** The full-flow run-up cruise move, ending exactly on the line's ringing corner. */
+const cornerMoveStr = (line: IsLine) =>
   `G1 X${(ox + line.measured.x0).toFixed(3)} Y${(oy + line.measured.y0).toFixed(3)} ` +
-  `E${(APPROACH_MM * ePerMm(nominal)).toFixed(5)} F${approachFeed}`
+  `E${(runUpLen(line) * ePerMm(nominal)).toFixed(5)} F${runUpFeed}`
 
 const firstExtrusionIndex = (lines: string[]) => lines.findIndex((l) => /^G1 .*E-?[\d.]/.test(l))
 // The last printing move; the final retract (a bare G1 E-) sits after the restore block.
@@ -95,14 +95,14 @@ describe('generateIsGcodeWithReport (Klipper)', () => {
 
   it('emits a header, start gcode, and relative extrusion setup', () => {
     expect(lines[0]).toBe('; ScanNTune input shaper resonance test')
-    expect(lines[1]).toContain('speed tiers 100, 200 mm/s')
+    expect(lines[1]).toContain('speed tiers 100 mm/s')
     expect(report.gcode).toContain('M83')
     expect(report.gcode).toContain('G90')
   })
 
   it('sets the test motion limits with the raised corner velocity before any extrusion', () => {
     const limit = lines.indexOf(
-      'SET_VELOCITY_LIMIT ACCEL=4000 SQUARE_CORNER_VELOCITY=25 MINIMUM_CRUISE_RATIO=0',
+      'SET_VELOCITY_LIMIT ACCEL=4000 SQUARE_CORNER_VELOCITY=75 MINIMUM_CRUISE_RATIO=0',
     )
     expect(limit).toBeGreaterThan(0)
     expect(limit).toBeLessThan(firstExtrusionIndex(lines))
@@ -142,23 +142,16 @@ describe('generateIsGcodeWithReport (Klipper)', () => {
     expect(zs).toEqual(['0.200', '0.400', '10'])
   })
 
-  it('approaches every corner with 5 mm of full flow at 20 mm/s, continuous through it', () => {
+  it('cruises the run-up at 75 mm/s straight into every corner, continuous through it', () => {
     const chunk = measuredChunk(lines)
     for (const line of allLines) {
-      const idx = chunk.indexOf(cornerApproachStr(line))
-      expect(idx, `corner approach of the ${line.speedMmS} mm/s line`).toBeGreaterThanOrEqual(0)
-      // The move before is the run-up extrusion at the fixed run-up feedrate, ending one
-      // approach length short of the corner.
-      const prev = chunk[idx - 1]
-      expect(prev).toMatch(new RegExp(`^G1 X-?[\\d.]+ Y-?[\\d.]+ E[\\d.]+ F${runUpFeed}$`))
-      const m = prev.match(/^G1 X(-?[\d.]+) Y(-?[\d.]+)/)!
-      const approachLen = Math.hypot(
-        ox + line.measured.x0 - Number(m[1]),
-        oy + line.measured.y0 - Number(m[2]),
-      )
-      expect(approachLen).toBeCloseTo(APPROACH_MM, 2)
-      // Continuous positive E through the corner: the approach extrudes, and the first
-      // move after the corner extrudes at full flow.
+      const idx = chunk.indexOf(cornerMoveStr(line))
+      expect(idx, `run-up cruise of the ${line.speedMmS} mm/s line`).toBeGreaterThanOrEqual(0)
+      // The run-up extrudes at full flow at the run-up feedrate (the square corner
+      // velocity) and ends exactly on the corner; there is no separate slow approach.
+      expect(chunk[idx]).toMatch(new RegExp(`F${runUpFeed}$`))
+      // Continuous positive E through the corner: the first move after the corner
+      // extrudes at full flow at the tier feedrate.
       const next = chunk[idx + 1]
       expect(next).toMatch(new RegExp(`^G1 X.* E[\\d.]+ F${line.speedMmS * 60}$`))
     }
@@ -167,13 +160,13 @@ describe('generateIsGcodeWithReport (Klipper)', () => {
   it('primes on the move at the leg start instead of a stationary un-retract', () => {
     const chunk = measuredChunk(lines)
     for (const line of allLines) {
-      const idx = chunk.indexOf(cornerApproachStr(line))
-      // Backwards from the corner: run-up, moving prime, retracted travel.
-      expect(chunk[idx - 2], `prime of the ${line.speedMmS} mm/s line`).toMatch(
+      const idx = chunk.indexOf(cornerMoveStr(line))
+      // Backwards from the corner: moving prime, retracted travel.
+      expect(chunk[idx - 1], `prime of the ${line.speedMmS} mm/s line`).toMatch(
         /^G1 X.* E[\d.]+ F1800$/,
       )
-      expect(chunk[idx - 3]).toMatch(/^G0 X/)
-      const primeE = Number(chunk[idx - 2].match(/E([\d.]+)/)![1])
+      expect(chunk[idx - 2]).toMatch(/^G0 X/)
+      const primeE = Number(chunk[idx - 1].match(/E([\d.]+)/)![1])
       expect(primeE).toBeGreaterThan(profile.retractMm)
     }
   })
@@ -182,7 +175,7 @@ describe('generateIsGcodeWithReport (Klipper)', () => {
     const chunk = measuredChunk(lines)
     const fullE = ePerMm(nominal)
     for (const line of allLines) {
-      const idx = chunk.indexOf(cornerApproachStr(line))
+      const idx = chunk.indexOf(cornerMoveStr(line))
       const segs = walkLine(chunk, idx, ox + line.measured.x0, oy + line.measured.y0)
       const wipe = segs[segs.length - 1]
       expect(wipe.e).not.toBeNull()
@@ -205,7 +198,7 @@ describe('generateIsGcodeWithReport (Klipper)', () => {
     const chunk = measuredChunk(lines)
     for (const group of g.groups) {
       for (const line of group.lines) {
-        const idx = chunk.indexOf(cornerApproachStr(line))
+        const idx = chunk.indexOf(cornerMoveStr(line))
         const segs = walkLine(chunk, idx, ox + line.measured.x0, oy + line.measured.y0)
         const zeros = segs.slice(0, -1).filter((s) => s.e === null)
         // Every line ends with the standard zero-E coast; the crossing dips come before
@@ -230,8 +223,10 @@ describe('generateIsGcodeWithReport (Klipper)', () => {
       const bandStart = chunk.findIndex((l) => /^G1 E[\d.]/.test(l))
       expect(bandStart).toBeGreaterThan(0)
       for (const line of allLines) {
-        const coords = cornerApproachStr(line).split(' E')[0]
-        const idx = chunk.findIndex((l) => l.startsWith(coords) && l.endsWith(`F${approachFeed}`))
+        // The corner point is the endpoint of the run-up move only; the pedestal layer
+        // caps the run-up feedrate, so match by coordinates alone.
+        const coords = cornerMoveStr(line).split(' E')[0]
+        const idx = chunk.findIndex((l) => l.startsWith(coords))
         expect(idx).toBeGreaterThanOrEqual(0)
         expect(idx).toBeLessThan(bandStart)
       }
@@ -242,8 +237,8 @@ describe('generateIsGcodeWithReport (Klipper)', () => {
     const legs = allLines.map((l) => ({
       x0: ox + l.prime.x0,
       y0: oy + l.prime.y0,
-      x1: ox + l.approach.x1,
-      y1: oy + l.approach.y1,
+      x1: ox + l.runUp.x1,
+      y1: oy + l.runUp.y1,
     }))
     const distToLeg = (px: number, py: number) =>
       Math.min(
@@ -314,7 +309,7 @@ describe('generateIsGcodeWithReport (Klipper)', () => {
     const chunk = measuredChunk(lines)
     const coastMm = 1.5 * profile.nozzleDiameterMm
     for (const line of allLines) {
-      const idx = chunk.indexOf(cornerApproachStr(line))
+      const idx = chunk.indexOf(cornerMoveStr(line))
       const segs = walkLine(chunk, idx, ox + line.measured.x0, oy + line.measured.y0)
       const wipe = segs[segs.length - 1]
       const endCoast = segs[segs.length - 2]
@@ -378,9 +373,13 @@ describe('generateIsGcodeWithReport (Klipper)', () => {
     }
   })
 
-  it('warns on the high-flow 200 mm/s tier instead of capping the speed', () => {
-    expect(report.warnings.some((w) => w.includes('200 mm/s') && w.includes('mm^3/s'))).toBe(true)
-    expect(report.gcode).toContain('F12000')
+  it('warns on a high-flow 200 mm/s tier instead of capping the speed', () => {
+    const fast = generateIsGcodeWithReport(profile, filament, {
+      ...spec,
+      speedsMmS: [100, 200],
+    })
+    expect(fast.warnings.some((w) => w.includes('200 mm/s') && w.includes('mm^3/s'))).toBe(true)
+    expect(fast.gcode).toContain('F12000')
   })
 })
 
@@ -390,9 +389,10 @@ describe('generateIsGcodeWithReport (Marlin and RepRapFirmware)', () => {
     const gcode = generateIsGcodeWithReport(marlin, filament, spec).gcode
     expect(gcode).toContain('M204 P4000 T4000') // test limits
     expect(gcode).toContain('M204 P3000 T3000') // profile restore
-    expect(gcode).toContain('M205 X25 Y25')
-    // Junction-deviation equivalent of the 25 mm/s corner velocity, on its own line.
-    expect(gcode).toContain(`M205 J${((0.4 * 25 * 25) / spec.accelMmS2).toFixed(3)}`)
+    expect(gcode).toContain('M205 X75 Y75')
+    // Junction-deviation equivalent of the 75 mm/s corner velocity, on its own line:
+    // 0.4 * 75^2 / 4000 = 0.5625 mm.
+    expect(gcode).toContain(`M205 J${((0.4 * 75 * 75) / spec.accelMmS2).toFixed(3)}`)
     expect(gcode).toContain('M205 J junction deviation resumes')
     expect(gcode).toContain('M593 F0')
     expect(gcode).toContain('M900 K0')
@@ -404,9 +404,9 @@ describe('generateIsGcodeWithReport (Marlin and RepRapFirmware)', () => {
     const gcode = generateIsGcodeWithReport(rrf, filament, spec).gcode
     expect(gcode).toContain('M204 P4000 T4000') // test limits
     expect(gcode).toContain('M204 P3000 T3000') // profile restore
-    // Per-axis jerk in mm/min: a 90 degree corner at 25 mm/s is a 25 mm/s per-axis
-    // velocity change, 1500 mm/min.
-    expect(gcode).toContain('M566 X1500 Y1500')
+    // Per-axis jerk in mm/min: a 90 degree corner at 75 mm/s is a 75 mm/s per-axis
+    // velocity change, 4500 mm/min.
+    expect(gcode).toContain('M566 X4500 Y4500')
     expect(gcode).toContain('M593 P"none"')
     expect(gcode).toContain('M572 D0 S0')
   })
@@ -437,7 +437,7 @@ describe('validation and reporting', () => {
       /axis/i,
     )
     expect(() =>
-      generateIsGcodeWithReport(profile, filament, { ...spec, speedsMmS: [100] }),
+      generateIsGcodeWithReport(profile, filament, { ...spec, speedsMmS: [] }),
     ).toThrow(/speed tiers/i)
   })
 
@@ -459,7 +459,7 @@ describe('validation and reporting', () => {
     expect(spec20k.accelMmS2).toBe(20000)
     const gcode = generateIsGcodeWithReport(fast, filament, spec20k).gcode
     expect(gcode).toContain(
-      'SET_VELOCITY_LIMIT ACCEL=20000 SQUARE_CORNER_VELOCITY=25 MINIMUM_CRUISE_RATIO=0',
+      'SET_VELOCITY_LIMIT ACCEL=20000 SQUARE_CORNER_VELOCITY=75 MINIMUM_CRUISE_RATIO=0',
     )
   })
 })

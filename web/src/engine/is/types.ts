@@ -2,7 +2,6 @@ import type { PrinterProfile } from '../gcode/profileTypes'
 import type { CouponPlacement } from '../gcode/couponShell'
 import {
   accelRampMm,
-  APPROACH_MM,
   fieldExtentMm,
   frameBandMm,
   INNER_MARGIN_MM,
@@ -25,7 +24,7 @@ export interface IsTestSpec {
    * the crossing zone into the opposite band.
    */
   measuredLineMm: number
-  /** In-window length of the straight approach leg before the ringing corner; the
+  /** In-window length of the straight run-up leg before the ringing corner; the
    *  through-band leg stretch is extra and comes free from the band width. */
   runUpMm: number
   linePitchMm: number
@@ -38,11 +37,13 @@ export interface IsTestSpec {
   placement: CouponPlacement
 }
 
-export const MIN_SPEED_TIERS = 2
+export const MIN_SPEED_TIERS = 1
 export const MAX_SPEED_TIERS = 3
 export const MIN_LINES_PER_SPEED = 3
 export const MAX_LINES_PER_SPEED = 6
-export const MIN_MEASURED_LINE_MM = 40
+/** Five wavelengths of the lowest resonance of interest (25 Hz) at the 100 mm/s default
+ *  tier speed: 5 * 100 / 25 = 20 mm of clean read length. */
+export const MIN_MEASURED_LINE_MM = 20
 /** Below this acceleration the ringing trace is often too weak to measure. */
 const LOW_ACCEL_MM_S2 = 4000
 /** Default acceleration floor: the same threshold, so a default spec never starts in the
@@ -51,22 +52,27 @@ const MIN_ACCEL_MM_S2 = LOW_ACCEL_MM_S2
 
 export function defaultIsTestSpec(profile: PrinterProfile): IsTestSpec {
   return {
-    // Two tiers: the ringing frequency is speed-independent, so tiers are replicates, and
-    // the 300 mm/s wavelength would cost clean read length for no extra information.
-    speedsMmS: [100, 200],
-    linesPerSpeed: 3,
-    // Five ringing wavelengths at the worst case (25 Hz at 200 mm/s is 8 mm/period).
-    measuredLineMm: 40,
-    // Composition: about 0.5 mm ramp to the 50 mm/s run-up speed, a short cruise, then the
-    // 5 mm corner approach at 20 mm/s.
+    // One tier: the ringing frequency is speed-independent, so extra tiers are only
+    // replicates; the replicates come from linesPerSpeed instead, which costs less
+    // coupon width than a second tier's ramp and block gap.
+    speedsMmS: [100],
+    linesPerSpeed: 5,
+    // Five ringing wavelengths of the lowest resonance of interest at the tier speed
+    // (25 Hz at 100 mm/s is 4 mm per wavelength: 5 * 4 = 20 mm).
+    measuredLineMm: 20,
+    // Hosts the ramp to the 75 mm/s run-up speed (about 0.7 mm at 4000 mm/s^2) with
+    // cruise to spare; the through-band leg stretch is extra.
     runUpMm: 8,
+    // The pitch must exceed twice the expected residual ring amplitude plus the bead
+    // width; the worst case is about 0.48 mm of amplitude (see RUN_UP_SPEED_MM_S), so
+    // 2.5 mm keeps clear air between neighbouring traces.
     linePitchMm: 2.5,
     axes: ['x', 'y'],
     accelMmS2: Math.max(profile.printAccelMmS2, MIN_ACCEL_MM_S2),
-    // A 90 degree corner taken at junction speed v is a velocity impulse of sqrt(2) * v on
-    // the frame, so a higher square corner velocity both strengthens the ringing
-    // excitation and collapses the dwell time and pressure dump at the corner.
-    squareCornerVelocityMmS: 25,
+    // Equal to the run-up speed: the corner is taken at the square corner velocity with
+    // zero deceleration, so no pressure dumps at the bend, and the full 75 mm/s per-axis
+    // velocity step excites the ringing (see RUN_UP_SPEED_MM_S).
+    squareCornerVelocityMmS: RUN_UP_SPEED_MM_S,
     weldMm: 1,
     placement: 'center',
   }
@@ -87,15 +93,12 @@ export function validateIsSpec(spec: IsTestSpec): void {
     throw new Error(`The measured line length must be at least ${MIN_MEASURED_LINE_MM} mm`)
   }
   if (spec.runUpMm <= 0) throw new Error('Run-up length must be positive')
-  if (spec.runUpMm <= APPROACH_MM) {
-    throw new Error(`The run-up must be longer than the ${APPROACH_MM} mm corner approach`)
-  }
   if (spec.linePitchMm <= 0) throw new Error('Line pitch must be positive')
   if (spec.accelMmS2 <= 0) throw new Error('Acceleration must be positive')
-  if (spec.squareCornerVelocityMmS <= APPROACH_SPEED_MM_S) {
+  if (spec.squareCornerVelocityMmS < RUN_UP_SPEED_MM_S) {
     throw new Error(
-      `The square corner velocity must exceed the ${APPROACH_SPEED_MM_S} mm/s corner ` +
-        'approach speed; only then is the corner taken without deceleration.',
+      `The square corner velocity must be at least the ${RUN_UP_SPEED_MM_S} mm/s run-up ` +
+        'speed; only then is the corner taken without deceleration.',
     )
   }
   if (spec.weldMm <= 0) throw new Error('Weld length must be positive')
@@ -103,26 +106,22 @@ export function validateIsSpec(spec: IsTestSpec): void {
 }
 
 /**
- * Feedrate of the run-up leg, fixed across all tiers. Melt pressure with pressure advance
- * off scales with speed, so the leg approaches slowly; the ringing excitation is the
- * acceleration ramp from the corner up to the tier speed inside the measured segment, not
- * the approach speed. This mirrors how Klipper's ringing tower excites its corners.
+ * Cruise speed of the run-up leg, fixed across all tiers, and the size of the ringing
+ * excitation. It equals the default square corner velocity, so the planner takes the 90
+ * degree corner at the full run-up speed with zero deceleration: the pressure dump
+ * K * (v_in - v_corner) is zero by construction and the bead stays continuous. The
+ * excitation is the per-axis velocity step at the corner (the run-up axis stops, the
+ * measured axis starts, each by 75 mm/s); the residual ring amplitude is approximately
+ * delta-v over omega: 0.48 mm at 25 Hz down to 0.20 mm at 60 Hz, which stays several
+ * scanner pixels at 600 dpi.
  */
-export const RUN_UP_SPEED_MM_S = 50
-
-/**
- * Feedrate of the corner approach, the last APPROACH_MM of every run-up leg. It sits
- * below the square corner velocity (validated), so the planner takes the corner without
- * decelerating and the pressure dump K * (v_in - v_corner) is zero by construction; the
- * slow full-flow stretch also lets the higher run-up pressure relax along the leg instead
- * of at the bend.
- */
-export const APPROACH_SPEED_MM_S = 20
+export const RUN_UP_SPEED_MM_S = 75
 
 /**
  * Warns (does not throw) on spec combinations that weaken the ringing signal. The run-up
- * leg only needs to reach the fixed approach speed before the corner. The acceleration
- * ramp from the square corner velocity to each tier speed is reserved by the layout in
+ * leg only needs to reach the run-up speed before the corner: it cruises straight into
+ * the bend at the square corner velocity, so there is no deceleration term. The
+ * acceleration ramp from the corner to each tier speed is reserved by the layout in
  * front of the clean read length, so a long ramp grows the coupon instead of eating the
  * measured line; no per-tier warning is needed for it.
  */
@@ -134,15 +133,12 @@ export function rampWarnings(spec: IsTestSpec): string[] {
         "printer's true maximum acceleration.",
     )
   }
-  // The run-up must reach its speed AND brake back down to the approach speed before the
-  // corner approach begins: v^2 / 2a up plus (v^2 - v_approach^2) / 2a down.
+  // The run-up must reach its cruise speed before the corner: v^2 / 2a from rest.
   const rampUpMm = accelRampMm(RUN_UP_SPEED_MM_S, spec.accelMmS2)
-  const decelMm = rampUpMm - accelRampMm(APPROACH_SPEED_MM_S, spec.accelMmS2)
-  if (rampUpMm + decelMm > spec.runUpMm - APPROACH_MM) {
+  if (rampUpMm > spec.runUpMm) {
     warnings.push(
       `The ${spec.runUpMm} mm run-up is too short to reach the ${RUN_UP_SPEED_MM_S} mm/s ` +
-        `run-up speed and slow back to the ${APPROACH_SPEED_MM_S} mm/s corner approach at ` +
-        `${spec.accelMmS2} mm/s^2. Lengthen the run-up.`,
+        `run-up speed at ${spec.accelMmS2} mm/s^2. Lengthen the run-up.`,
     )
   }
   return warnings
@@ -150,7 +146,7 @@ export function rampWarnings(spec: IsTestSpec): string[] {
 
 /**
  * Shrinks the spec until the coupon fits the configured bed: the highest speed tier is
- * dropped first (never below two tiers), then the measured lines are shortened toward the
+ * dropped first (never below a single tier), then the measured lines are shortened toward the
  * minimum length. Throws when the bed cannot host even the smallest coupon. Every
  * reduction is described in a user-worded note.
  */

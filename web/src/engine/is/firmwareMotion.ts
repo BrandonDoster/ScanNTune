@@ -11,10 +11,10 @@ export function disableShapingCommands(profile: PrinterProfile): string[] {
 }
 
 /**
- * Motion limits for the test, per firmware, chosen so the slow corner approach (a speed
- * below the configured square corner velocity) is taken without deceleration:
- * - Klipper: SQUARE_CORNER_VELOCITY is the native semantics; any junction entered below
- *   it passes unbraked.
+ * Motion limits for the test, per firmware, chosen so the run-up cruise (commanded at the
+ * configured square corner velocity) passes the corner without deceleration:
+ * - Klipper: SQUARE_CORNER_VELOCITY is the native semantics; any junction entered at or
+ *   below it passes unbraked.
  * - Marlin classic jerk: M205 X/Y is the allowed instantaneous per-axis velocity change
  *   in mm/s. For an exact 90 degree corner the per-axis delta-v equals the corner speed,
  *   so X/Y jerk set to the square corner velocity coincides with it. Junction-deviation

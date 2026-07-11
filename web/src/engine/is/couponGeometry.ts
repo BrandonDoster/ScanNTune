@@ -5,7 +5,7 @@ export const FIDUCIAL_INSET_MM = 4
 export const FIDUCIAL_SIZE_MM = 5
 export const INNER_MARGIN_MM = 3
 export const BLOCK_GAP_MM = 2
-/** Length of the moving prime at the start of each approach leg. */
+/** Length of the moving prime at the start of each run-up leg. */
 export const PRIME_MM = 3
 /** Leg start clearance from the coupon outer edge, so nothing pokes outside the outline. */
 export const LEG_INSET_MM = 3
@@ -13,16 +13,6 @@ export const LEG_INSET_MM = 3
 export const TAIL_MARGIN_MM = 1
 /** Clearance kept between a tail's stop point and the coupon outer perimeter. */
 export const TAIL_EDGE_CLEARANCE_MM = 1
-/**
- * Length of the corner approach: the last stretch of every run-up leg, printed at full
- * flow at a fixed speed below the square corner velocity. Under the per-firmware junction
- * limits the test emits (see isMotionLimitCommands), a 90 degree corner entered below
- * that velocity is taken without deceleration, so the pressure dump
- * K * (v_in - v_corner) is zero by construction; the stretch also lets the higher run-up
- * pressure relax along the leg instead of at the bend. The bead is continuous through
- * the corner.
- */
-export const APPROACH_MM = 5
 
 /** Distance to reach `speedMmS` from rest (or stop from it) at `accelMmS2`: v^2 / (2a). */
 export function accelRampMm(speedMmS: number, accelMmS2: number): number {
@@ -81,16 +71,14 @@ export interface IsLine {
    *  under the frame band, where the un-retract is primed on the move. */
   prime: IsSegment
   /**
-   * The straight approach leg: it starts after the prime, runs through the frame band and
-   * into the open window at the fixed run-up speed, and ends where the corner approach
-   * begins.
+   * The straight run-up leg: it starts after the prime, runs through the frame band and
+   * into the open window at the fixed run-up speed, and ends on the ringing corner. Its
+   * cruise speed equals the square corner velocity (validated), so the corner is taken
+   * with zero deceleration and the bead is continuous through it.
    */
   runUp: IsSegment
-  /** Full-flow continuation of the run-up at the slow approach speed: the last
-   *  APPROACH_MM before the corner (see APPROACH_MM for the rationale). */
-  approach: IsSegment
   /**
-   * The measured segment: it starts at the corner (the approach end), crosses the rest of
+   * The measured segment: it starts at the corner (the run-up end), crosses the rest of
    * the window, and welds one weld length into the opposite band.
    */
   measured: IsSegment
@@ -170,7 +158,7 @@ export function maxPackedRampMm(spec: IsTestSpec): number {
 }
 
 function boundingBox(lines: IsLine[]): IsBox {
-  const segs = (l: IsLine) => [l.prime, l.runUp, l.approach, l.measured, l.tail]
+  const segs = (l: IsLine) => [l.prime, l.runUp, l.measured, l.tail]
   const xs = lines.flatMap((l) => segs(l).flatMap((s) => [s.x0, s.x1]))
   const ys = lines.flatMap((l) => segs(l).flatMap((s) => [s.y0, s.y1]))
   return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) }
@@ -180,8 +168,8 @@ function boundingBox(lines: IsLine[]): IsBox {
  * Y-axis group, printed first: each line starts one inset above the coupon's bottom outer
  * edge, runs vertically up through the bottom band (this through-band stretch hosts the
  * travel arrival, the moving prime, and the start blob, all ironed flat by the band pass
- * printed after it), continues into the open window as the run-up, slows to the corner
- * approach over the last stretch, takes the sharp corner, and the measured segment runs
+ * printed after it), continues into the open window as the run-up, cruises at the square
+ * corner velocity straight into the sharp corner, and the measured segment runs
  * +X into the right band. The corners sit near the window's left side on a descending
  * diagonal: the corner x DECREASES as the line's y increases, so a later line's vertical
  * leg always passes left of every earlier corner and never crosses an earlier measured
@@ -198,8 +186,7 @@ function buildYGroup(spec: IsTestSpec, bandMm: number, couponW: number): IsLineG
     return {
       speedMmS,
       prime: { x0: x, y0: LEG_INSET_MM, x1: x, y1: LEG_INSET_MM + PRIME_MM },
-      runUp: { x0: x, y0: LEG_INSET_MM + PRIME_MM, x1: x, y1: y - APPROACH_MM },
-      approach: { x0: x, y0: y - APPROACH_MM, x1: x, y1: y },
+      runUp: { x0: x, y0: LEG_INSET_MM + PRIME_MM, x1: x, y1: y },
       measured: { x0: x, y0: y, x1: couponW - bandMm + spec.weldMm, y1: y },
       tail: { x0: couponW - bandMm + spec.weldMm, y0: y, x1: couponW - bandMm + tailDepthMm(speedMmS, spec), y1: y },
       protectedMm: protectedSpanMm(spec, speedMmS),
@@ -212,7 +199,7 @@ function buildYGroup(spec: IsTestSpec, bandMm: number, couponW: number): IsLineG
 /**
  * X-axis group, printed second: each line starts one inset inside the coupon's right
  * outer edge, runs horizontally through the right band, continues -X into the window as
- * the run-up, slows to the corner approach, corners, and the measured segment runs -Y
+ * the run-up, corners at the square corner velocity, and the measured segment runs -Y
  * (downward) into the bottom band. The corners sit near the window's top on a diagonal
  * mirroring the Y group's packing: the FASTEST lines take the highest corners (their long
  * protected span needs the most depth above the crossing zone) and, anti-staggered, the
@@ -246,8 +233,7 @@ function buildXGroup(
     return {
       speedMmS,
       prime: { x0: couponW - LEG_INSET_MM, y0: y, x1: couponW - LEG_INSET_MM - PRIME_MM, y1: y },
-      runUp: { x0: couponW - LEG_INSET_MM - PRIME_MM, y0: y, x1: x + APPROACH_MM, y1: y },
-      approach: { x0: x + APPROACH_MM, y0: y, x1: x, y1: y },
+      runUp: { x0: couponW - LEG_INSET_MM - PRIME_MM, y0: y, x1: x, y1: y },
       measured: { x0: x, y0: y, x1: x, y1: bandMm - spec.weldMm },
       tail: { x0: x, y0: bandMm - spec.weldMm, x1: x, y1: bandMm - tailDepthMm(speedMmS, spec) },
       protectedMm: protectedSpanMm(spec, speedMmS),
