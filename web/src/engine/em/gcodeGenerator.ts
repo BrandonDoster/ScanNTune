@@ -1,18 +1,15 @@
-import type { FilamentProfile, PrinterProfile } from '../pa/types'
-import { substituteSlicerVariables } from '../pa/slicerVariables'
+import type { FilamentProfile, PrinterProfile } from '../gcode/profileTypes'
+import { couponOrigin, prepareProfile, setupPreamble } from '../gcode/couponShell'
 import {
   BASE_LAYERS,
   basePerimeters,
-  COLD_PRINT_WARNING,
   type Emitter,
   extrude,
-  motionLimitCommands,
   PERIMETER_LOOPS,
   RASTER_SPEED_FACTOR,
   rasterBase,
   rectLoop,
   retract,
-  startGcodeHeats,
   travel,
   type Box,
 } from '../gcode/emitter'
@@ -53,21 +50,12 @@ export function generateEmGcodeWithReport(
   if (spec.lineLengthMm <= 0) throw new Error('Line length must be positive')
   if (spec.nominalLineWidthMm <= 0) throw new Error('Nominal line width must be positive')
 
-  const start = substituteSlicerVariables(profile.startGcode, profile, filament)
-  const end = substituteSlicerVariables(profile.endGcode, profile, filament)
   // The pause gcode is only emitted (and its placeholders only reported) with a contrast base.
-  const pause = spec.contrastBase
-    ? substituteSlicerVariables(profile.pauseGcode, profile, filament)
-    : { gcode: profile.pauseGcode, unknown: [], warnings: [] }
-  const substituted: PrinterProfile = {
-    ...profile,
-    startGcode: start.gcode,
-    pauseGcode: pause.gcode,
-    endGcode: end.gcode,
-  }
-  const unknownVariables = [...new Set([...start.unknown, ...pause.unknown, ...end.unknown])]
-  const warnings = [...new Set([...start.warnings, ...pause.warnings, ...end.warnings])]
-  if (!startGcodeHeats(start.gcode)) warnings.push(COLD_PRINT_WARNING)
+  const {
+    profile: substituted,
+    unknownVariables,
+    warnings,
+  } = prepareProfile(profile, filament, { includePause: spec.contrastBase })
 
   const flow = volumetricFlowMm3S(spec, profile.layerHeightMm)
   if (flow > HIGH_FLOW_WARNING_THRESHOLD_MM3_S) {
@@ -89,14 +77,13 @@ export function generateEmGcodeWithReport(
 
 function emitEmGcode(profile: PrinterProfile, filament: FilamentProfile, spec: EmTestSpec): string {
   const g = emCouponGeometry(spec)
-  const ox = (profile.bedWidthMm - g.couponWidthMm) / 2
-  const oy =
-    spec.placement === 'front'
-      ? EDGE_MARGIN_MM
-      : spec.placement === 'back'
-        ? profile.bedDepthMm - g.couponHeightMm - EDGE_MARGIN_MM
-        : (profile.bedDepthMm - g.couponHeightMm) / 2
-  if (ox < 0 || oy < 0) throw new Error('Coupon does not fit on the configured bed')
+  const { ox, oy } = couponOrigin(
+    profile,
+    g.couponWidthMm,
+    g.couponHeightMm,
+    spec.placement,
+    EDGE_MARGIN_MM,
+  )
 
   const nominal = spec.nominalLineWidthMm
   const holes: Box[] = g.fiducials.map((f) => ({
@@ -115,12 +102,12 @@ function emitEmGcode(profile: PrinterProfile, filament: FilamentProfile, spec: E
 
   const e: Emitter = { lines: [], x: 0, y: 0 }
   const L = e.lines
-  L.push('; ScanNTune extrusion multiplier test')
-  L.push(`; nominal line width ${nominal.toFixed(3)} mm, comb speed ${spec.printSpeedMmS} mm/s`)
-  L.push(...profile.startGcode.split('\n'))
-  L.push('M83')
-  L.push('G90')
-  L.push(...motionLimitCommands(profile))
+  L.push(
+    ...setupPreamble(profile, [
+      '; ScanNTune extrusion multiplier test',
+      `; nominal line width ${nominal.toFixed(3)} mm, comb speed ${spec.printSpeedMmS} mm/s`,
+    ]),
+  )
 
   const totalLayers = PEDESTAL_LAYERS + MEASURED_LAYERS
   const infillInset = PERIMETER_LOOPS * nominal

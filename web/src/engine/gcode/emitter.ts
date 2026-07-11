@@ -1,4 +1,4 @@
-import type { FilamentProfile, PrinterProfile } from '../pa/types'
+import type { FilamentProfile, PrinterProfile } from './profileTypes'
 
 export interface Emitter {
   lines: string[]
