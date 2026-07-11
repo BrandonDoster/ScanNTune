@@ -134,14 +134,16 @@ describe('isCouponGeometry line placement', () => {
 })
 
 describe('isCouponGeometry footprint', () => {
-  it('stays within 160 mm on each side for the defaults', () => {
-    expect(g.couponWidthMm).toBeLessThanOrEqual(160)
-    expect(g.couponHeightMm).toBeLessThanOrEqual(160)
+  it('is 89 mm square for the defaults', () => {
+    expect(g.couponWidthMm).toBeCloseTo(89, 9)
+    expect(g.couponHeightMm).toBeCloseTo(89, 9)
   })
-  it('narrows the field dimension for a single axis', () => {
+  it('narrows the span dimension for a single axis when the field drives the footprint', () => {
+    // With the default 60 mm lines the perpendicular field (65 mm) exceeds the measured
+    // span (58 mm), so dropping the Y axis shrinks the X group's span dimension (height).
     const single: IsTestSpec = { ...spec, axes: ['x'] }
     const sg = isCouponGeometry(single)
-    expect(sg.couponWidthMm).toBeLessThan(sg.couponHeightMm)
-    expect(sg.couponHeightMm).toBeCloseTo(g.couponHeightMm, 9)
+    expect(sg.couponHeightMm).toBeLessThan(sg.couponWidthMm)
+    expect(sg.couponWidthMm).toBeCloseTo(g.couponWidthMm, 9)
   })
 })

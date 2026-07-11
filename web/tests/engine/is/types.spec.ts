@@ -14,7 +14,7 @@ describe('defaultIsTestSpec', () => {
     const spec = defaultIsTestSpec(defaultPrinterProfile())
     expect(spec.speedsMmS).toEqual([100, 200, 300])
     expect(spec.linesPerSpeed).toBe(5)
-    expect(spec.measuredLineMm).toBe(110)
+    expect(spec.measuredLineMm).toBe(60)
     expect(spec.runUpMm).toBe(20)
     expect(spec.linePitchMm).toBe(2.5)
     expect(spec.axes).toEqual(['x', 'y'])
@@ -53,9 +53,9 @@ describe('validateIsSpec', () => {
     expect(() => validateIsSpec({ ...spec, linesPerSpeed: 3 })).toThrow(/Lines per speed/)
     expect(() => validateIsSpec({ ...spec, linesPerSpeed: 7 })).toThrow(/Lines per speed/)
   })
-  it('throws when the measured line is shorter than the 60 mm floor', () => {
-    expect(() => validateIsSpec({ ...spec, measuredLineMm: 59 })).toThrow(/at least 60 mm/)
-    expect(() => validateIsSpec({ ...spec, measuredLineMm: 60 })).not.toThrow()
+  it('throws when the measured line is shorter than the 40 mm floor', () => {
+    expect(() => validateIsSpec({ ...spec, measuredLineMm: 39 })).toThrow(/at least 40 mm/)
+    expect(() => validateIsSpec({ ...spec, measuredLineMm: 40 })).not.toThrow()
   })
   it('throws on empty axes', () => {
     expect(() => validateIsSpec({ ...spec, axes: [] })).toThrow(/axis/)
@@ -99,16 +99,16 @@ describe('fitSpecToBed', () => {
     expect(notes[0]).toContain('300 mm/s')
   })
   it('shortens the measured lines on a smaller bed, keeping at least 2 tiers', () => {
-    const p = { ...defaultPrinterProfile(), bedWidthMm: 130, bedDepthMm: 130 }
+    const p = { ...defaultPrinterProfile(), bedWidthMm: 80, bedDepthMm: 80 }
     const { spec: fitted, notes } = fitSpecToBed(spec, p)
     expect(fitted.speedsMmS).toEqual([100, 200])
-    expect(fitted.measuredLineMm).toBe(108)
+    expect(fitted.measuredLineMm).toBe(58)
     expect(notes).toHaveLength(2)
     const g = isCouponGeometry(fitted)
-    expect(g.couponWidthMm).toBeLessThanOrEqual(130)
-    expect(g.couponHeightMm).toBeLessThanOrEqual(130)
+    expect(g.couponWidthMm).toBeLessThanOrEqual(80)
+    expect(g.couponHeightMm).toBeLessThanOrEqual(80)
   })
-  it('never shortens below the 60 mm floor and throws when the bed is genuinely too small', () => {
+  it('never shortens below the 40 mm floor and throws when the bed is genuinely too small', () => {
     const p = { ...defaultPrinterProfile(), bedWidthMm: 70, bedDepthMm: 70 }
     expect(() => fitSpecToBed(spec, p)).toThrow(/does not fit/)
   })

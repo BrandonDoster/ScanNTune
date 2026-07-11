@@ -65,7 +65,7 @@ test('input shaper: generate downloads a Klipper resonance test coupon', async (
 test('input shaper: a small bed shows fit notes and drops the fastest speed tier', async ({
   page,
 }) => {
-  await openIsPageWithProfile(page, { bedWidthMm: 100, bedDepthMm: 100 })
+  await openIsPageWithProfile(page, { bedWidthMm: 80, bedDepthMm: 80 })
 
   await expect(page.getByTestId('is-fit-notes')).toBeVisible()
   const tiers = await page.getByTestId('is-tiers').innerText()

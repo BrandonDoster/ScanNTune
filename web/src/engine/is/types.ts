@@ -25,7 +25,7 @@ export const MIN_SPEED_TIERS = 2
 export const MAX_SPEED_TIERS = 3
 export const MIN_LINES_PER_SPEED = 4
 export const MAX_LINES_PER_SPEED = 6
-export const MIN_MEASURED_LINE_MM = 60
+export const MIN_MEASURED_LINE_MM = 40
 /** Default acceleration bounds: high enough to ring the frame, low enough for any printer. */
 const MIN_ACCEL_MM_S2 = 3000
 const MAX_ACCEL_MM_S2 = 6000
@@ -34,7 +34,7 @@ export function defaultIsTestSpec(profile: PrinterProfile): IsTestSpec {
   return {
     speedsMmS: [100, 200, 300],
     linesPerSpeed: 5,
-    measuredLineMm: 110,
+    measuredLineMm: 60,
     runUpMm: 20,
     linePitchMm: 2.5,
     axes: ['x', 'y'],
