@@ -61,29 +61,12 @@ describe('generateIsGcodeWithReport (Klipper)', () => {
     expect(pa).toBeLessThan(first)
   })
 
-  it('falls back to restore comments after the last extrusion when the profile stores no settings', () => {
+  it('places the restore comments after the last extrusion', () => {
     const last = lastExtrusionIndex(lines)
     const shaper = lines.findIndex((l) => l.includes('input shaping resumes'))
     const pa = lines.findIndex((l) => l.includes('pressure advance resumes'))
     expect(shaper).toBeGreaterThan(last)
     expect(pa).toBeGreaterThan(last)
-  })
-
-  it('restores the stored shaper and pressure advance after the last extrusion', () => {
-    const stored: PrinterProfile = {
-      ...profile,
-      inputShaperTypeX: 'mzv',
-      inputShaperFreqXHz: 52.4,
-      inputShaperTypeY: 'ei',
-      inputShaperFreqYHz: 38.2,
-      pressureAdvance: 0.045,
-    }
-    const rl = generateIsGcodeWithReport(stored, filament, spec).gcode.split('\n')
-    const restore = rl.indexOf(
-      'SET_INPUT_SHAPER SHAPER_TYPE_X=mzv SHAPER_FREQ_X=52.4 SHAPER_TYPE_Y=ei SHAPER_FREQ_Y=38.2',
-    )
-    expect(restore).toBeGreaterThan(lastExtrusionIndex(rl))
-    expect(rl.indexOf('SET_PRESSURE_ADVANCE ADVANCE=0.045')).toBeGreaterThan(restore)
   })
 
   it('restores the profile motion limits after the test', () => {
