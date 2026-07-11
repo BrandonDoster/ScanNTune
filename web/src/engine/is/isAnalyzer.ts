@@ -66,6 +66,26 @@ export function analyzeIsCoupon(
         axes: [],
       }
     }
+    // A face-down scan of the coupon's top face is always mirrored relative to the coupon
+    // frame. An unmirrored scan therefore shows the BED side: there the sharp on-glass edge
+    // is the slow-printed pedestal bead (which carries no ringing), the measured layer sits
+    // above the scanner's focal plane, and the first-layer fiducial rims are squish-torn, so
+    // nothing downstream could measure the ring. Refuse with the flip named instead of
+    // returning numbers read off the wrong layer.
+    if (!alignment.flipped) {
+      alignments.push(alignment) // the overlay can still show the located coupon
+      return {
+        aligned: false,
+        failureReason:
+          `Scan ${i + 1} shows the coupon's bed side. Place the coupon with the printed top ` +
+          'face against the glass and rescan.',
+        scans: alignments.map((a) => ({
+          flipped: a.flipped,
+          rotationQuarterTurns: a.rotationQuarterTurns,
+        })),
+        axes: [],
+      }
+    }
     alignments.push(alignment)
   }
 

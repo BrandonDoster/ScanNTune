@@ -240,6 +240,25 @@ describe('analyzeIsCoupon render recovery', () => {
     240000,
   )
 
+  it(
+    'refuses an unmirrored scan as the coupon bed side',
+    async () => {
+      const truth = {
+        y: { frequencyHz: 75, dampingRatio: 0.05, ringAmpMm: 0.25 },
+      }
+      const r = await analyzePair(
+        ySpec,
+        { truth, quarterTurns: 0, flipped: false },
+        { truth, quarterTurns: 1, flipped: true },
+      )
+      expect(r.aligned).toBe(false)
+      expect(r.failureReason).toContain('bed side')
+      expect(r.scans[0].flipped).toBe(false)
+      expect(r.axes).toEqual([])
+    },
+    240000,
+  )
+
   it('reports a failed alignment with a reason on a blank image', async () => {
     const cv = await getCv()
     const width = 400

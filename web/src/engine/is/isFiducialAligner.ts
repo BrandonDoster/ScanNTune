@@ -27,6 +27,13 @@ export interface IsAlignment {
   rotationQuarterTurns: number
 }
 
+/**
+ * Upper bound on hole-sized plate openings before the subset search is refused: beyond this
+ * the scene is dominated by non-fiducial openings (debris, reflections, a damaged part) and
+ * an orientation picked from it would be a guess.
+ */
+const MAX_HOLE_CANDIDATES = 12
+
 export function alignIsCoupon(cv: OpenCv, imageBgr: Mat, spec: IsTestSpec): IsAlignment {
   if (!imageBgr || imageBgr.empty()) throw new Error('Image is null or empty.')
   const geometry = isCouponGeometry(spec)
@@ -36,7 +43,7 @@ export function alignIsCoupon(cv: OpenCv, imageBgr: Mat, spec: IsTestSpec): IsAl
   // guaranteed to isolate the plate. Every threshold-band hypothesis is tried and validated
   // against the known geometry; the first that yields the three-hole corner pattern wins.
   const gray = valueChannel(cv, imageBgr)
-  let attempts: IsAlignment[]
+  let attempts: AlignAttempt[]
   try {
     attempts = analyzeThresholdBands(
       cv,
@@ -48,11 +55,24 @@ export function alignIsCoupon(cv: OpenCv, imageBgr: Mat, spec: IsTestSpec): IsAl
     gray.delete()
   }
   const aligned = attempts.find((r) => r.success)
-  if (aligned) return aligned
-  const informative = attempts.find(
-    (r) => r.failureReason !== null && !r.failureReason.startsWith('No coupon'),
+  if (aligned) return stripStage(aligned)
+  // Report the failure from the band hypothesis that got furthest through the pipeline: a
+  // band that found the plate and its holes but could not verify the orientation explains
+  // the scan better than one whose largest blob was the whole image.
+  const best = attempts.reduce<AlignAttempt | null>(
+    (acc, r) => (acc === null || r.stage > acc.stage ? r : acc),
+    null,
   )
-  return informative ?? attempts[0] ?? fail('No coupon was found in the scan.')
+  return best ? stripStage(best) : fail('No coupon was found in the scan.', 0)
+}
+
+/** IsAlignment plus how far through the alignment pipeline the attempt progressed (higher
+ *  means further: plate found, shape ok, holes found, orientation solved, content verified). */
+type AlignAttempt = IsAlignment & { stage: number }
+
+function stripStage(attempt: AlignAttempt): IsAlignment {
+  const { stage: _stage, ...alignment } = attempt
+  return alignment
 }
 
 export function mmToPx(alignment: IsAlignment, xMm: number, yMm: number): { x: number; y: number } {
@@ -61,19 +81,20 @@ export function mmToPx(alignment: IsAlignment, xMm: number, yMm: number): { x: n
   return { x: A.a * xMm + A.b * yMm + A.tx, y: A.c * xMm + A.d * yMm + A.ty }
 }
 
-function fail(reason: string): IsAlignment {
+function fail(reason: string, stage: number): AlignAttempt {
   return {
     success: false,
     failureReason: reason,
     affine: null,
     flipped: false,
     rotationQuarterTurns: 0,
+    stage,
   }
 }
 
 // One alignment attempt on one threshold band's binary (coupon plate assumed white). `gray`
 // is the scan's value channel, sampled to disambiguate the corner correspondence.
-function tryAlign(cv: OpenCv, objectWhite: Mat, gray: Mat, g: IsCouponGeometry): IsAlignment {
+function tryAlign(cv: OpenCv, objectWhite: Mat, gray: Mat, g: IsCouponGeometry): AlignAttempt {
   const contours = new cv.MatVector()
   const hierarchy = new cv.Mat()
   try {
@@ -107,6 +128,7 @@ function tryAlign(cv: OpenCv, objectWhite: Mat, gray: Mat, g: IsCouponGeometry):
     if (baseIndex < 0 || baseArea < minBasePx) {
       return fail(
         'No coupon was found in the scan. Place the printed coupon flat on the scanner glass so the whole plate is visible.',
+        0,
       )
     }
 
@@ -130,30 +152,29 @@ function tryAlign(cv: OpenCv, objectWhite: Mat, gray: Mat, g: IsCouponGeometry):
     ) {
       return fail(
         'The largest object in the scan does not match the coupon plate shape. Remove other objects from the glass and rescan.',
+        1,
       )
     }
 
-    // Fiducial holes: children of the plate contour with the expected area and a square shape.
+    // Fiducial hole candidates: children of the plate contour with a plausible area and a
+    // square shape. The area gate is wide on the low side because a scan of the coupon's bed
+    // side reads the first layer's hole rims, which elephant-foot squish shrinks to roughly
+    // half the nominal area; the upper bound stays below the smallest square-ish window
+    // pockets (about 2.5 times the fiducial area).
     const estimatedPxPerMm = Math.sqrt(baseArea / nominalAreaMm2)
     const expectedHoleAreaPx = (g.fiducialSizeMm * estimatedPxPerMm) ** 2
     const holes: Point[] = []
-    let candidateCount = 0
     for (let i = 0; i < count; i++) {
       if (hierarchy.data32S[i * 4 + 3] !== baseIndex) continue // not a hole in the plate
       const contour = contours.get(i)
       try {
         const area = cv.contourArea(contour)
-        // Tighter than the EM gate (0.4 to 2.5): the IS window is subdivided by the test lines
-        // into many pockets, and the smallest square-ish pockets (bounded by the last lines of
-        // the two groups) come within about 2.5 times the fiducial area, so the upper bound
-        // must sit below that while still absorbing print and scan size error.
-        if (area < expectedHoleAreaPx * 0.5 || area > expectedHoleAreaPx * 1.8) continue
+        if (area < expectedHoleAreaPx * 0.3 || area > expectedHoleAreaPx * 1.8) continue
         // A fiducial is square, so its minimum-area rectangle is not elongated.
         const rect = cv.minAreaRect(contour)
         const long = Math.max(rect.size.width, rect.size.height)
         const short = Math.min(rect.size.width, rect.size.height)
         if (short <= 0 || long / short > 2) continue
-        candidateCount++
         const m = cv.moments(contour)
         if (m.m00 <= 0) continue
         holes.push({ x: m.m10 / m.m00, y: m.m01 / m.m00 })
@@ -161,14 +182,46 @@ function tryAlign(cv: OpenCv, objectWhite: Mat, gray: Mat, g: IsCouponGeometry):
         contour.delete()
       }
     }
-    if (candidateCount !== 3 || holes.length !== 3) {
+    if (holes.length < 3) {
       return fail(
-        `Expected the coupon's 3 corner holes but found ${candidateCount}. Make sure the coupon is scanned face down with no hole covered.`,
+        `Expected the coupon's 3 corner holes but found ${holes.length}. Make sure the coupon is scanned with no hole covered.`,
+        2,
+      )
+    }
+    if (holes.length > MAX_HOLE_CANDIDATES) {
+      return fail(
+        'Too many hole-sized openings were detected on the coupon, so the corner holes could not be told apart. Check for debris or reflections on the scan and try again.',
+        2,
       )
     }
 
-    const { candidates, reason } = solveCornerHoleCandidates(holes, g.fiducials)
-    if (candidates.length === 0) return fail(reason ?? 'The coupon orientation could not be determined.')
+    // Every 3-subset of the candidates is tried against the known fiducial layout; the shared
+    // corner solver's right-angle and per-arm scale gates reject subsets that include a window
+    // pocket, and a plate-scale gate rejects subsets whose implied px/mm disagrees with the
+    // plate blob. All surviving orientation hypotheses compete in the content-probe model
+    // selection below (the same doctrine that picks the threshold polarity).
+    const candidates: CornerCandidate[] = []
+    let lastReason: string | null = null
+    for (let i = 0; i < holes.length - 2; i++) {
+      for (let j = i + 1; j < holes.length - 1; j++) {
+        for (let k = j + 1; k < holes.length; k++) {
+          const subset = [holes[i], holes[j], holes[k]]
+          const { candidates: subsetCandidates, reason } = solveCornerHoleCandidates(
+            subset,
+            g.fiducials,
+          )
+          if (reason) lastReason = reason
+          for (const c of subsetCandidates) {
+            const scale = Math.sqrt(Math.abs(c.affine.a * c.affine.d - c.affine.b * c.affine.c))
+            if (Math.abs(scale / estimatedPxPerMm - 1) > 0.1) continue
+            candidates.push(c)
+          }
+        }
+      }
+    }
+    if (candidates.length === 0) {
+      return fail(lastReason ?? 'The coupon orientation could not be determined.', 3)
+    }
     return selectCandidateByContent(gray, g, candidates)
   } finally {
     contours.delete()
@@ -196,7 +249,7 @@ function selectCandidateByContent(
   gray: Mat,
   g: IsCouponGeometry,
   candidates: CornerCandidate[],
-): IsAlignment {
+): AlignAttempt {
   const band = g.frameBandMm
   // Plastic tone: the four band-edge midpoints; background tone: the fiducial hole centers.
   // Both sets map onto themselves under either candidate (the bands and holes are common to
@@ -260,14 +313,16 @@ function selectCandidateByContent(
   const secondScore = order.length > 1 ? scores[order[1]] : -Infinity
   if (bestScore < MIN_PROBE_SCORE) {
     return fail(
-      'The coupon orientation could not be verified against the printed line pattern. The scan ' +
-        'may be incomplete or show a different coupon; rescan with the whole coupon on the glass.',
+      'The coupon orientation could not be verified against the printed line pattern. Rescan ' +
+        'with the printed top face against the glass and the whole coupon visible.',
+      4,
     )
   }
   if (candidates.length > 1 && bestScore - secondScore < MIN_PROBE_MARGIN) {
     return fail(
       'The coupon orientation is ambiguous in this scan: both possible orientations match the ' +
         'printed pattern about equally well. Rescan the coupon flat on the glass with the lid closed.',
+      4,
     )
   }
   const c = candidates[best]
@@ -277,5 +332,6 @@ function selectCandidateByContent(
     affine: c.affine,
     flipped: c.flipped,
     rotationQuarterTurns: c.rotationQuarterTurns,
+    stage: 5,
   }
 }
