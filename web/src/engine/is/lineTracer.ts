@@ -58,8 +58,13 @@ export const PROFILE_HALF_WINDOW_MM = 1.0
 const ALONG_STEP_PX = 0.5
 /** Step across the line in image px. */
 const ACROSS_STEP_PX = 0.25
-/** Weights below this fraction of the peak deviation are zeroed (thresholded centroid). */
-const CENTROID_THRESHOLD = 0.25
+/** Weights below this fraction of the peak deviation are zeroed (thresholded centroid).
+ *  0.5 of the local bead depth is the full-width-at-half-maximum localization level, the
+ *  standard robust choice for asymmetric line profiles (see Fisher and Naidu, "A Comparison
+ *  of Algorithms for Subpixel Peak Detection"); a low threshold lets a one-sided scanner
+ *  lamp-shadow skirt above the threshold drag the intensity-weighted centroid toward the
+ *  shadow, while the half-maximum level cuts that lever arm. */
+const CENTROID_THRESHOLD = 0.5
 /** Minimum peak deviation (gray levels) for a sample to count as seeing the bead at all. */
 const MIN_PEAK_DEVIATION = 8
 /** Fraction of samples that may fail before the whole line is dropped. */

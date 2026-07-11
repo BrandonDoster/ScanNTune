@@ -577,7 +577,9 @@ export function poolAxisFits(fits: LineFit[], speedsMmS: number[], lineSpeeds: n
   if (accepted.length < MIN_ACCEPTED_LINES) {
     return refuse(
       `Only ${accepted.length} of the axis's lines produced a usable ringing fit (at least ` +
-        `${MIN_ACCEPTED_LINES} are needed for a trustworthy estimate).`,
+        `${MIN_ACCEPTED_LINES} are needed for a trustworthy estimate). When most lines of a ` +
+        `scan are refused, the scanner's lamp shadow is often falling across the measured ` +
+        `edges; rescan with the coupon rotated a half turn on the glass.`,
     )
   }
 
