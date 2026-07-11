@@ -5,11 +5,18 @@ import {
   extrusionMm,
   NOMINAL_WIDTH_FACTOR,
   PEDESTAL_LAYERS,
-  PEDESTAL_WIDTH_FACTOR,
 } from '../../../src/engine/gcode/emitter'
-import { isCouponGeometry } from '../../../src/engine/is/couponGeometry'
+import {
+  APPROACH_MM,
+  isCouponGeometry,
+  type IsLine,
+} from '../../../src/engine/is/couponGeometry'
 
-import { defaultIsTestSpec, RUN_UP_SPEED_MM_S } from '../../../src/engine/is/types'
+import {
+  APPROACH_SPEED_MM_S,
+  defaultIsTestSpec,
+  RUN_UP_SPEED_MM_S,
+} from '../../../src/engine/is/types'
 import {
   generateIsGcodeWithReport,
   IS_MEASURED_LAYERS,
@@ -19,14 +26,20 @@ const profile = defaultPrinterProfile()
 const filament = defaultFilamentProfile()
 const spec = defaultIsTestSpec(profile)
 const nominal = profile.nozzleDiameterMm * NOMINAL_WIDTH_FACTOR
+const g = isCouponGeometry(spec)
+const ox = (profile.bedWidthMm - g.couponWidthMm) / 2
+const oy = (profile.bedDepthMm - g.couponHeightMm) / 2
+const runUpFeed = RUN_UP_SPEED_MM_S * 60
+const approachFeed = APPROACH_SPEED_MM_S * 60
+const allLines = g.groups.flatMap((grp) => grp.lines)
 
-/** E value of a full measured segment at the given width, from the coupon geometry. */
-function measuredEValue(widthMm: number): string {
-  const g = isCouponGeometry(spec)
-  const seg = g.groups[0].lines[0].measured
-  const len = Math.hypot(seg.x1 - seg.x0, seg.y1 - seg.y0)
-  return extrusionMm(len, widthMm, profile.layerHeightMm, filament.filamentDiameterMm).toFixed(5)
-}
+const ePerMm = (w: number) =>
+  extrusionMm(1, w, profile.layerHeightMm, filament.filamentDiameterMm)
+
+/** The full-flow corner approach move, ending exactly on the line's corner. */
+const cornerApproachStr = (line: IsLine) =>
+  `G1 X${(ox + line.measured.x0).toFixed(3)} Y${(oy + line.measured.y0).toFixed(3)} ` +
+  `E${(APPROACH_MM * ePerMm(nominal)).toFixed(5)} F${approachFeed}`
 
 const firstExtrusionIndex = (lines: string[]) => lines.findIndex((l) => /^G1 .*E-?[\d.]/.test(l))
 // The last printing move; the final retract (a bare G1 E-) sits after the restore block.
@@ -35,20 +48,61 @@ const lastExtrusionIndex = (lines: string[]) => {
   return -1
 }
 
+/** Layer chunks: the G-code lines between consecutive printing-layer Z moves. */
+function layerChunks(lines: string[]): string[][] {
+  const zIndexes = lines.flatMap((l, i) => (/^G1 Z0\./.test(l) ? [i] : []))
+  return zIndexes.map((z, k) => lines.slice(z + 1, zIndexes[k + 1] ?? lines.length))
+}
+
+/** The measured layer's chunk (after the pedestal). */
+function measuredChunk(lines: string[]): string[] {
+  const chunks = layerChunks(lines)
+  return chunks[chunks.length - 1]
+}
+
+interface Seg {
+  len: number
+  e: number | null
+  f: number
+  startDist: number
+}
+
+/** Walk the printing moves of one test line from its corner up to and including the wipe. */
+function walkLine(chunk: string[], cornerIdx: number, cx: number, cy: number): Seg[] {
+  const segs: Seg[] = []
+  let x = cx
+  let y = cy
+  let dist = 0
+  for (let i = cornerIdx + 1; i < chunk.length; i++) {
+    const m = chunk[i].match(/^G1 X(-?[\d.]+) Y(-?[\d.]+)(?: E(-?[\d.]+))? F(\d+)$/)
+    if (!m) break
+    const nx = Number(m[1])
+    const ny = Number(m[2])
+    const e = m[3] === undefined ? null : Number(m[3])
+    const len = Math.hypot(nx - x, ny - y)
+    segs.push({ len, e, f: Number(m[4]), startDist: dist })
+    if (e !== null && e < 0) break
+    dist += len
+    x = nx
+    y = ny
+  }
+  return segs
+}
+
 describe('generateIsGcodeWithReport (Klipper)', () => {
   const report = generateIsGcodeWithReport(profile, filament, spec)
   const lines = report.gcode.split('\n')
 
   it('emits a header, start gcode, and relative extrusion setup', () => {
     expect(lines[0]).toBe('; ScanNTune input shaper resonance test')
-    expect(lines[1]).toContain('speed tiers 100, 200, 300 mm/s')
+    expect(lines[1]).toContain('speed tiers 100, 200 mm/s')
     expect(report.gcode).toContain('M83')
     expect(report.gcode).toContain('G90')
   })
 
-  it('sets the test motion limits with zero cruise ratio before the first extrusion', () => {
+  it('sets the test motion limits with the raised corner velocity before any extrusion', () => {
     const limit = lines.indexOf(
-      'SET_VELOCITY_LIMIT ACCEL=3000 SQUARE_CORNER_VELOCITY=5 MINIMUM_CRUISE_RATIO=0',
+      'SET_VELOCITY_LIMIT ACCEL=4000 SQUARE_CORNER_VELOCITY=25 MINIMUM_CRUISE_RATIO=0',
     )
     expect(limit).toBeGreaterThan(0)
     expect(limit).toBeLessThan(firstExtrusionIndex(lines))
@@ -88,40 +142,152 @@ describe('generateIsGcodeWithReport (Klipper)', () => {
     expect(zs).toEqual(['0.200', '0.400', '10'])
   })
 
-  it('emits one measured segment per line per layer at each tier speed', () => {
-    const measuredE = measuredEValue(nominal)
-    for (const speed of spec.speedsMmS) {
-      const moves = lines.filter((l) => l.includes(`E${measuredE} F${speed * 60}`))
-      expect(moves.length).toBe(IS_MEASURED_LAYERS * spec.axes.length * spec.linesPerSpeed)
-    }
-    const pedestalE = measuredEValue(PEDESTAL_WIDTH_FACTOR * nominal)
-    const pedestalMoves = lines.filter((l) => l.includes(`E${pedestalE}`))
-    expect(pedestalMoves.length).toBe(
-      PEDESTAL_LAYERS * spec.axes.length * spec.speedsMmS.length * spec.linesPerSpeed,
-    )
-  })
-
-  it('caps the pedestal layer lines to the band fill speed so they stick', () => {
-    const pedestalE = measuredEValue(PEDESTAL_WIDTH_FACTOR * nominal)
-    const fillF = Math.round((profile.travelSpeedMmS / 3) * 60)
-    for (const l of lines) {
-      if (!l.includes(`E${pedestalE}`)) continue
-      expect(Number(l.match(/F(\d+)$/)![1])).toBeLessThanOrEqual(fillF)
-    }
-  })
-
-  it('extrudes through the corner continuously with a slow fixed-speed run-up', () => {
-    const measuredE = measuredEValue(nominal)
-    const runUpF = RUN_UP_SPEED_MM_S * 60
-    let seen = 0
-    for (let i = 0; i < lines.length; i++) {
-      if (!lines[i].includes(`E${measuredE}`)) continue
-      expect(lines[i - 1], `line before ${lines[i]}`).toMatch(
-        new RegExp(`^G1 X-?[\\d.]+ Y-?[\\d.]+ E[\\d.]+ F${runUpF}$`),
+  it('approaches every corner with 5 mm of full flow at 20 mm/s, continuous through it', () => {
+    const chunk = measuredChunk(lines)
+    for (const line of allLines) {
+      const idx = chunk.indexOf(cornerApproachStr(line))
+      expect(idx, `corner approach of the ${line.speedMmS} mm/s line`).toBeGreaterThanOrEqual(0)
+      // The move before is the run-up extrusion at the fixed run-up feedrate, ending one
+      // approach length short of the corner.
+      const prev = chunk[idx - 1]
+      expect(prev).toMatch(new RegExp(`^G1 X-?[\\d.]+ Y-?[\\d.]+ E[\\d.]+ F${runUpFeed}$`))
+      const m = prev.match(/^G1 X(-?[\d.]+) Y(-?[\d.]+)/)!
+      const approachLen = Math.hypot(
+        ox + line.measured.x0 - Number(m[1]),
+        oy + line.measured.y0 - Number(m[2]),
       )
-      seen++
+      expect(approachLen).toBeCloseTo(APPROACH_MM, 2)
+      // Continuous positive E through the corner: the approach extrudes, and the first
+      // move after the corner extrudes at full flow.
+      const next = chunk[idx + 1]
+      expect(next).toMatch(new RegExp(`^G1 X.* E[\\d.]+ F${line.speedMmS * 60}$`))
     }
-    expect(seen).toBeGreaterThan(0)
+  })
+
+  it('primes on the move at the leg start instead of a stationary un-retract', () => {
+    const chunk = measuredChunk(lines)
+    for (const line of allLines) {
+      const idx = chunk.indexOf(cornerApproachStr(line))
+      // Backwards from the corner: run-up, moving prime, retracted travel.
+      expect(chunk[idx - 2], `prime of the ${line.speedMmS} mm/s line`).toMatch(
+        /^G1 X.* E[\d.]+ F1800$/,
+      )
+      expect(chunk[idx - 3]).toMatch(/^G0 X/)
+      const primeE = Number(chunk[idx - 2].match(/E([\d.]+)/)![1])
+      expect(primeE).toBeGreaterThan(profile.retractMm)
+    }
+  })
+
+  it('runs each measured segment at its tier feedrate with full flow across the whole protected span', () => {
+    const chunk = measuredChunk(lines)
+    const fullE = ePerMm(nominal)
+    for (const line of allLines) {
+      const idx = chunk.indexOf(cornerApproachStr(line))
+      const segs = walkLine(chunk, idx, ox + line.measured.x0, oy + line.measured.y0)
+      const wipe = segs[segs.length - 1]
+      expect(wipe.e).not.toBeNull()
+      expect(wipe.e!).toBeLessThan(0)
+      const body = segs.slice(0, -1)
+      expect(body.length).toBeGreaterThan(0)
+      for (const s of body) {
+        expect(s.f, `feedrate of the ${line.speedMmS} mm/s line`).toBe(line.speedMmS * 60)
+        const flow = (s.e ?? 0) / (s.len * fullE)
+        // No E-rate change inside the protected span: any deviation from full flow
+        // (crossing dips, ramps, the end-of-line coast) starts beyond it.
+        if (s.startDist < line.protectedMm) {
+          expect(flow, `flow at ${s.startDist.toFixed(1)} mm`).toBeCloseTo(1, 2)
+        }
+      }
+    }
+  })
+
+  it('dips the flow to zero exactly at each crossing on the second-printed group', () => {
+    const chunk = measuredChunk(lines)
+    for (const group of g.groups) {
+      for (const line of group.lines) {
+        const idx = chunk.indexOf(cornerApproachStr(line))
+        const segs = walkLine(chunk, idx, ox + line.measured.x0, oy + line.measured.y0)
+        const zeros = segs.slice(0, -1).filter((s) => s.e === null)
+        // Every line ends with the standard zero-E coast; the crossing dips come before
+        // it, and no other zero-E segment exists between the prime and that coast.
+        const dips = zeros.slice(0, -1)
+        expect(dips).toHaveLength(line.crossingsMm.length)
+        dips.forEach((d, k) => {
+          expect(d.startDist + d.len / 2).toBeCloseTo(line.crossingsMm[k], 1)
+          expect(d.len).toBeCloseTo(nominal, 1)
+          expect(d.startDist).toBeGreaterThan(line.protectedMm)
+        })
+      }
+    }
+    // The second-printed group actually carries crossings.
+    expect(g.groups[1].lines.every((l) => l.crossingsMm.length > 0)).toBe(true)
+  })
+
+  it('prints the test lines before the frame band on every layer', () => {
+    // Within each layer, every corner approach must come before the band's first bare
+    // deretract (the band restores pressure after the hop from the last line's wipe).
+    for (const chunk of layerChunks(lines)) {
+      const bandStart = chunk.findIndex((l) => /^G1 E[\d.]/.test(l))
+      expect(bandStart).toBeGreaterThan(0)
+      for (const line of allLines) {
+        const coords = cornerApproachStr(line).split(' E')[0]
+        const idx = chunk.findIndex((l) => l.startsWith(coords) && l.endsWith(`F${approachFeed}`))
+        expect(idx).toBeGreaterThanOrEqual(0)
+        expect(idx).toBeLessThan(bandStart)
+      }
+    }
+  })
+
+  it('zeroes the band flow where its passes cross the through-band leg stretches', () => {
+    const legs = allLines.map((l) => ({
+      x0: ox + l.prime.x0,
+      y0: oy + l.prime.y0,
+      x1: ox + l.approach.x1,
+      y1: oy + l.approach.y1,
+    }))
+    const distToLeg = (px: number, py: number) =>
+      Math.min(
+        ...legs.map((s) => {
+          const dx = s.x1 - s.x0
+          const dy = s.y1 - s.y0
+          const t = Math.max(
+            0,
+            Math.min(1, ((px - s.x0) * dx + (py - s.y0) * dy) / (dx * dx + dy * dy)),
+          )
+          return Math.hypot(px - (s.x0 + t * dx), py - (s.y0 + t * dy))
+        }),
+      )
+    const yGroup = g.groups.find((grp) => grp.axis === 'y')!
+    const xGroup = g.groups.find((grp) => grp.axis === 'x')!
+    for (const chunk of layerChunks(lines)) {
+      const bandStart = chunk.findIndex((l) => /^G1 E[\d.]/.test(l))
+      const stop = chunk.findIndex((l) => l.includes('resumes'))
+      const end = stop === -1 ? chunk.length : stop
+      let x = NaN
+      let y = NaN
+      let nearY = 0
+      let nearX = 0
+      for (let i = 0; i < end; i++) {
+        const m = chunk[i].match(/^G([01]) X(-?[\d.]+) Y(-?[\d.]+)(?: E-?[\d.]+)?(?: F\d+)?$/)
+        if (!m) continue
+        const nx = Number(m[2])
+        const ny = Number(m[3])
+        if (i > bandStart && m[1] === '1' && !chunk[i].includes('E') && !Number.isNaN(x)) {
+          const mx = (x + nx) / 2
+          const my = (y + ny) / 2
+          if (distToLeg(mx, my) < 0.5) {
+            if (my < oy + g.windowBox.y0) nearY++
+            if (mx > ox + g.windowBox.x1) nearX++
+          }
+        }
+        x = nx
+        y = ny
+      }
+      // Every leg is crossed several times per layer (window perimeter loops plus the
+      // raster), in the bottom band for the Y legs and the right band for the X legs.
+      expect(nearY).toBeGreaterThanOrEqual(yGroup.lines.length * 2)
+      expect(nearX).toBeGreaterThanOrEqual(xGroup.lines.length * 2)
+    }
   })
 
   it('keeps the fan off on the pedestal layer and runs it at full for the measured lines', () => {
@@ -144,75 +310,26 @@ describe('generateIsGcodeWithReport (Klipper)', () => {
     }
   })
 
-  it('prints the test lines before the frame band on every layer', () => {
-    // Within each layer, every measured segment must come before the band's first bare
-    // deretract (the band restores pressure after the hop from the last line's wipe).
-    const measuredE = measuredEValue(nominal)
-    const pedestalE = measuredEValue(PEDESTAL_WIDTH_FACTOR * nominal)
-    const zIndexes = lines.flatMap((l, i) => (/^G1 Z0\./.test(l) ? [i] : []))
-    for (let k = 0; k < zIndexes.length; k++) {
-      const chunk = lines.slice(zIndexes[k] + 1, zIndexes[k + 1] ?? lines.length)
-      const bandStart = chunk.findIndex((l) => /^G1 E[\d.]/.test(l))
-      expect(bandStart).toBeGreaterThan(0)
-      for (let i = bandStart; i < chunk.length; i++) {
-        expect(chunk[i]).not.toContain(`E${measuredE}`)
-        expect(chunk[i]).not.toContain(`E${pedestalE}`)
-      }
-    }
-  })
-
-  it('primes on the move over the approach leg start instead of a stationary un-retract', () => {
-    const measuredE = measuredEValue(nominal)
-    for (let i = 0; i < lines.length; i++) {
-      if (!lines[i].includes(`E${measuredE}`)) continue
-      // Backwards from the measured segment: run-up, moving prime, retracted travel.
-      expect(lines[i - 2], `prime before ${lines[i]}`).toMatch(/^G1 X.* E[\d.]+ F1800$/)
-      expect(lines[i - 3]).toMatch(/^G0 X/)
-      const primeE = Number(lines[i - 2].match(/E([\d.]+)/)![1])
-      expect(primeE).toBeGreaterThan(profile.retractMm)
-    }
-  })
-
   it('extrudes a decel tail scaling with speed squared, then coasts and wipe-retracts', () => {
-    const g = isCouponGeometry(spec)
-    const measuredE = measuredEValue(nominal)
+    const chunk = measuredChunk(lines)
     const coastMm = 1.5 * profile.nozzleDiameterMm
-    for (let i = 0; i < lines.length; i++) {
-      if (!lines[i].includes(`E${measuredE}`)) continue
-      const speed = Number(lines[i].match(/F(\d+)$/)![1]) / 60
+    for (const line of allLines) {
+      const idx = chunk.indexOf(cornerApproachStr(line))
+      const segs = walkLine(chunk, idx, ox + line.measured.x0, oy + line.measured.y0)
+      const wipe = segs[segs.length - 1]
+      const endCoast = segs[segs.length - 2]
+      const tailExtrude = segs[segs.length - 3]
       // Tail length past the weld: the full kinematic stopping distance plus the margin.
-      const tailLen = speed ** 2 / (2 * spec.accelMmS2) + 1
-      const tailE = extrusionMm(
-        tailLen - coastMm,
-        nominal,
-        profile.layerHeightMm,
-        filament.filamentDiameterMm,
-      ).toFixed(5)
-      expect(lines[i + 1], `tail after ${lines[i]}`).toMatch(
-        new RegExp(`^G1 X.* E${tailE.replace('.', '\\.')} F${speed * 60}$`),
-      )
-      // Coast: a zero-E move at the same feedrate finishing the tail.
-      expect(lines[i + 2]).toMatch(new RegExp(`^G1 X-?[\\d.]+ Y-?[\\d.]+ F${speed * 60}$`))
-      // Wipe on retract: the retract runs over a move back along the tail.
-      expect(lines[i + 3]).toMatch(
-        new RegExp(`^G1 X.* E${(-profile.retractMm).toFixed(3)} F\\d+$`),
-      )
-    }
-    // Distinct tail lengths per tier: every tier gets its full stopping distance.
-    const xLines = g.groups[0].lines
-    const tailOf = (s: number) => {
-      const l = xLines.find((ln) => ln.speedMmS === s)!
-      return Math.hypot(l.tail.x1 - l.tail.x0, l.tail.y1 - l.tail.y0)
-    }
-    for (const s of spec.speedsMmS) {
-      expect(tailOf(s)).toBeCloseTo(s ** 2 / (2 * spec.accelMmS2) + 1, 9)
+      const tailLen = line.speedMmS ** 2 / (2 * spec.accelMmS2) + 1
+      expect(tailExtrude.e).not.toBeNull()
+      expect(tailExtrude.len).toBeCloseTo(tailLen - coastMm, 2)
+      expect(endCoast.e).toBeNull()
+      expect(endCoast.len).toBeCloseTo(coastMm, 2)
+      expect(wipe.e!).toBeCloseTo(-profile.retractMm, 3)
     }
   })
 
   it('never travels far across the open window without retracting first', () => {
-    const g = isCouponGeometry(spec)
-    const ox = (profile.bedWidthMm - g.couponWidthMm) / 2
-    const oy = (profile.bedDepthMm - g.couponHeightMm) / 2
     // Window interior, shrunk a little so band-edge moves do not count.
     const win = {
       x0: ox + g.windowBox.x0 + 1,
@@ -245,54 +362,61 @@ describe('generateIsGcodeWithReport (Klipper)', () => {
     }
   })
 
-  it('keeps every coordinate on the bed with the centered placement', () => {
-    const g = isCouponGeometry(spec)
-    const oy = (profile.bedDepthMm - g.couponHeightMm) / 2
+  it('keeps every coordinate on the bed and inside the coupon footprint', () => {
     for (const m of report.gcode.matchAll(/^G[01] X(-?[\d.]+) Y(-?[\d.]+)/gm)) {
       expect(Number(m[1])).toBeGreaterThanOrEqual(0)
       expect(Number(m[1])).toBeLessThanOrEqual(profile.bedWidthMm)
       expect(Number(m[2])).toBeGreaterThanOrEqual(0)
       expect(Number(m[2])).toBeLessThanOrEqual(profile.bedDepthMm)
     }
-    const ys = [...report.gcode.matchAll(/^G1 X-?[\d.]+ Y(-?[\d.]+) E[\d.]/gm)].map((m) =>
-      Number(m[1]),
-    )
-    expect(Math.min(...ys)).toBeGreaterThanOrEqual(oy - 0.001)
-    expect(Math.max(...ys)).toBeLessThanOrEqual(oy + g.couponHeightMm + 0.001)
+    const moves = [...report.gcode.matchAll(/^G1 X(-?[\d.]+) Y(-?[\d.]+) E[\d.]/gm)]
+    for (const m of moves) {
+      expect(Number(m[1])).toBeGreaterThanOrEqual(ox - 0.001)
+      expect(Number(m[1])).toBeLessThanOrEqual(ox + g.couponWidthMm + 0.001)
+      expect(Number(m[2])).toBeGreaterThanOrEqual(oy - 0.001)
+      expect(Number(m[2])).toBeLessThanOrEqual(oy + g.couponHeightMm + 0.001)
+    }
   })
 
-  it('warns on the high-flow 300 mm/s tier instead of capping the speed', () => {
-    expect(report.warnings.some((w) => w.includes('300 mm/s') && w.includes('mm^3/s'))).toBe(true)
-    expect(report.gcode).toContain('F18000')
+  it('warns on the high-flow 200 mm/s tier instead of capping the speed', () => {
+    expect(report.warnings.some((w) => w.includes('200 mm/s') && w.includes('mm^3/s'))).toBe(true)
+    expect(report.gcode).toContain('F12000')
   })
 })
 
 describe('generateIsGcodeWithReport (Marlin and RepRapFirmware)', () => {
   it('uses Marlin commands for limits, disable, and restore', () => {
     const marlin: PrinterProfile = { ...profile, firmware: 'Marlin' }
-    const g = generateIsGcodeWithReport(marlin, filament, spec).gcode
-    expect(g).toContain('M204 P3000 T3000')
-    expect(g).toContain('M205 X5 Y5')
-    expect(g).toContain('M593 F0')
-    expect(g).toContain('M900 K0')
-    expect(g).not.toContain('SET_VELOCITY_LIMIT')
+    const gcode = generateIsGcodeWithReport(marlin, filament, spec).gcode
+    expect(gcode).toContain('M204 P4000 T4000') // test limits
+    expect(gcode).toContain('M204 P3000 T3000') // profile restore
+    expect(gcode).toContain('M205 X25 Y25')
+    // Junction-deviation equivalent of the 25 mm/s corner velocity, on its own line.
+    expect(gcode).toContain(`M205 J${((0.4 * 25 * 25) / spec.accelMmS2).toFixed(3)}`)
+    expect(gcode).toContain('M205 J junction deviation resumes')
+    expect(gcode).toContain('M593 F0')
+    expect(gcode).toContain('M900 K0')
+    expect(gcode).not.toContain('SET_VELOCITY_LIMIT')
   })
 
   it('uses RepRapFirmware commands for limits, disable, and restore', () => {
     const rrf: PrinterProfile = { ...profile, firmware: 'RepRapFirmware' }
-    const g = generateIsGcodeWithReport(rrf, filament, spec).gcode
-    expect(g).toContain('M204 P3000 T3000')
-    expect(g).toContain('M566 X300 Y300')
-    expect(g).toContain('M593 P"none"')
-    expect(g).toContain('M572 D0 S0')
+    const gcode = generateIsGcodeWithReport(rrf, filament, spec).gcode
+    expect(gcode).toContain('M204 P4000 T4000') // test limits
+    expect(gcode).toContain('M204 P3000 T3000') // profile restore
+    // Per-axis jerk in mm/min: a 90 degree corner at 25 mm/s is a 25 mm/s per-axis
+    // velocity change, 1500 mm/min.
+    expect(gcode).toContain('M566 X1500 Y1500')
+    expect(gcode).toContain('M593 P"none"')
+    expect(gcode).toContain('M572 D0 S0')
   })
 })
 
 describe('bed fitting', () => {
-  it('drops the 300 mm/s tier with a note when the coupon overflows a 180 mm bed', () => {
-    const small: PrinterProfile = { ...profile, bedWidthMm: 180, bedDepthMm: 180 }
-    const wide = { ...spec, linesPerSpeed: 6, linePitchMm: 10 }
-    const r = generateIsGcodeWithReport(small, filament, wide)
+  it('drops a 300 mm/s tier with a note when the coupon overflows a 120 mm bed', () => {
+    const small: PrinterProfile = { ...profile, bedWidthMm: 120, bedDepthMm: 120 }
+    const three = { ...spec, speedsMmS: [100, 200, 300] }
+    const r = generateIsGcodeWithReport(small, filament, three)
     expect(r.warnings.some((w) => w.includes('300 mm/s') && w.includes('removed'))).toBe(true)
     expect(r.gcode).not.toContain('F18000')
     expect(r.gcode).toContain('F12000')
@@ -333,7 +457,9 @@ describe('validation and reporting', () => {
     const fast: PrinterProfile = { ...profile, printAccelMmS2: 20000 }
     const spec20k = defaultIsTestSpec(fast)
     expect(spec20k.accelMmS2).toBe(20000)
-    const g = generateIsGcodeWithReport(fast, filament, spec20k).gcode
-    expect(g).toContain('SET_VELOCITY_LIMIT ACCEL=20000 SQUARE_CORNER_VELOCITY=5 MINIMUM_CRUISE_RATIO=0')
+    const gcode = generateIsGcodeWithReport(fast, filament, spec20k).gcode
+    expect(gcode).toContain(
+      'SET_VELOCITY_LIMIT ACCEL=20000 SQUARE_CORNER_VELOCITY=25 MINIMUM_CRUISE_RATIO=0',
+    )
   })
 })

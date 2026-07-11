@@ -47,6 +47,21 @@ export function retract(e: Emitter, p: PrinterProfile, sign: 1 | -1): void {
   e.lines.push(`G1 E${(sign * -p.retractMm).toFixed(3)} F${Math.round(p.retractSpeedMmS * 60)}`)
 }
 
+/**
+ * Pluggable extrusion move: the band emitters below accept one so a coupon generator can
+ * modulate the flow (e.g. zero it over an already-printed bead) without changing the
+ * default emission of the other generators. Defaults to `extrude` everywhere.
+ */
+export type ExtrudeFn = (
+  e: Emitter,
+  p: PrinterProfile,
+  f: FilamentProfile,
+  lineWidthMm: number,
+  x: number,
+  y: number,
+  speedMmS: number,
+) => void
+
 /** Return the sub-ranges of [a, b] along the parametric line that lie OUTSIDE the box. */
 function clipRangeAgainstBox(
   bx: number,
@@ -115,12 +130,13 @@ export function rectLoop(
   x1: number,
   y1: number,
   speedMmS: number,
+  doExtrude: ExtrudeFn = extrude,
 ): void {
   travel(e, p, x0, y0)
-  extrude(e, p, f, lineWidthMm, x1, y0, speedMmS)
-  extrude(e, p, f, lineWidthMm, x1, y1, speedMmS)
-  extrude(e, p, f, lineWidthMm, x0, y1, speedMmS)
-  extrude(e, p, f, lineWidthMm, x0, y0, speedMmS)
+  doExtrude(e, p, f, lineWidthMm, x1, y0, speedMmS)
+  doExtrude(e, p, f, lineWidthMm, x1, y1, speedMmS)
+  doExtrude(e, p, f, lineWidthMm, x0, y1, speedMmS)
+  doExtrude(e, p, f, lineWidthMm, x0, y0, speedMmS)
 }
 
 /** Perimeter loops inset from the part outline and outset around each fiducial hole. */
@@ -134,16 +150,17 @@ export function basePerimeters(
   w: number,
   h: number,
   holes: Box[],
+  doExtrude: ExtrudeFn = extrude,
 ): void {
   const speed = p.travelSpeedMmS * RASTER_SPEED_FACTOR
   for (let k = 0; k < PERIMETER_LOOPS; k++) {
     const ins = (k + 0.5) * lineWidthMm
-    rectLoop(e, p, f, lineWidthMm, x0 + ins, y0 + ins, x0 + w - ins, y0 + h - ins, speed)
+    rectLoop(e, p, f, lineWidthMm, x0 + ins, y0 + ins, x0 + w - ins, y0 + h - ins, speed, doExtrude)
   }
   for (const hole of holes) {
     for (let k = 0; k < PERIMETER_LOOPS; k++) {
       const out = (k + 0.5) * lineWidthMm
-      rectLoop(e, p, f, lineWidthMm, hole.x0 - out, hole.y0 - out, hole.x1 + out, hole.y1 + out, speed)
+      rectLoop(e, p, f, lineWidthMm, hole.x0 - out, hole.y0 - out, hole.x1 + out, hole.y1 + out, speed, doExtrude)
     }
   }
 }
@@ -160,6 +177,7 @@ export function rasterBase(
   h: number,
   angle45: boolean,
   holes: Box[],
+  doExtrude: ExtrudeFn = extrude,
 ): void {
   const step = lineWidthMm * RASTER_STEP_FACTOR
   // Diagonal raster: iterate scanlines along the diagonal direction. Each
@@ -210,7 +228,7 @@ export function rasterBase(
     for (const [a, b] of ordered) {
       if (Math.abs(b - a) < lineWidthMm) continue
       travel(e, p, bx + a * ux, by + a * uy)
-      extrude(e, p, f, lineWidthMm, bx + b * ux, by + b * uy, p.travelSpeedMmS * RASTER_SPEED_FACTOR)
+      doExtrude(e, p, f, lineWidthMm, bx + b * ux, by + b * uy, p.travelSpeedMmS * RASTER_SPEED_FACTOR)
     }
     scanIndex++
   }
@@ -235,6 +253,7 @@ export function frameBandLayer(
   bandMm: number,
   holes: Box[],
   angle45: boolean,
+  doExtrude: ExtrudeFn = extrude,
 ): void {
   const infillInset = PERIMETER_LOOPS * lineWidthMm
   // Raster clearance around a fiducial hole: past the outermost of its perimeter loops.
@@ -247,7 +266,7 @@ export function frameBandLayer(
   }))
   // The interior window is a hole box: it turns the solid fill into a frame band.
   const windowBox: Box = { x0: x0 + bandMm, y0: y0 + bandMm, x1: x0 + w - bandMm, y1: y0 + h - bandMm }
-  basePerimeters(e, p, f, lineWidthMm, x0, y0, w, h, [windowBox])
+  basePerimeters(e, p, f, lineWidthMm, x0, y0, w, h, [windowBox], doExtrude)
   const strips = [
     // Top and bottom strips carry the fiducial holes; left/right span between them. The side
     // strips butt exactly against the top/bottom strips (their y ranges share a boundary at
@@ -261,13 +280,13 @@ export function frameBandLayer(
     retract(e, p, 1)
     travel(e, p, s.sx, s.sy)
     retract(e, p, -1)
-    rasterBase(e, p, f, lineWidthMm, s.sx, s.sy, s.w, s.h, angle45, expanded)
+    rasterBase(e, p, f, lineWidthMm, s.sx, s.sy, s.w, s.h, angle45, expanded, doExtrude)
   }
   for (const hole of holes) {
     for (let k = 0; k < HOLE_PERIMETER_LOOPS; k++) {
       const out = (k + 0.5) * lineWidthMm
       rectLoop(e, p, f, lineWidthMm, hole.x0 - out, hole.y0 - out, hole.x1 + out, hole.y1 + out,
-        p.travelSpeedMmS * RASTER_SPEED_FACTOR)
+        p.travelSpeedMmS * RASTER_SPEED_FACTOR, doExtrude)
     }
   }
 }

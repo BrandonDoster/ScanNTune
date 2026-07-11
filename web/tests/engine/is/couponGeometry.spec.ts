@@ -3,20 +3,30 @@ import { defaultPrinterProfile } from '../../../src/engine/gcode/profileTypes'
 import { defaultIsTestSpec, type IsTestSpec } from '../../../src/engine/is/types'
 import {
   accelRampMm,
+  APPROACH_MM,
   BLOCK_GAP_MM,
   FIDUCIAL_INSET_MM,
   FIDUCIAL_SIZE_MM,
+  fieldExtentMm,
   INNER_MARGIN_MM,
   isCouponGeometry,
+  type IsLine,
   type IsLineGroup,
+  LEG_INSET_MM,
+  maxPackedRampMm,
   MIN_FRAME_BAND_MM,
   PRIME_MM,
+  protectedSpanMm,
   TAIL_EDGE_CLEARANCE_MM,
   TAIL_MARGIN_MM,
 } from '../../../src/engine/is/couponGeometry'
 
 const spec = defaultIsTestSpec(defaultPrinterProfile())
 const g = isCouponGeometry(spec)
+
+const segLen = (s: { x0: number; y0: number; x1: number; y1: number }) =>
+  Math.hypot(s.x1 - s.x0, s.y1 - s.y0)
+const segsOf = (l: IsLine) => [l.prime, l.runUp, l.approach, l.measured, l.tail]
 
 function perpendicularPositions(group: IsLineGroup): number[] {
   return group.lines.map((l) => (group.axis === 'x' ? l.measured.x0 : l.measured.y0))
@@ -31,10 +41,12 @@ describe('isCouponGeometry fiducials', () => {
 })
 
 describe('isCouponGeometry groups', () => {
-  it('builds both groups for axes x and y, one for a single axis', () => {
-    expect(g.groups.map((grp) => grp.axis)).toEqual(['x', 'y'])
+  it('builds both groups in print order y then x, one for a single axis', () => {
+    expect(g.groups.map((grp) => grp.axis)).toEqual(['y', 'x'])
     const single = isCouponGeometry({ ...spec, axes: ['y'] })
     expect(single.groups.map((grp) => grp.axis)).toEqual(['y'])
+    const singleX = isCouponGeometry({ ...spec, axes: ['x'] })
+    expect(singleX.groups.map((grp) => grp.axis)).toEqual(['x'])
   })
   it('emits linesPerSpeed lines per tier, tagged with the tier speed', () => {
     for (const group of g.groups) {
@@ -52,87 +64,86 @@ describe('isCouponGeometry groups', () => {
       for (let i = 1; i < pos.length; i++) {
         const crossesBlock = i % spec.linesPerSpeed === 0
         const expected = crossesBlock ? spec.linePitchMm + BLOCK_GAP_MM : spec.linePitchMm
-        expect(pos[i] - pos[i - 1]).toBeCloseTo(expected, 9)
+        expect(Math.abs(pos[i] - pos[i - 1])).toBeCloseTo(expected, 9)
       }
     }
   })
 })
 
-describe('isCouponGeometry line placement', () => {
-  it('keeps every run-up leg inside the open window in every axis configuration', () => {
-    const specs: IsTestSpec[] = [
-      spec,
-      { ...spec, axes: ['x'] },
-      { ...spec, axes: ['y'] },
-      { ...spec, axes: ['x'], speedsMmS: [100, 200], linesPerSpeed: 4 },
-      { ...spec, axes: ['y'], speedsMmS: [100, 200], linesPerSpeed: 4 },
-      { ...spec, measuredLineMm: 60 },
-    ]
-    for (const s of specs) {
-      const geo = isCouponGeometry(s)
-      for (const group of geo.groups) {
-        for (const { runUp } of group.lines) {
-          // Along the travel direction the leg starts inside the window with the inner
-          // margin; across it the leg rides the band edge, one weld length into the band.
-          const [start, end, ride] =
-            group.axis === 'x'
-              ? [runUp.x0, runUp.x1, runUp.y0]
-              : [runUp.y0, runUp.y1, runUp.x0]
-          const [lo, hi, rideLo] =
-            group.axis === 'x'
-              ? [geo.windowBox.x0, geo.windowBox.x1, geo.windowBox.y0]
-              : [geo.windowBox.y0, geo.windowBox.y1, geo.windowBox.x0]
-          expect(start).toBeGreaterThanOrEqual(lo + INNER_MARGIN_MM)
-          expect(end).toBeLessThanOrEqual(hi)
-          expect(ride).toBeCloseTo(rideLo - s.weldMm, 9)
+describe('isCouponGeometry line paths', () => {
+  it('starts every leg one inset inside the outer edge and passes it through a band', () => {
+    for (const group of g.groups) {
+      for (const line of group.lines) {
+        if (group.axis === 'y') {
+          // Legs enter vertically up through the bottom band.
+          expect(line.prime.y0).toBeCloseTo(LEG_INSET_MM, 9)
+          expect(line.prime.y1).toBeLessThan(g.windowBox.y0)
+          expect(line.runUp.y1).toBeGreaterThan(g.windowBox.y0)
+        } else {
+          // Legs enter horizontally through the right band.
+          expect(line.prime.x0).toBeCloseTo(g.couponWidthMm - LEG_INSET_MM, 9)
+          expect(line.prime.x1).toBeGreaterThan(g.windowBox.x1)
+          expect(line.runUp.x1).toBeLessThan(g.windowBox.x1)
         }
       }
     }
   })
-  it('keeps measured segments inside the window extended by the weld', () => {
-    const w = spec.weldMm
+  it('keeps every segment of every line inside the coupon outline', () => {
     for (const group of g.groups) {
-      for (const { measured } of group.lines) {
-        for (const x of [measured.x0, measured.x1]) {
-          expect(x).toBeGreaterThanOrEqual(g.windowBox.x0 - w)
-          expect(x).toBeLessThanOrEqual(g.windowBox.x1 + w)
-        }
-        for (const y of [measured.y0, measured.y1]) {
-          expect(y).toBeGreaterThanOrEqual(g.windowBox.y0 - w)
-          expect(y).toBeLessThanOrEqual(g.windowBox.y1 + w)
+      for (const line of group.lines) {
+        for (const s of segsOf(line)) {
+          for (const x of [s.x0, s.x1]) {
+            expect(x).toBeGreaterThanOrEqual(0)
+            expect(x).toBeLessThanOrEqual(g.couponWidthMm)
+          }
+          for (const y of [s.y0, s.y1]) {
+            expect(y).toBeGreaterThanOrEqual(0)
+            expect(y).toBeLessThanOrEqual(g.couponHeightMm)
+          }
         }
       }
     }
   })
-  it('welds measured segments one weld length into the band at both ends', () => {
-    const xGroup = g.groups.find((grp) => grp.axis === 'x')!
-    expect(xGroup.lines[0].measured.y0).toBeCloseTo(g.windowBox.y0 - spec.weldMm, 9)
-    expect(xGroup.lines[0].measured.y1).toBeCloseTo(g.windowBox.y1 + spec.weldMm, 9)
-    const yGroup = g.groups.find((grp) => grp.axis === 'y')!
-    expect(yGroup.lines[0].measured.x0).toBeCloseTo(g.windowBox.x0 - spec.weldMm, 9)
-    expect(yGroup.lines[0].measured.x1).toBeCloseTo(g.windowBox.x1 + spec.weldMm, 9)
-  })
-  it('chains prime, run-up, measured, and tail as one connected path per line', () => {
+  it('chains prime, run-up, approach, measured, and tail as one connected path per line', () => {
     for (const group of g.groups) {
-      for (const { prime, runUp, measured, tail } of group.lines) {
+      for (const { prime, runUp, approach, measured, tail } of group.lines) {
         expect(prime.x1).toBeCloseTo(runUp.x0, 9)
         expect(prime.y1).toBeCloseTo(runUp.y0, 9)
+        expect(runUp.x1).toBeCloseTo(approach.x0, 9)
+        expect(runUp.y1).toBeCloseTo(approach.y0, 9)
+        expect(approach.x1).toBeCloseTo(measured.x0, 9)
+        expect(approach.y1).toBeCloseTo(measured.y0, 9)
         expect(measured.x1).toBeCloseTo(tail.x0, 9)
         expect(measured.y1).toBeCloseTo(tail.y0, 9)
+        expect(segLen(prime)).toBeCloseTo(PRIME_MM, 9)
+        expect(segLen(approach)).toBeCloseTo(APPROACH_MM, 9)
       }
     }
   })
-  it('keeps the full run-up on every line, with the prime stretch entirely before it', () => {
+  it('places every corner inside the open window with at least the run-up before it', () => {
     for (const group of g.groups) {
-      for (const { prime, runUp } of group.lines) {
-        const start = group.axis === 'x' ? prime.x0 : prime.y0
-        const lo = group.axis === 'x' ? g.windowBox.x0 : g.windowBox.y0
-        expect(start).toBeGreaterThanOrEqual(lo + INNER_MARGIN_MM - 1e-9)
-        const primeLen = Math.hypot(prime.x1 - prime.x0, prime.y1 - prime.y0)
-        expect(primeLen).toBeCloseTo(PRIME_MM, 9)
-        const runLen = Math.hypot(runUp.x1 - runUp.x0, runUp.y1 - runUp.y0)
-        expect(runLen).toBeCloseTo(spec.runUpMm, 9)
+      for (const line of group.lines) {
+        const cornerX = line.measured.x0
+        const cornerY = line.measured.y0
+        expect(cornerX).toBeGreaterThan(g.windowBox.x0)
+        expect(cornerX).toBeLessThan(g.windowBox.x1)
+        expect(cornerY).toBeGreaterThan(g.windowBox.y0)
+        expect(cornerY).toBeLessThan(g.windowBox.y1)
+        // In-window approach length (run-up semantics): window edge to the corner.
+        const inWindow =
+          group.axis === 'y' ? cornerY - g.windowBox.y0 : g.windowBox.x1 - cornerX
+        expect(inWindow).toBeGreaterThanOrEqual(spec.runUpMm - 1e-9)
       }
+    }
+  })
+  it('welds every measured segment one weld length into the opposite band', () => {
+    const yGroup = g.groups.find((grp) => grp.axis === 'y')!
+    for (const { measured } of yGroup.lines) {
+      expect(measured.x1).toBeCloseTo(g.windowBox.x1 + spec.weldMm, 9)
+    }
+    const xGroup = g.groups.find((grp) => grp.axis === 'x')!
+    for (const { measured } of xGroup.lines) {
+      expect(measured.y1).toBeCloseTo(g.windowBox.y0 - spec.weldMm, 9)
     }
   })
   it('gives every tail the full stopping distance and keeps its stop clear of the edge', () => {
@@ -140,78 +151,181 @@ describe('isCouponGeometry line placement', () => {
       for (const { speedMmS, measured, tail } of group.lines) {
         // Physical invariant: the commanded tail absorbs the whole kinematic deceleration
         // plus the planner margin, so no deceleration bleeds into the measured segment.
-        const len = Math.hypot(tail.x1 - tail.x0, tail.y1 - tail.y0)
-        expect(len).toBeGreaterThanOrEqual(
+        expect(segLen(tail)).toBeGreaterThanOrEqual(
           accelRampMm(speedMmS, spec.accelMmS2) + TAIL_MARGIN_MM - 1e-9,
         )
         // The stop point stays under band material, clear of the coupon outer perimeter.
-        const stop = group.axis === 'x' ? tail.y1 : tail.x1
-        const outer = group.axis === 'x' ? g.couponHeightMm : g.couponWidthMm
-        expect(stop).toBeLessThanOrEqual(outer - TAIL_EDGE_CLEARANCE_MM + 1e-9)
-        // Colinear with the measured segment.
-        if (group.axis === 'x') expect(tail.x1).toBeCloseTo(measured.x1, 9)
-        else expect(tail.y1).toBeCloseTo(measured.y1, 9)
+        if (group.axis === 'y') {
+          expect(tail.x1).toBeLessThanOrEqual(g.couponWidthMm - TAIL_EDGE_CLEARANCE_MM + 1e-9)
+          expect(tail.y1).toBeCloseTo(measured.y1, 9)
+        } else {
+          expect(tail.y1).toBeGreaterThanOrEqual(TAIL_EDGE_CLEARANCE_MM - 1e-9)
+          expect(tail.x1).toBeCloseTo(measured.x1, 9)
+        }
       }
     }
   })
-  it('shares the corner vertex between the run-up end and the measured start', () => {
-    for (const group of g.groups) {
-      for (const { runUp, measured } of group.lines) {
-        expect(runUp.x1).toBeCloseTo(measured.x0, 9)
-        expect(runUp.y1).toBeCloseTo(measured.y0, 9)
-      }
-    }
-  })
-  it('measures along the axis-specific direction with the run-up perpendicular to it', () => {
-    const xGroup = g.groups.find((grp) => grp.axis === 'x')!
-    expect(xGroup.lines[0].measured.y1).toBeGreaterThan(xGroup.lines[0].measured.y0)
-    expect(xGroup.lines[0].runUp.x1).toBeGreaterThan(xGroup.lines[0].runUp.x0)
+  it('measures y lines along +X and x lines along -Y, legs perpendicular to them', () => {
     const yGroup = g.groups.find((grp) => grp.axis === 'y')!
     expect(yGroup.lines[0].measured.x1).toBeGreaterThan(yGroup.lines[0].measured.x0)
     expect(yGroup.lines[0].runUp.y1).toBeGreaterThan(yGroup.lines[0].runUp.y0)
+    const xGroup = g.groups.find((grp) => grp.axis === 'x')!
+    expect(xGroup.lines[0].measured.y1).toBeLessThan(xGroup.lines[0].measured.y0)
+    expect(xGroup.lines[0].runUp.x1).toBeLessThan(xGroup.lines[0].runUp.x0)
   })
-  it('keeps no run-up leg inside the other group boundingBox', () => {
-    const [xGroup, yGroup] = g.groups
-    for (const { runUp } of xGroup.lines) {
-      // X-group legs travel along the bottom band, below the Y group field.
-      expect(Math.max(runUp.y0, runUp.y1)).toBeLessThan(yGroup.lines[0].measured.y0)
+  it('bounds every segment of every line inside the group bounding box', () => {
+    for (const group of g.groups) {
+      for (const line of group.lines) {
+        for (const s of segsOf(line)) {
+          for (const x of [s.x0, s.x1]) {
+            expect(x).toBeGreaterThanOrEqual(group.boundingBox.x0 - 1e-9)
+            expect(x).toBeLessThanOrEqual(group.boundingBox.x1 + 1e-9)
+          }
+          for (const y of [s.y0, s.y1]) {
+            expect(y).toBeGreaterThanOrEqual(group.boundingBox.y0 - 1e-9)
+            expect(y).toBeLessThanOrEqual(group.boundingBox.y1 + 1e-9)
+          }
+        }
+      }
     }
-    for (const { runUp } of yGroup.lines) {
-      expect(Math.max(runUp.x0, runUp.x1)).toBeLessThan(xGroup.lines[0].measured.x0)
+  })
+})
+
+describe('isCouponGeometry crossings and packing', () => {
+  const yGroup = g.groups.find((grp) => grp.axis === 'y')!
+  const xGroup = g.groups.find((grp) => grp.axis === 'x')!
+
+  it('records the protected span (tier ramp plus clean read length) per line', () => {
+    for (const group of g.groups) {
+      for (const line of group.lines) {
+        expect(line.protectedMm).toBeCloseTo(protectedSpanMm(spec, line.speedMmS), 9)
+      }
+    }
+  })
+  it('keeps every X/Y crossing point outside both lines protected spans (per pair)', () => {
+    for (const xl of xGroup.lines) {
+      for (const yl of yGroup.lines) {
+        const crossX = xl.measured.x0
+        const crossY = yl.measured.y0
+        // The crossing point actually lies on both measured segments.
+        expect(crossY).toBeLessThan(xl.measured.y0)
+        expect(crossY).toBeGreaterThan(xl.measured.y1)
+        expect(crossX).toBeGreaterThan(yl.measured.x0)
+        expect(crossX).toBeLessThan(yl.measured.x1)
+        // Distance from each corner exceeds that line's protected span with the margin.
+        expect(xl.measured.y0 - crossY).toBeGreaterThanOrEqual(
+          xl.protectedMm + INNER_MARGIN_MM - 1e-9,
+        )
+        expect(crossX - yl.measured.x0).toBeGreaterThanOrEqual(
+          yl.protectedMm + INNER_MARGIN_MM - 1e-9,
+        )
+      }
+    }
+  })
+  it('packs per pair: the slowest lines sit nearest the crossing zone in both groups', () => {
+    // Y group: the slowest tier's corners take the largest x (crossed earliest).
+    const yFirst = yGroup.lines[0]
+    const yLast = yGroup.lines[yGroup.lines.length - 1]
+    expect(yFirst.speedMmS).toBeLessThan(yLast.speedMmS)
+    expect(yFirst.measured.x0).toBeGreaterThan(yLast.measured.x0)
+    // X group: the fastest tier's corners sit highest (deepest protected span above the
+    // crossing zone), the slowest lowest.
+    const xFirst = xGroup.lines[0]
+    const xLast = xGroup.lines[xGroup.lines.length - 1]
+    expect(xFirst.speedMmS).toBeLessThan(xLast.speedMmS)
+    expect(xFirst.measured.y0).toBeLessThan(xLast.measured.y0)
+  })
+  it('lists the crossing distances on the second-printed group only, sorted ascending', () => {
+    for (const yl of yGroup.lines) expect(yl.crossingsMm).toEqual([])
+    for (const xl of xGroup.lines) {
+      expect(xl.crossingsMm).toHaveLength(yGroup.lines.length)
+      const expected = yGroup.lines
+        .map((yl) => xl.measured.y0 - yl.measured.y0)
+        .sort((a, b) => a - b)
+      xl.crossingsMm.forEach((c, i) => expect(c).toBeCloseTo(expected[i], 9))
+      for (const c of xl.crossingsMm) {
+        expect(c).toBeGreaterThanOrEqual(xl.protectedMm + INNER_MARGIN_MM - 1e-9)
+      }
+    }
+  })
+  it('never crosses a leg with a same-group measured segment', () => {
+    for (const group of g.groups) {
+      for (const a of group.lines) {
+        for (const b of group.lines) {
+          if (a === b) continue
+          // Leg of a (vertical for y, horizontal for x) versus measured of b.
+          if (group.axis === 'y') {
+            const legX = a.prime.x0
+            const crossesSpan = legX > b.measured.x0 && legX < b.measured.x1
+            const crossesHeight = b.measured.y0 < a.measured.y0
+            expect(crossesSpan && crossesHeight).toBe(false)
+          } else {
+            const legY = a.prime.y0
+            const crossesSpan = legY < b.measured.y0 && legY > b.measured.y1
+            const crossesWidth = b.measured.x0 > a.measured.x0
+            expect(crossesSpan && crossesWidth).toBe(false)
+          }
+        }
+      }
     }
   })
 })
 
 describe('isCouponGeometry footprint', () => {
-  it('is 104 mm square for the defaults', () => {
-    expect(g.couponWidthMm).toBeCloseTo(104, 9)
-    expect(g.couponHeightMm).toBeCloseTo(104, 9)
+  it('sums margins, the packed diagonal, the other field, and the run-up, with no slack', () => {
+    const F = fieldExtentMm(spec)
+    const packed = maxPackedRampMm(spec) + spec.measuredLineMm
+    const interior = 2 * INNER_MARGIN_MM + packed + F + spec.runUpMm
+    expect(g.couponWidthMm).toBeCloseTo(interior + 2 * g.frameBandMm, 9)
+    expect(g.couponHeightMm).toBeCloseTo(g.couponWidthMm, 9)
+    // Documented derived size of the expert defaults (tiers 100/200, 3 lines, 40 mm clean
+    // read, 8 mm run-up, 4000 mm/s^2): a regression inflating the layout is caught here.
+    expect(g.couponWidthMm).toBeCloseTo(108.171875, 9)
   })
-  it('narrows the span dimension for a single axis when the field drives the footprint', () => {
-    // With the default 60 mm lines the perpendicular field (68 mm) exceeds the measured
-    // span (58 mm), so dropping the Y axis shrinks the X group's span dimension (height).
-    const single: IsTestSpec = { ...spec, axes: ['x'] }
-    const sg = isCouponGeometry(single)
-    expect(sg.couponHeightMm).toBeLessThan(sg.couponWidthMm)
-    expect(sg.couponWidthMm).toBeCloseTo(g.couponWidthMm, 9)
+  it('shrinks when any driving parameter shrinks (the formula carries no padding)', () => {
+    const size = (s: IsTestSpec) => isCouponGeometry(s).couponWidthMm
+    expect(size({ ...spec, measuredLineMm: spec.measuredLineMm + 10 })).toBeGreaterThan(
+      size(spec),
+    )
+    expect(size({ ...spec, linesPerSpeed: spec.linesPerSpeed + 1 })).toBeGreaterThan(size(spec))
+    expect(size({ ...spec, speedsMmS: [100, 200, 300] })).toBeGreaterThan(size(spec))
+    expect(size({ ...spec, runUpMm: spec.runUpMm + 4 })).toBeGreaterThan(size(spec))
+    expect(size({ ...spec, linePitchMm: spec.linePitchMm + 0.5 })).toBeGreaterThan(size(spec))
+  })
+  it('drops the crossing terms for a single axis', () => {
+    const F = fieldExtentMm(spec)
+    const packed = maxPackedRampMm(spec) + spec.measuredLineMm
+    const xOnly = isCouponGeometry({ ...spec, axes: ['x'] })
+    expect(xOnly.couponWidthMm).toBeCloseTo(
+      INNER_MARGIN_MM + F + spec.runUpMm + 2 * xOnly.frameBandMm, 9)
+    expect(xOnly.couponHeightMm).toBeCloseTo(
+      INNER_MARGIN_MM + packed + 2 * xOnly.frameBandMm, 9)
+    const yOnly = isCouponGeometry({ ...spec, axes: ['y'] })
+    expect(yOnly.couponWidthMm).toBeCloseTo(xOnly.couponHeightMm, 9)
+    expect(yOnly.couponHeightMm).toBeCloseTo(xOnly.couponWidthMm, 9)
+  })
+  it('grows the protected span with the tier speed and shrinks it with acceleration', () => {
+    expect(protectedSpanMm(spec, 200)).toBeGreaterThan(protectedSpanMm(spec, 100))
+    const stiff: IsTestSpec = { ...spec, accelMmS2: 10000 }
+    expect(protectedSpanMm(stiff, 200)).toBeLessThan(protectedSpanMm(spec, 200))
   })
 })
 
 describe('isCouponGeometry frame band sizing', () => {
   it('keeps the minimum band when every tail fits inside it', () => {
-    const slow: IsTestSpec = { ...spec, speedsMmS: [50, 100] }
-    expect(isCouponGeometry(slow).frameBandMm).toBeCloseTo(MIN_FRAME_BAND_MM, 9)
+    expect(g.frameBandMm).toBeCloseTo(MIN_FRAME_BAND_MM, 9)
   })
   it('widens the band for a fast tier so the full tail plus clearance fits', () => {
-    // Default fastest tier: 300 mm/s at 3000 mm/s^2 needs a 17 mm tail depth
-    // (1 mm weld + 15 mm stopping distance + 1 mm margin) plus 1 mm edge clearance.
-    expect(g.frameBandMm).toBeCloseTo(
+    // A 300 mm/s tier at 3000 mm/s^2 needs a 17 mm tail depth (1 mm weld + 15 mm stopping
+    // distance + 1 mm margin) plus 1 mm edge clearance.
+    const fast: IsTestSpec = { ...spec, speedsMmS: [100, 200, 300] }
+    expect(isCouponGeometry(fast).frameBandMm).toBeCloseTo(
       spec.weldMm + accelRampMm(300, spec.accelMmS2) + TAIL_MARGIN_MM + TAIL_EDGE_CLEARANCE_MM,
       9,
     )
-    expect(g.frameBandMm).toBeGreaterThan(MIN_FRAME_BAND_MM)
+    expect(isCouponGeometry(fast).frameBandMm).toBeGreaterThan(MIN_FRAME_BAND_MM)
   })
-  it('moves the window and fiducials with the widened band', () => {
+  it('moves the window and fiducials with the band', () => {
     expect(g.windowBox.x0).toBeCloseTo(g.frameBandMm, 9)
     expect(g.windowBox.y0).toBeCloseTo(g.frameBandMm, 9)
     expect(g.windowBox.x1).toBeCloseTo(g.couponWidthMm - g.frameBandMm, 9)

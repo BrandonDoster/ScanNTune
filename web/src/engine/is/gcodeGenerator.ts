@@ -3,6 +3,7 @@ import { couponOrigin, EDGE_MARGIN_MM, prepareProfile, setupPreamble } from '../
 import {
   type Box,
   type Emitter,
+  type ExtrudeFn,
   extrude,
   extrusionMm,
   frameBandLayer,
@@ -16,12 +17,14 @@ import {
   travel,
 } from '../gcode/emitter'
 import { isCouponGeometry, type IsSegment } from './couponGeometry'
+import { dipsForMove, extrudeWithDips, type PrintedBead } from './crossings'
 import {
   disableShapingCommands,
   isMotionLimitCommands,
   restoreShapingCommands,
 } from './firmwareMotion'
 import {
+  APPROACH_SPEED_MM_S,
   fitSpecToBed,
   type IsTestSpec,
   rampWarnings,
@@ -198,14 +201,17 @@ function emitIsGcode(profile: PrinterProfile, filament: FilamentProfile, spec: I
     L.push(`G1 Z${z.toFixed(3)} F600`)
 
     // Test lines first, frame band last: the band's perimeters and raster are laid over the
-    // line ends afterwards, ironing the weld tips and any residual stop blobs flat so the
-    // scanned face stays flush. Pedestal width below, nominal width on the measured layers.
-    // Each line is one continuous extrusion from the run-up leg through the sharp corner
-    // into the measured segment; the corner vertex gets no retract, pause, or E change, so
-    // the axis rings freely into the measured segment. The run-up approaches at the fixed
-    // slow speed and the measured segment is commanded at the tier speed, so the planner
-    // takes the corner at the square corner velocity and the acceleration ramp to the tier
-    // speed (the ringing excitation) lives at the start of the measured segment.
+    // line ends afterwards, ironing the through-band leg stretches (travel arrival, moving
+    // prime, start blob), the weld tips, and any residual stop blobs flat so the scanned
+    // face stays flush. Pedestal width below, nominal width on the measured layers.
+    // Each line is one continuous path from the coupon outer edge through the band, into
+    // the window as the run-up, through the sharp corner, and across the window as the
+    // measured segment; the corner vertex gets no retract, pause, or E change, so the
+    // bead is continuous and the axis rings freely into the measured segment. The run-up
+    // travels at the fixed slow speed, slows further to the corner approach over its last
+    // stretch, and the measured segment is commanded at the tier speed, so the
+    // acceleration ramp to the tier speed (the ringing excitation) lives at the start of
+    // the measured segment.
     const pedestal = layer < PEDESTAL_LAYERS
     const width = pedestal ? PEDESTAL_WIDTH_FACTOR * nominal : nominal
     // The single beads over the open window are bridges; standard bridge practice is
@@ -225,7 +231,29 @@ function emitIsGcode(profile: PrinterProfile, filament: FilamentProfile, spec: I
         travel(e, profile, ox + line.prime.x0, oy + line.prime.y0)
         primeOnTheMove(e, profile, filament, width, ox + line.prime.x1, oy + line.prime.y1)
         extrude(e, profile, filament, width, ox + line.runUp.x1, oy + line.runUp.y1, runUpSpeed)
-        extrude(e, profile, filament, width, ox + line.measured.x1, oy + line.measured.y1, speed)
+        // Full-flow corner approach below the square corner velocity (see APPROACH_MM and
+        // APPROACH_SPEED_MM_S): under the per-firmware junction limits this test emits
+        // (see isMotionLimitCommands for the Klipper SCV, Marlin classic-jerk plus
+        // junction-deviation, and RepRapFirmware jerk reasoning), a 90 degree corner
+        // entered below that velocity is taken without deceleration, so the corner dumps
+        // no pressure and the bead stays continuous through it.
+        extrude(
+          e, profile, filament, width,
+          ox + line.approach.x1, oy + line.approach.y1,
+          Math.min(APPROACH_SPEED_MM_S, speed),
+        )
+        // Groups printed earlier this layer leave beads across this line's path; the flow
+        // is zeroed over each crossing. The geometry guarantees every crossing (and its
+        // flow ramps) lies beyond the protected span, so the read window sees none of it.
+        if (line.crossingsMm.length > 0) {
+          extrudeWithDips(
+            e, profile, filament, width,
+            ox + line.measured.x1, oy + line.measured.y1, speed,
+            line.crossingsMm.map((at) => ({ atMm: at, occupiedMm: width })),
+          )
+        } else {
+          extrude(e, profile, filament, width, ox + line.measured.x1, oy + line.measured.y1, speed)
+        }
         finishLine(e, profile, filament, width, line.tail, ox, oy, speed)
       }
     }
@@ -233,12 +261,29 @@ function emitIsGcode(profile: PrinterProfile, filament: FilamentProfile, spec: I
     // is not restored.
     if (!pedestal) L.push('M107')
 
+    // The band is printed over the through-band leg stretches of both groups; its flow is
+    // zeroed where a pass crosses one of those beads (the leg positions are exactly known).
+    const legBeads: PrintedBead[] = g.groups.flatMap((group) =>
+      group.lines.map((line) => ({
+        x0: ox + line.prime.x0,
+        y0: oy + line.prime.y0,
+        x1: ox + line.approach.x1,
+        y1: oy + line.approach.y1,
+        widthMm: width,
+      })),
+    )
+    const bandExtrude: ExtrudeFn = (e2, p2, f2, w2, x, y, s) => {
+      const dips = dipsForMove(e2.x, e2.y, x, y, legBeads)
+      if (dips.length > 0) extrudeWithDips(e2, p2, f2, w2, x, y, s, dips)
+      else extrude(e2, p2, f2, w2, x, y, s)
+    }
+
     // The band starts on its own travel; the lines left the nozzle retracted after their
     // wipes, so the hop to the frame corner crosses the window without stringing.
     travel(e, profile, ox + 0.5 * nominal, oy + 0.5 * nominal)
     retract(e, profile, -1)
     frameBandLayer(e, profile, filament, nominal, ox, oy, g.couponWidthMm, g.couponHeightMm,
-      g.frameBandMm, holes, layer % 2 === 0)
+      g.frameBandMm, holes, layer % 2 === 0, bandExtrude)
   }
 
   // Hand the printer back: the user's own shaper and pressure advance settings, then the
@@ -247,6 +292,11 @@ function emitIsGcode(profile: PrinterProfile, filament: FilamentProfile, spec: I
   L.push(...motionLimitCommands(profile))
   if (profile.firmware === 'Klipper') {
     L.push('; MINIMUM_CRUISE_RATIO resumes with the next firmware restart or saved configuration')
+  }
+  if (profile.firmware === 'Marlin') {
+    // The test's M205 J is not restored in G-code: only junction-deviation builds honor
+    // it, and their configured value returns the same way the shaper settings do.
+    L.push('; M205 J junction deviation resumes with the next firmware restart or saved configuration')
   }
   retract(e, profile, 1)
   L.push(...profile.endGcode.split('\n'))

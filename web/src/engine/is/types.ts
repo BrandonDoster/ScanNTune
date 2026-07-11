@@ -1,6 +1,14 @@
 import type { PrinterProfile } from '../gcode/profileTypes'
 import type { CouponPlacement } from '../gcode/couponShell'
-import { accelRampMm, frameBandMm, isCouponGeometry } from './couponGeometry'
+import {
+  accelRampMm,
+  APPROACH_MM,
+  fieldExtentMm,
+  frameBandMm,
+  INNER_MARGIN_MM,
+  isCouponGeometry,
+  maxPackedRampMm,
+} from './couponGeometry'
 
 export { accelRampMm }
 
@@ -10,8 +18,15 @@ export interface IsTestSpec {
   /** Cruise speeds of the measured segments, one sub-block of lines per tier. */
   speedsMmS: number[]
   linesPerSpeed: number
+  /**
+   * Guaranteed clean read length of each measured segment, counted AFTER the acceleration
+   * ramp from the corner: the layout reserves ramp + this length per line before any
+   * crossing or flow change is allowed, and the printed segment continues past it through
+   * the crossing zone into the opposite band.
+   */
   measuredLineMm: number
-  /** Length of the straight approach leg before the ringing corner. */
+  /** In-window length of the straight approach leg before the ringing corner; the
+   *  through-band leg stretch is extra and comes free from the band width. */
   runUpMm: number
   linePitchMm: number
   axes: IsAxis[]
@@ -25,24 +40,33 @@ export interface IsTestSpec {
 
 export const MIN_SPEED_TIERS = 2
 export const MAX_SPEED_TIERS = 3
-export const MIN_LINES_PER_SPEED = 4
+export const MIN_LINES_PER_SPEED = 3
 export const MAX_LINES_PER_SPEED = 6
 export const MIN_MEASURED_LINE_MM = 40
-/** Default acceleration floor: high enough to ring the frame on any printer. */
-const MIN_ACCEL_MM_S2 = 3000
 /** Below this acceleration the ringing trace is often too weak to measure. */
 const LOW_ACCEL_MM_S2 = 4000
+/** Default acceleration floor: the same threshold, so a default spec never starts in the
+ *  low-acceleration warning zone. */
+const MIN_ACCEL_MM_S2 = LOW_ACCEL_MM_S2
 
 export function defaultIsTestSpec(profile: PrinterProfile): IsTestSpec {
   return {
-    speedsMmS: [100, 200, 300],
-    linesPerSpeed: 5,
-    measuredLineMm: 60,
-    runUpMm: 20,
+    // Two tiers: the ringing frequency is speed-independent, so tiers are replicates, and
+    // the 300 mm/s wavelength would cost clean read length for no extra information.
+    speedsMmS: [100, 200],
+    linesPerSpeed: 3,
+    // Five ringing wavelengths at the worst case (25 Hz at 200 mm/s is 8 mm/period).
+    measuredLineMm: 40,
+    // Composition: about 0.5 mm ramp to the 50 mm/s run-up speed, a short cruise, then the
+    // 5 mm corner approach at 20 mm/s.
+    runUpMm: 8,
     linePitchMm: 2.5,
     axes: ['x', 'y'],
     accelMmS2: Math.max(profile.printAccelMmS2, MIN_ACCEL_MM_S2),
-    squareCornerVelocityMmS: 5,
+    // A 90 degree corner taken at junction speed v is a velocity impulse of sqrt(2) * v on
+    // the frame, so a higher square corner velocity both strengthens the ringing
+    // excitation and collapses the dwell time and pressure dump at the corner.
+    squareCornerVelocityMmS: 25,
     weldMm: 1,
     placement: 'center',
   }
@@ -63,10 +87,16 @@ export function validateIsSpec(spec: IsTestSpec): void {
     throw new Error(`The measured line length must be at least ${MIN_MEASURED_LINE_MM} mm`)
   }
   if (spec.runUpMm <= 0) throw new Error('Run-up length must be positive')
+  if (spec.runUpMm <= APPROACH_MM) {
+    throw new Error(`The run-up must be longer than the ${APPROACH_MM} mm corner approach`)
+  }
   if (spec.linePitchMm <= 0) throw new Error('Line pitch must be positive')
   if (spec.accelMmS2 <= 0) throw new Error('Acceleration must be positive')
-  if (spec.squareCornerVelocityMmS <= 0) {
-    throw new Error('Square corner velocity must be positive')
+  if (spec.squareCornerVelocityMmS <= APPROACH_SPEED_MM_S) {
+    throw new Error(
+      `The square corner velocity must exceed the ${APPROACH_SPEED_MM_S} mm/s corner ` +
+        'approach speed; only then is the corner taken without deceleration.',
+    )
   }
   if (spec.weldMm <= 0) throw new Error('Weld length must be positive')
   if (spec.axes.length === 0) throw new Error('At least one axis must be selected')
@@ -74,21 +104,27 @@ export function validateIsSpec(spec: IsTestSpec): void {
 
 /**
  * Feedrate of the run-up leg, fixed across all tiers. Melt pressure with pressure advance
- * off scales with speed, and the planner drops to the square corner velocity at the sharp
- * corner, so a fast approach dumps its stored pressure there as a blob. The ringing
- * excitation is the acceleration ramp from the square corner velocity up to the tier speed
- * inside the measured segment, not the approach speed, so a slow approach removes the
- * corner pressure dump without touching the excitation; this mirrors how Klipper's ringing
- * tower excites its corners.
+ * off scales with speed, so the leg approaches slowly; the ringing excitation is the
+ * acceleration ramp from the corner up to the tier speed inside the measured segment, not
+ * the approach speed. This mirrors how Klipper's ringing tower excites its corners.
  */
 export const RUN_UP_SPEED_MM_S = 50
 
 /**
+ * Feedrate of the corner approach, the last APPROACH_MM of every run-up leg. It sits
+ * below the square corner velocity (validated), so the planner takes the corner without
+ * decelerating and the pressure dump K * (v_in - v_corner) is zero by construction; the
+ * slow full-flow stretch also lets the higher run-up pressure relax along the leg instead
+ * of at the bend.
+ */
+export const APPROACH_SPEED_MM_S = 20
+
+/**
  * Warns (does not throw) on spec combinations that weaken the ringing signal. The run-up
  * leg only needs to reach the fixed approach speed before the corner. The acceleration
- * ramp to each tier speed lives in the measured segment itself (it always did: the corner
- * is taken at the square corner velocity), so a tier whose ramp outruns the measured line
- * never reaches its commanded speed at all.
+ * ramp from the square corner velocity to each tier speed is reserved by the layout in
+ * front of the clean read length, so a long ramp grows the coupon instead of eating the
+ * measured line; no per-tier warning is needed for it.
  */
 export function rampWarnings(spec: IsTestSpec): string[] {
   const warnings: string[] = []
@@ -98,25 +134,16 @@ export function rampWarnings(spec: IsTestSpec): string[] {
         "printer's true maximum acceleration.",
     )
   }
-  if (accelRampMm(RUN_UP_SPEED_MM_S, spec.accelMmS2) > spec.runUpMm) {
+  // The run-up must reach its speed AND brake back down to the approach speed before the
+  // corner approach begins: v^2 / 2a up plus (v^2 - v_approach^2) / 2a down.
+  const rampUpMm = accelRampMm(RUN_UP_SPEED_MM_S, spec.accelMmS2)
+  const decelMm = rampUpMm - accelRampMm(APPROACH_SPEED_MM_S, spec.accelMmS2)
+  if (rampUpMm + decelMm > spec.runUpMm - APPROACH_MM) {
     warnings.push(
       `The ${spec.runUpMm} mm run-up is too short to reach the ${RUN_UP_SPEED_MM_S} mm/s ` +
-        `approach speed at ${spec.accelMmS2} mm/s^2. Lengthen the run-up.`,
+        `run-up speed and slow back to the ${APPROACH_SPEED_MM_S} mm/s corner approach at ` +
+        `${spec.accelMmS2} mm/s^2. Lengthen the run-up.`,
     )
-  }
-  for (const speed of spec.speedsMmS) {
-    // Ramp from the square corner velocity to the tier speed: (v^2 - scv^2) / (2a).
-    const ramp =
-      accelRampMm(speed, spec.accelMmS2) -
-      accelRampMm(spec.squareCornerVelocityMmS, spec.accelMmS2)
-    if (ramp >= spec.measuredLineMm) {
-      warnings.push(
-        `The ${speed} mm/s tier needs ${ramp.toFixed(1)} mm to reach its speed at ` +
-          `${spec.accelMmS2} mm/s^2, longer than the ${spec.measuredLineMm} mm measured ` +
-          'line; the tier never reaches the commanded speed. Raise the acceleration or ' +
-          'remove the tier.',
-      )
-    }
   }
   return warnings
 }
@@ -148,16 +175,23 @@ export function fitSpecToBed(
   }
 
   if (!fits(fitted)) {
-    // A measured span fixes the coupon size along its travel direction; solve the longest
-    // measured line each constrained bed dimension allows and take the tighter one. The
-    // band width depends on the speed tiers, not the line length, so it is a constant here.
+    // Invert the interior formulas of isCouponGeometry for the clean read length L: along
+    // a group's measured direction the interior is margin + maxPackedRampMm + L, plus the
+    // crossing terms (margin + field + run-up) when both axes are present. The band width
+    // and the packed ramp depend on the speed tiers, not on L, so they are constants
+    // here; solve the longest L each constrained bed dimension allows and take the
+    // tighter one.
     const band = frameBandMm(fitted)
+    const field = fieldExtentMm(fitted)
+    const both = fitted.axes.length === 2
+    const crossTerm = both ? INNER_MARGIN_MM + field + fitted.runUpMm : 0
+    const fixed = 2 * band + INNER_MARGIN_MM + maxPackedRampMm(fitted) + crossTerm
     const limits: number[] = []
     if (fitted.axes.includes('y')) {
-      limits.push(profile.bedWidthMm - 2 * band + 2 * fitted.weldMm)
+      limits.push(profile.bedWidthMm - fixed)
     }
     if (fitted.axes.includes('x')) {
-      limits.push(profile.bedDepthMm - 2 * band + 2 * fitted.weldMm)
+      limits.push(profile.bedDepthMm - fixed)
     }
     const target = Math.max(MIN_MEASURED_LINE_MM, Math.floor(Math.min(...limits)))
     if (target < fitted.measuredLineMm) {

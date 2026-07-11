@@ -191,9 +191,14 @@ function generate(): void {
       </div>
       <div class="field-group">
         <span class="group-label">Test lines</span>
+        <p class="tip mt-0 mb-2">
+          The clean read length is the guaranteed undisturbed stretch of every line after
+          the corner's acceleration ramp. The printed lines are longer: they continue into
+          the zone where the two axis groups cross.
+        </p>
         <div class="fields">
-          <NumericField v-model="linesPerSpeed" label="Lines per speed" :step="1" :min="4" />
-          <NumericField v-model="measuredLine" label="Measured line length (mm)" :step="5" :min="60" />
+          <NumericField v-model="linesPerSpeed" label="Lines per speed" :step="1" :min="3" />
+          <NumericField v-model="measuredLine" label="Clean read length (mm)" :step="5" :min="40" />
           <NumericField v-model="linePitch" label="Line pitch (mm)" :step="0.1" :min="0.1" :precision="2" />
         </div>
       </div>
