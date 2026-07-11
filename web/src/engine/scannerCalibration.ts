@@ -44,13 +44,18 @@ export type ScaleReference = number | AxisPxPerMm
 
 /**
  * The scale reference for a scan taken at the given DPI. A CIS calibration applies the stored
- * error to both axes; a CCD calibration applies it to the horizontal axis only, because the card
- * measured the sensor axis and the carriage axis moves at its nominal resolution.
+ * error to both axes. A CCD calibration applies it only to the image axis the card was measured
+ * along, since the card's long side can only sense that one axis; the other axis stays at the
+ * nominal resolution. Calibrations stored before the axis was recorded lack the field and are
+ * treated as horizontal.
  */
 export function scaleReferenceAtDpi(c: ScannerCalibration, dpi: number): ScaleReference {
-  return c.scannerType === 'CCD'
-    ? { horizontal: pxPerMmAtDpi(c, dpi), vertical: dpi / 25.4 }
-    : pxPerMmAtDpi(c, dpi)
+  if (c.scannerType !== 'CCD') return pxPerMmAtDpi(c, dpi)
+  const corrected = pxPerMmAtDpi(c, dpi)
+  const nominal = dpi / 25.4
+  return c.measuredAxis === 'vertical'
+    ? { horizontal: nominal, vertical: corrected }
+    : { horizontal: corrected, vertical: nominal }
 }
 
 /** True for a positive, finite reference (both axes for a pair). */

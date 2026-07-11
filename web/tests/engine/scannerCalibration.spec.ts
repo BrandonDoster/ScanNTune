@@ -47,9 +47,16 @@ describe('scale reference', () => {
     expect(scaleReferenceAtDpi({ ...cal, scannerType: 'CIS' }, 600)).toBeCloseTo(23.86, 9)
   })
 
-  it('a CCD calibration corrects the horizontal axis only', () => {
+  it('a CCD calibration corrects the horizontal axis only (also when the axis field is absent)', () => {
     const ref = scaleReferenceAtDpi({ ...cal, scannerType: 'CCD' }, 600)
     expect(ref).toEqual({ horizontal: expect.closeTo(23.86, 9), vertical: expect.closeTo(nominal, 9) })
+    const explicit = scaleReferenceAtDpi({ ...cal, scannerType: 'CCD', measuredAxis: 'horizontal' }, 600)
+    expect(explicit).toEqual(ref)
+  })
+
+  it('a CCD calibration measured along the vertical axis corrects that axis instead', () => {
+    const ref = scaleReferenceAtDpi({ ...cal, scannerType: 'CCD', measuredAxis: 'vertical' }, 600)
+    expect(ref).toEqual({ horizontal: expect.closeTo(nominal, 9), vertical: expect.closeTo(23.86, 9) })
   })
 
   it('a CCD calibration scales both axis figures to another DPI', () => {

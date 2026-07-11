@@ -6,7 +6,7 @@ import { readBytes } from '../util/preview'
 import { diagnoseScale } from '../engine/scanScale'
 import { measureCardScan } from '../workerClient'
 import { signedFixed } from '../util/format'
-import type { ScannerType } from '../engine/types'
+import type { ScanAxis, ScannerType } from '../engine/types'
 import NumericField from './NumericField.vue'
 import HowToScanDiagram from './HowToScanDiagram.vue'
 import WhatToMeasureDiagram from './WhatToMeasureDiagram.vue'
@@ -27,6 +27,7 @@ const statusText = ref('')
 const confirmReset = ref(false)
 
 const measuredWidthPx = ref<number | null>(calibration.calibration?.measuredWidthPx ?? null)
+const measuredAxis = ref<ScanAxis>(calibration.calibration?.measuredAxis ?? 'horizontal')
 const straightnessPx = ref(calibration.calibration?.straightnessPx ?? 0)
 const parallelismDegrees = ref(calibration.calibration?.parallelismDegrees ?? 0)
 const hasResult = ref(calibration.calibration !== null)
@@ -106,6 +107,7 @@ async function processFile(file: File | null): Promise<void> {
       return
     }
     measuredWidthPx.value = r.measuredWidthPx
+    measuredAxis.value = r.measuredAxis ?? 'horizontal'
     straightnessPx.value = r.straightnessPx
     parallelismDegrees.value = r.parallelismDegrees
     hasResult.value = true
@@ -147,6 +149,7 @@ function maybeSave(): void {
       parallelismDegrees: parallelismDegrees.value,
       calibratedUtc: new Date().toISOString(),
       scannerType: scannerType.value,
+      measuredAxis: measuredAxis.value,
     })
   }
 }
@@ -155,6 +158,7 @@ function startOver(): void {
   confirmReset.value = false
   calibration.clear()
   measuredWidthPx.value = null
+  measuredAxis.value = 'horizontal'
   straightnessPx.value = 0
   parallelismDegrees.value = 0
   hasResult.value = false
@@ -243,8 +247,8 @@ watch([measuredMm, dpi, scannerType], () => {
             <v-btn value="CCD" data-testid="sensor-ccd">CCD</v-btn>
           </v-btn-toggle>
           <p class="tip mt-1">
-            CIS applies the correction to both scan axes; CCD applies it to the horizontal axis
-            only. Your scanner's specification sheet names its sensor type.
+            CIS applies the correction to both scan axes; CCD applies it only along the card's
+            long side. Your scanner's specification sheet names its sensor type.
           </p>
         </div>
         <p class="tip mt-2" :class="{ warn: isoSanityWarn }">{{ isoSanityText }}</p>
@@ -300,7 +304,7 @@ watch([measuredMm, dpi, scannerType], () => {
         ><span v-if="sizeCheckOk && sizeDiff < 0.3">, matches your {{ (measuredMm ?? 0).toFixed(2) }} mm.</span
         ><span v-else-if="sizeCheckOk"
           >, {{ sizeDiff.toFixed(2) }} mm from your {{ (measuredMm ?? 0).toFixed(2) }} mm: the
-          horizontal scale error this calibration corrects.</span
+          scanner scale error this calibration corrects.</span
         ><span v-else>, but you entered {{ (measuredMm ?? 0).toFixed(2) }} mm. Check the DPI or the measured value.</span>
       </p>
       <p v-if="scaleFactorNote" class="text-body-2 warn" data-testid="scale-factor-note">
