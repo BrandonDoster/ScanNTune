@@ -105,7 +105,10 @@ function cropToCoupon(
   const y1 = Math.min(canvas.rows, Math.ceil(Math.max(...ys) + margin))
   if (x1 <= x0 || y1 <= y0) return canvas
   const roi = canvas.roi(new cv.Rect(x0, y0, x1 - x0, y1 - y0))
-  const cropped = roi.clone()
+  // copyTo, not clone: OpenCV.js clone() of a ROI keeps the source's row stride, which leaves
+  // the flat `data` view misaligned. copyTo always allocates a continuous Mat.
+  const cropped = new cv.Mat()
+  roi.copyTo(cropped)
   roi.delete()
   canvas.delete()
   return cropped
