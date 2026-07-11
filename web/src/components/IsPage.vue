@@ -26,6 +26,7 @@ import { NOMINAL_WIDTH_FACTOR } from '../engine/gcode/emitter'
 import { defaultPrinterProfile } from '../engine/pa/types'
 import PrinterProfileCard from './PrinterProfileCard.vue'
 import IsGuideDiagram from './IsGuideDiagram.vue'
+import IsScanPlacementDiagram from './IsScanPlacementDiagram.vue'
 import IsResultsCard from './IsResultsCard.vue'
 import NumericField from './NumericField.vue'
 import OverlayCanvas from './OverlayCanvas.vue'
@@ -577,10 +578,17 @@ async function analyze(): Promise<void> {
         <span class="num">5</span><span class="step-title">Scan the print</span>
       </div>
       <p class="tip mb-3">
-        Scan the coupon face down, then rotate the part a quarter turn on the glass and scan
-        again. Both scans are needed because each line group is only read along the
-        scanner's accurate axis; the order of the two images does not matter. Scan at the
-        calibrated resolution with the lid closed.
+        Scan the coupon with the printed top face down on the glass and the lid closed, at
+        the calibrated resolution. Two scans are needed because each line group is only read
+        along the scanner's accurate axis. Place the part as shown below: first with the
+        solid corner at the top left, then rotated a quarter turn clockwise.
+      </p>
+      <div class="diagram-wrap mb-3">
+        <IsScanPlacementDiagram />
+      </div>
+      <p class="tip mb-3">
+        These placements are a recommended starting point, not a requirement. The analysis
+        resolves any orientation, and the order of the two images does not matter.
       </p>
       <div class="diagram-wrap mb-3">
         <IsGuideDiagram />
