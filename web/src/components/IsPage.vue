@@ -235,13 +235,13 @@ const scanCards = computed<ScanCard[]>(() => {
         sev: info ? 'ok' : i > alignedCount ? 'mute' : 'warn',
       },
       {
-        label: 'Orientation',
-        value: info
-          ? `${info.flipped ? 'Mirrored' : 'Not mirrored'}, ` +
-            (info.rotationQuarterTurns > 0
-              ? `rotated ${info.rotationQuarterTurns * 90} degrees`
-              : 'not rotated')
-          : 'Not resolved',
+        label: 'Flipped',
+        value: info ? (info.flipped ? 'yes' : 'no') : 'Not resolved',
+        sev: info ? 'ok' : 'mute',
+      },
+      {
+        label: 'Rotation',
+        value: info ? `${info.rotationQuarterTurns * 90} degrees` : 'Not resolved',
         sev: info ? 'ok' : 'mute',
       },
       {
