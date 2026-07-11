@@ -366,6 +366,8 @@ const SEED_BAND_REL = 0.2
 function freeResponseStart(y: Float64Array): number | null {
   const n = y.length
   const peakSearchEnd = Math.floor(n / 4)
+  // A trace too short to even search for the transient peak has no fit window either way.
+  if (peakSearchEnd < 1) return null
   let peak = 0
   let peakAbs = -1
   for (let i = 0; i < peakSearchEnd; i++) {

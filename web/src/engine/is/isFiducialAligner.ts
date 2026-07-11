@@ -248,8 +248,32 @@ const MIN_TONE_CONTRAST = 10
 function selectCandidateByContent(
   gray: Mat,
   g: IsCouponGeometry,
-  candidates: CornerCandidate[],
+  allCandidates: CornerCandidate[],
 ): AlignAttempt {
+  // The subset search hands in near-duplicates of the same orientation hypothesis (subsets
+  // sharing two true holes plus a nearby spurious one solve to almost the same affine). The
+  // probe-margin ambiguity test below must compare DISTINCT hypotheses, so candidates are
+  // deduplicated first: same flip and rotation with coupon centers within half a fiducial
+  // of each other are one hypothesis, represented by its best arm fit.
+  const centerX = g.couponWidthMm / 2
+  const centerY = g.couponHeightMm / 2
+  const dedupeTolMm = g.fiducialSizeMm / 2
+  const candidates: CornerCandidate[] = []
+  for (const c of [...allCandidates].sort((a, b) => a.armMismatch - b.armMismatch)) {
+    const scale = Math.sqrt(Math.abs(c.affine.a * c.affine.d - c.affine.b * c.affine.c))
+    const cx = c.affine.a * centerX + c.affine.b * centerY + c.affine.tx
+    const cy = c.affine.c * centerX + c.affine.d * centerY + c.affine.ty
+    const duplicate = candidates.some((k) => {
+      if (k.flipped !== c.flipped || k.rotationQuarterTurns !== c.rotationQuarterTurns) {
+        return false
+      }
+      const kx = k.affine.a * centerX + k.affine.b * centerY + k.affine.tx
+      const ky = k.affine.c * centerX + k.affine.d * centerY + k.affine.ty
+      return Math.hypot(kx - cx, ky - cy) < dedupeTolMm * scale
+    })
+    if (!duplicate) candidates.push(c)
+  }
+
   const band = g.frameBandMm
   // Plastic tone: the four band-edge midpoints; background tone: the fiducial hole centers.
   // Both sets map onto themselves under either candidate (the bands and holes are common to

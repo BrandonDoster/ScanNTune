@@ -120,6 +120,14 @@ describe('analyzeTracedLine', () => {
     expect(fit.params!.dampingRatio).toBeLessThan(0.15)
   })
 
+  it('refuses a trace too short to hold a transient and a ringdown', () => {
+    const tS = new Float64Array([0, 0.001, 0.002])
+    const lateralMm = new Float64Array([0.1, 0.05, 0.02])
+    const fit = analyzeTracedLine({ speedMmS: 150, tS, lateralMm, noiseWindowStart: 2 })
+    expect(fit.accepted).toBe(false)
+    expect(fit.refusalReason).toContain('never settles')
+  })
+
   it('refuses a fit that lands at the frequency search bound', () => {
     const fit = analyzeTracedLine(makeTrace({ ...TRUE_PARAMS, frequencyHz: 152 }, 0.002))
     expect(fit.accepted).toBe(false)
