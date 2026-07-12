@@ -16,7 +16,7 @@ Every item below comes from a real failed print or slicer-preview defect in this
 
 ## Region checklist
 
-For EVERY printed region (existing or new), answer all six. "Not applicable" is an
+For EVERY printed region (existing or new), answer all seven. "Not applicable" is an
 answer; silence is not.
 
 | # | Check | Failure it prevents |
@@ -27,6 +27,7 @@ answer; silence is not.
 | 4 | For a bead width well below the nozzle diameter, was printability confirmed on a real print rather than assumed either way? (0.30 mm on a 0.4 nozzle prints fine on layer 1; it was once misdiagnosed as a failure cause when ooze travels were the real culprit.) | Wrong diagnosis wastes a redesign; the real defect ships |
 | 5 | Does anything on layer 1 have enough contact area and low enough speed to stick? | First-layer threads dragged by the nozzle |
 | 6 | Where does the nozzle END this region and START the next: is every travel longer than ~5 mm that crosses open (unprinted) area retract-bracketed, including the hop after a layer change and the hop from perimeters to raster start? | Ooze strings across the measured combs; 87-106 mm dry drags |
+| 7 | Did you RENDER the generated toolpath to an image and look at it: overall size sane (as small as possible, ideally within a 120 mm bed), every printed bead continuous through corners and joins (no zero-E gap inside a path), nothing poking outside the coupon outline? | A 215 mm coupon, 5 mm extrusion gaps at every corner, and primes outside the outline all shipped past a fully green numeric gate; the owner saw all three in one slicer preview |
 
 ## Verification recipe (after the checklist, before the commit)
 

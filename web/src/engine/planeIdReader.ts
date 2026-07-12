@@ -108,7 +108,10 @@ export function countPlaneDiagonals(
   if (x1 - x0 < 8 || y1 - y0 < 8) return null
 
   const roiView = image.roi(new cv.Rect(x0, y0, x1 - x0, y1 - y0))
-  const roi = roiView.clone()
+  // copyTo, not clone: OpenCV.js clone() of a ROI keeps the source's row stride, which leaves
+  // the flat `data` view misaligned. copyTo always allocates a continuous Mat.
+  const roi = new cv.Mat()
+  roiView.copyTo(roi)
   roiView.delete()
   let gray: Mat | null = null
   const binary = new cv.Mat()

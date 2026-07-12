@@ -50,6 +50,10 @@ describe('renderPaOverlayMat', () => {
       expect(overlay.cols).toBeGreaterThanOrEqual(Math.floor(g.baseWidthMm * scale))
       expect(overlay.rows).toBeGreaterThanOrEqual(Math.floor(g.baseHeightMm * scale))
       expect(overlay.channels()).toBe(3)
+      // The crop must be a continuous Mat: a ROI clone() can keep the parent's row stride,
+      // which misaligns every flat `data` read (and the ImageData handed to the UI).
+      expect(overlay.isContinuous()).toBe(true)
+      expect((overlay.data as Uint8Array).length).toBe(overlay.rows * overlay.cols * 3)
     } finally {
       overlay?.delete()
       bgr.delete()

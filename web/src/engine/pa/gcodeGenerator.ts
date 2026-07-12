@@ -1,17 +1,14 @@
 import type { FilamentProfile, PrinterProfile, PaTestSpec } from './types'
 import { couponGeometry, KLIPPER_DEFAULT_SMOOTH_TIME, paValueForLine } from './types'
-import { substituteSlicerVariables } from './slicerVariables'
+import { couponOrigin, prepareProfile, setupPreamble } from '../gcode/couponShell'
 import {
   BASE_LAYERS,
-  COLD_PRINT_WARNING,
   type Emitter,
   basePerimeters,
   extrude,
-  motionLimitCommands,
   PERIMETER_LOOPS,
   rasterBase,
   retract,
-  startGcodeHeats,
   travel,
 } from '../gcode/emitter'
 
@@ -65,29 +62,14 @@ export function generatePaGcodeWithReport(
       throw new Error('A smooth time sweep needs a fixed pressure advance value (fixedAdvance).')
     }
   }
-  const start = substituteSlicerVariables(profile.startGcode, profile, filament)
-  const pause = substituteSlicerVariables(profile.pauseGcode, profile, filament)
-  const end = substituteSlicerVariables(profile.endGcode, profile, filament)
-  const substituted: PrinterProfile = {
-    ...profile,
-    startGcode: start.gcode,
-    pauseGcode: pause.gcode,
-    endGcode: end.gcode,
-  }
-  const unknownVariables = [...new Set([...start.unknown, ...pause.unknown, ...end.unknown])]
-  const warnings = [...new Set([...start.warnings, ...pause.warnings, ...end.warnings])]
-  if (!startGcodeHeats(start.gcode)) warnings.push(COLD_PRINT_WARNING)
+  const { profile: substituted, unknownVariables, warnings } = prepareProfile(profile, filament)
   return { gcode: emitPaGcode(substituted, filament, spec), unknownVariables, warnings }
 }
 
 function emitPaGcode(profile: PrinterProfile, filament: FilamentProfile, spec: PaTestSpec): string {
   const g = couponGeometry(spec)
   // Center the coupon on the bed.
-  const ox = (profile.bedWidthMm - g.baseWidthMm) / 2
-  const oy = (profile.bedDepthMm - g.baseHeightMm) / 2
-  if (ox < 0 || oy < 0) {
-    throw new Error('Coupon does not fit on the configured bed')
-  }
+  const { ox, oy } = couponOrigin(profile, g.baseWidthMm, g.baseHeightMm)
   const holes = g.fiducials.map((f) => ({
     x0: ox + f.xMm - g.fiducialSizeMm / 2,
     y0: oy + f.yMm - g.fiducialSizeMm / 2,
@@ -97,12 +79,7 @@ function emitPaGcode(profile: PrinterProfile, filament: FilamentProfile, spec: P
 
   const e: Emitter = { lines: [], x: 0, y: 0 }
   const L = e.lines
-  L.push('; ScanNTune pressure advance test')
-  L.push('; fiducial holes preserved')
-  L.push(...profile.startGcode.split('\n'))
-  L.push('M83') // relative extrusion, restated in case start gcode changed it
-  L.push('G90')
-  L.push(...motionLimitCommands(profile))
+  L.push(...setupPreamble(profile, ['; ScanNTune pressure advance test', '; fiducial holes preserved']))
 
   // Base layers: perimeter loops first, then serpentine infill inset behind them.
   const infillInset = PERIMETER_LOOPS * spec.lineWidthMm

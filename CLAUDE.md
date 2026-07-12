@@ -56,7 +56,10 @@ Structure:
 
 Absolute scale needs a known px/mm (scanner DPI is rarely exact), so the app measures a standard ISO/IEC
 7810 plastic card (`cardEdgeMeasurer`) to learn the true px/mm; without it, only anisotropy and skew are
-meaningful.
+meaningful. The card is measured along its LONG side only: the short side reads through the lid-shadow
+zone and is banned as a reference. The scanner's transport axis also carries low-frequency mechanical
+waviness (about 0.1 mm on real units), so fine lateral measurements (ringing wiggles) are only read along
+the sensor-row axis; flows that need both directions scan the part twice, a quarter turn apart.
 
 A scanner's scale error can be per-axis: a CCD scanner is mis-scaled along its sensor axis but accurate
 along the carriage axis, so a calibration is a `ScaleReference` (a scalar px/mm, or a per-axis pair for
@@ -234,6 +237,25 @@ shipped source, comments, or UI text: they are guidance for how to work, not doc
    surface, "build plate" the removable sheet). Where ecosystems differ, use the term matching the user's
    selected firmware or slicer, or name both once ("extrusion multiplier / flow ratio"). Existing internal
    names are renamed opportunistically when the code is touched, not in bulk churn.
+
+8. **Diagnostic readouts show raw values.** Detection and per-scan facts in the UI present each underlying
+   field as its own labeled row with the exact value: booleans as yes/no, quantities as the number with its
+   unit ("Rotation: 90 degrees"). Never fold several facts into a prose sentence ("mirrored, rotated a
+   quarter turn"); prose is for guidance text only.
+
+9. **Never store a printer setting solely to restore it after a test print.** A generated test may override
+   firmware limits, but the restore is a firmware restart, stated as an end-of-print G-code comment and a
+   note in the UI, never a numeric restore block from stored profile values. A value may live in the
+   printer profile only when it actively configures generated prints.
+
+10. **Never downscale or resample a scan image anywhere in a measurement path.** Analysis always runs on
+    the original pixels; scaling is allowed only for display (overlay thumbnails, previews).
+
+11. **Coupon geometry derives its minimum size.** A coupon is as small as its measurement constraints
+    allow and no bigger: the interior is computed from the constraints with no padding. Fitting a
+    120 x 120 mm bed is an ideal worth designing toward, never a reason to sacrifice measurement validity;
+    the bed-fit machinery shrinks the spec for small beds. Printed paths must form continuous beads (no
+    zero-flow gap inside a path) and nothing may extend outside the coupon outline.
 
 **Verification bar.** The standard for "verified" is `npm run build` plus `npm test` plus `npm run e2e` all
 green (and, for any change to the measurement pipeline, the synthetic-fixture validation of rule 1). That

@@ -1,9 +1,16 @@
 import * as Comlink from 'comlink'
-import type { AnalysisApi, EmProcessing, PaProcessing, ScanProcessing } from './worker/analysis.worker'
+import type {
+  AnalysisApi,
+  EmProcessing,
+  IsProcessing,
+  PaProcessing,
+  ScanProcessing,
+} from './worker/analysis.worker'
 import type { CouponSpec, ScaleReferenceResult } from './engine/types'
 import type { ScaleReference } from './engine/scannerCalibration'
 import type { PaProgressCallback, PaTestSpec } from './engine/pa/types'
 import type { EmProgressCallback, EmTestSpec } from './engine/em/types'
+import type { IsTestSpec } from './engine/is/types'
 
 // Lazily create the analysis worker (which pulls in OpenCV.js) only when the user first analyzes a
 // scan, so the wasm is not loaded on the initial page paint.
@@ -59,6 +66,20 @@ export async function analyzeEmScan(
   )
 }
 
+// Analyse the two input shaper scans (upright and quarter-turned) in one worker call; the engine
+// measures each axis from the scan in which its lines run along the scanner's sensor rows, and
+// the worker renders one detection overlay per scan.
+export async function analyzeIsScans(
+  bytesA: Uint8Array,
+  bytesB: Uint8Array,
+  spec: IsTestSpec,
+  scanPxPerMm: ScaleReference,
+): Promise<IsProcessing> {
+  const a = bytesA.slice().buffer
+  const b = bytesB.slice().buffer
+  return getApi().analyzeIsScans(Comlink.transfer(a, [a]), Comlink.transfer(b, [b]), spec, scanPxPerMm)
+}
+
 export async function measureCardScan(
   bytes: Uint8Array,
   knownLongSideMm: number,
@@ -68,4 +89,4 @@ export async function measureCardScan(
   return getApi().measureCardScan(Comlink.transfer(b, [b]), knownLongSideMm, nominalDpi)
 }
 
-export type { EmProcessing, PaProcessing, ScanProcessing }
+export type { EmProcessing, IsProcessing, PaProcessing, ScanProcessing }

@@ -18,6 +18,10 @@ describe('overlay renderer', () => {
       // Cropped to content: no larger than the full scan.
       expect(overlay.rows).toBeLessThanOrEqual(image.rows)
       expect(overlay.cols).toBeLessThanOrEqual(image.cols)
+      // The crop must be a continuous Mat: a ROI clone() can keep the parent's row stride,
+      // which misaligns every flat `data` read (and the ImageData handed to the UI).
+      expect(overlay.isContinuous()).toBe(true)
+      expect((overlay.data as Uint8Array).length).toBe(overlay.rows * overlay.cols * 3)
     } finally {
       image.delete()
       overlay.delete()

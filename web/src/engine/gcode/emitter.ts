@@ -1,4 +1,4 @@
-import type { FilamentProfile, PrinterProfile } from '../pa/types'
+import type { FilamentProfile, PrinterProfile } from './profileTypes'
 
 export interface Emitter {
   lines: string[]
@@ -47,6 +47,21 @@ export function retract(e: Emitter, p: PrinterProfile, sign: 1 | -1): void {
   e.lines.push(`G1 E${(sign * -p.retractMm).toFixed(3)} F${Math.round(p.retractSpeedMmS * 60)}`)
 }
 
+/**
+ * Pluggable extrusion move: the band emitters below accept one so a coupon generator can
+ * modulate the flow (e.g. zero it over an already-printed bead) without changing the
+ * default emission of the other generators. Defaults to `extrude` everywhere.
+ */
+export type ExtrudeFn = (
+  e: Emitter,
+  p: PrinterProfile,
+  f: FilamentProfile,
+  lineWidthMm: number,
+  x: number,
+  y: number,
+  speedMmS: number,
+) => void
+
 /** Return the sub-ranges of [a, b] along the parametric line that lie OUTSIDE the box. */
 function clipRangeAgainstBox(
   bx: number,
@@ -93,6 +108,16 @@ export const RASTER_STEP_FACTOR = 0.9
 export const RASTER_SPEED_FACTOR = 1 / 3
 /** Concentric perimeter loops around the part outline and each fiducial hole. */
 export const PERIMETER_LOOPS = 2
+/** Loops around each fiducial hole; one more than elsewhere so raster ends stay clear. */
+export const HOLE_PERIMETER_LOOPS = 3
+/** Nominal single-bead width as a fraction of the nozzle diameter (standard slicer default). */
+export const NOMINAL_WIDTH_FACTOR = 1.05
+/** First-layer lines print narrower so z-offset squish is absorbed below the measured layers. */
+export const PEDESTAL_WIDTH_FACTOR = 0.72
+export const PEDESTAL_LAYERS = 1
+export const MEASURED_LAYERS = 2
+/** Volumetric flow above which typical hotends under-extrude; generators warn past it. */
+export const HIGH_FLOW_WARNING_THRESHOLD_MM3_S = 12
 
 /** One closed rectangular loop: travel to a corner, then four extrude moves. */
 export function rectLoop(
@@ -105,12 +130,13 @@ export function rectLoop(
   x1: number,
   y1: number,
   speedMmS: number,
+  doExtrude: ExtrudeFn = extrude,
 ): void {
   travel(e, p, x0, y0)
-  extrude(e, p, f, lineWidthMm, x1, y0, speedMmS)
-  extrude(e, p, f, lineWidthMm, x1, y1, speedMmS)
-  extrude(e, p, f, lineWidthMm, x0, y1, speedMmS)
-  extrude(e, p, f, lineWidthMm, x0, y0, speedMmS)
+  doExtrude(e, p, f, lineWidthMm, x1, y0, speedMmS)
+  doExtrude(e, p, f, lineWidthMm, x1, y1, speedMmS)
+  doExtrude(e, p, f, lineWidthMm, x0, y1, speedMmS)
+  doExtrude(e, p, f, lineWidthMm, x0, y0, speedMmS)
 }
 
 /** Perimeter loops inset from the part outline and outset around each fiducial hole. */
@@ -124,16 +150,17 @@ export function basePerimeters(
   w: number,
   h: number,
   holes: Box[],
+  doExtrude: ExtrudeFn = extrude,
 ): void {
   const speed = p.travelSpeedMmS * RASTER_SPEED_FACTOR
   for (let k = 0; k < PERIMETER_LOOPS; k++) {
     const ins = (k + 0.5) * lineWidthMm
-    rectLoop(e, p, f, lineWidthMm, x0 + ins, y0 + ins, x0 + w - ins, y0 + h - ins, speed)
+    rectLoop(e, p, f, lineWidthMm, x0 + ins, y0 + ins, x0 + w - ins, y0 + h - ins, speed, doExtrude)
   }
   for (const hole of holes) {
     for (let k = 0; k < PERIMETER_LOOPS; k++) {
       const out = (k + 0.5) * lineWidthMm
-      rectLoop(e, p, f, lineWidthMm, hole.x0 - out, hole.y0 - out, hole.x1 + out, hole.y1 + out, speed)
+      rectLoop(e, p, f, lineWidthMm, hole.x0 - out, hole.y0 - out, hole.x1 + out, hole.y1 + out, speed, doExtrude)
     }
   }
 }
@@ -150,6 +177,7 @@ export function rasterBase(
   h: number,
   angle45: boolean,
   holes: Box[],
+  doExtrude: ExtrudeFn = extrude,
 ): void {
   const step = lineWidthMm * RASTER_STEP_FACTOR
   // Diagonal raster: iterate scanlines along the diagonal direction. Each
@@ -200,9 +228,92 @@ export function rasterBase(
     for (const [a, b] of ordered) {
       if (Math.abs(b - a) < lineWidthMm) continue
       travel(e, p, bx + a * ux, by + a * uy)
-      extrude(e, p, f, lineWidthMm, bx + b * ux, by + b * uy, p.travelSpeedMmS * RASTER_SPEED_FACTOR)
+      doExtrude(e, p, f, lineWidthMm, bx + b * ux, by + b * uy, p.travelSpeedMmS * RASTER_SPEED_FACTOR)
     }
     scanIndex++
+  }
+}
+
+/**
+ * One frame-band layer shared by the open-window coupons: outline and window perimeters, the
+ * band infill rastered as four strips so no scanline (or its connecting travel) ever crosses
+ * the open window, then the fiducial hole perimeters. The hole loops are drawn after the
+ * raster so they seal its ragged line-ends under a clean continuous bead (a frayed edge
+ * biases the centroid the aligner reads). Each strip hop is retract-bracketed.
+ */
+export function frameBandLayer(
+  e: Emitter,
+  p: PrinterProfile,
+  f: FilamentProfile,
+  lineWidthMm: number,
+  x0: number,
+  y0: number,
+  w: number,
+  h: number,
+  bandMm: number,
+  holes: Box[],
+  angle45: boolean,
+  doExtrude: ExtrudeFn = extrude,
+): void {
+  // The interior window is a hole box: it turns the solid fill into a frame band.
+  const windowBox: Box = { x0: x0 + bandMm, y0: y0 + bandMm, x1: x0 + w - bandMm, y1: y0 + h - bandMm }
+  basePerimeters(e, p, f, lineWidthMm, x0, y0, w, h, [windowBox], doExtrude)
+  frameBandInfill(e, p, f, lineWidthMm, x0, y0, w, h, bandMm, holes, angle45, doExtrude)
+}
+
+/**
+ * The infill half of a frame-band layer: the band raster strips followed by the fiducial
+ * hole perimeters (see frameBandLayer for the reasoning behind that order). Split out so a
+ * coupon generator can print its own geometry between the band perimeters and this fill.
+ * Expects the nozzle primed on entry, like frameBandLayer after its perimeters; pass
+ * `startRetracted` when the nozzle enters retracted, so the first strip hop does not
+ * retract a second time.
+ */
+export function frameBandInfill(
+  e: Emitter,
+  p: PrinterProfile,
+  f: FilamentProfile,
+  lineWidthMm: number,
+  x0: number,
+  y0: number,
+  w: number,
+  h: number,
+  bandMm: number,
+  holes: Box[],
+  angle45: boolean,
+  doExtrude: ExtrudeFn = extrude,
+  startRetracted = false,
+): void {
+  const infillInset = PERIMETER_LOOPS * lineWidthMm
+  // Raster clearance around a fiducial hole: past the outermost of its perimeter loops.
+  const holeClearance = HOLE_PERIMETER_LOOPS * lineWidthMm
+  const expanded = holes.map((b) => ({
+    x0: b.x0 - holeClearance,
+    y0: b.y0 - holeClearance,
+    x1: b.x1 + holeClearance,
+    y1: b.y1 + holeClearance,
+  }))
+  const strips = [
+    // Top and bottom strips carry the fiducial holes; left/right span between them. The side
+    // strips butt exactly against the top/bottom strips (their y ranges share a boundary at
+    // bandMm - infillInset) so the corner seams have no unfilled sliver.
+    { sx: x0 + infillInset, sy: y0 + infillInset, w: w - 2 * infillInset, h: bandMm - 2 * infillInset },
+    { sx: x0 + infillInset, sy: y0 + h - bandMm + infillInset, w: w - 2 * infillInset, h: bandMm - 2 * infillInset },
+    { sx: x0 + infillInset, sy: y0 + bandMm - infillInset, w: bandMm - 2 * infillInset, h: h - 2 * bandMm + 2 * infillInset },
+    { sx: x0 + w - bandMm + infillInset, sy: y0 + bandMm - infillInset, w: bandMm - 2 * infillInset, h: h - 2 * bandMm + 2 * infillInset },
+  ]
+  strips.forEach((s, i) => {
+    if (!(startRetracted && i === 0)) retract(e, p, 1)
+    travel(e, p, s.sx, s.sy)
+    retract(e, p, -1)
+    rasterBase(e, p, f, lineWidthMm, s.sx, s.sy, s.w, s.h, angle45, expanded, doExtrude)
+  })
+  for (const hole of holes) {
+    for (let k = 0; k < HOLE_PERIMETER_LOOPS; k++) {
+      const out = (k + 0.5) * lineWidthMm
+      rectLoop(e, p, f, lineWidthMm, hole.x0 - out, hole.y0 - out, hole.x1 + out, hole.y1 + out,
+        p.travelSpeedMmS * RASTER_SPEED_FACTOR, doExtrude)
+    }
   }
 }
 

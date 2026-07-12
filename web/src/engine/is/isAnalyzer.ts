@@ -1,0 +1,266 @@
+import type { Mat, OpenCv } from '../opencv'
+import type { IsAxis, IsTestSpec } from './types'
+import { isCouponGeometry } from './couponGeometry'
+import type { IsLineGroup } from './couponGeometry'
+import { alignIsCoupon } from './isFiducialAligner'
+import type { IsAlignment } from './isFiducialAligner'
+import { imageDirection, measuredDirection, traceGroup, tracedSpanPx } from './lineTracer'
+import { analyzeTracedLine, poolAxisFits } from './ringAnalyzer'
+import { recommendShapers } from './shaperRecommender'
+import type { IsAxisResult, IsLineOutcome, IsResult, IsScanInfo } from './resultTypes'
+import { valueChannel } from '../cvUtils'
+import { isUsableReference } from '../scannerCalibration'
+import type { ScaleReference } from '../scannerCalibration'
+
+// Top-level input shaper analysis over TWO scans of the same printed coupon: the part scanned
+// face down once, and again turned a quarter turn on the glass. Each scan is aligned
+// independently through its fiducials, and each line group (one per machine axis) is measured
+// from the one scan in which its measured direction runs along the scanner's sensor-row axis.
+//
+// Sensor-row assumption: a flatbed scan's image X axis is the sensor line of the scan head
+// (the fast axis) and image Y the carriage transport, the same convention the scanner
+// calibration's AxisPxPerMm documents. The transport axis carries low-frequency mechanical
+// waviness (tens of micrometres), so ring wavelengths are only read along the sensor rows; a
+// group whose measured direction maps to the transport axis in both scans is refused, not
+// measured badly. The lateral ring deviations then lie along the transport axis, where the
+// waviness is slow enough for the Gaussian regression detrend to remove.
+
+/** How dominant the sensor-row component of a group's image direction must be. cos(30 deg):
+ *  a coupon can sit visibly crooked on the glass and still qualify, while a genuinely
+ *  transport-aligned group (about 90 deg away) never does. */
+const AXIS_DOMINANCE = Math.cos(Math.PI / 6)
+
+export function analyzeIsCoupon(
+  cv: OpenCv,
+  scanA: Mat,
+  scanB: Mat,
+  spec: IsTestSpec,
+  scanReference: ScaleReference,
+  alignmentHolder?: { alignments?: IsAlignment[] },
+): IsResult {
+  if (!scanA || scanA.empty() || !scanB || scanB.empty()) {
+    throw new Error('Image is null or empty.')
+  }
+  if (!isUsableReference(scanReference)) {
+    throw new Error('The scan reference must be a positive scanner calibration.')
+  }
+
+  const geometry = isCouponGeometry(spec)
+  const scans = [scanA, scanB]
+  const alignments: IsAlignment[] = []
+  // The caller (the worker's overlay rendering) sees every attempted alignment, including a
+  // failed one at the end when the analysis stops at a scan that could not be aligned.
+  if (alignmentHolder) alignmentHolder.alignments = alignments
+  for (let i = 0; i < 2; i++) {
+    const alignment = alignIsCoupon(cv, scans[i], spec)
+    if (!alignment.success) {
+      // The failed alignment still contributes its per-scan diagnostics: which pipeline
+      // stages succeeded before the failure is what the UI reports per scan.
+      alignments.push(alignment)
+      return {
+        aligned: false,
+        failureReason:
+          `Scan ${i + 1} could not be aligned: ` +
+          (alignment.failureReason ?? 'the coupon could not be located in the scan.'),
+        scans: alignments.map(scanInfo),
+        axes: [],
+      }
+    }
+    // A face-down scan of the coupon's top face is always mirrored relative to the coupon
+    // frame. An unmirrored scan therefore shows the BED side: there the sharp on-glass edge
+    // is the slow-printed pedestal bead (which carries no ringing), the measured layer sits
+    // above the scanner's focal plane, and the first-layer fiducial rims are squish-torn, so
+    // nothing downstream could measure the ring. Refuse with the flip named instead of
+    // returning numbers read off the wrong layer.
+    if (!alignment.flipped) {
+      alignments.push(alignment) // the overlay can still show the located coupon
+      return {
+        aligned: false,
+        failureReason:
+          `Scan ${i + 1} shows the coupon's bed side. Place the coupon with the printed top ` +
+          'face against the glass and rescan.',
+        scans: alignments.map(scanInfo),
+        axes: [],
+      }
+    }
+    alignments.push(alignment)
+  }
+
+  const axes: IsAxisResult[] = []
+  for (const group of geometry.groups) {
+    axes.push(measureGroup(cv, scans, alignments, spec, group, scanReference))
+  }
+
+  return {
+    aligned: true,
+    failureReason: null,
+    scans: alignments.map(scanInfo),
+    axes,
+  }
+}
+
+// The per-scan diagnostics the UI reports: how far the alignment got (plate and holes found,
+// orientation solved) plus the resolved orientation itself.
+function scanInfo(a: IsAlignment): IsScanInfo {
+  return {
+    fiducialsFound: a.fiducialsFound,
+    orientationSolved: a.orientationSolved,
+    flipped: a.flipped,
+    rotationQuarterTurns: a.rotationQuarterTurns,
+  }
+}
+
+function refusedAxis(
+  axis: IsAxis,
+  refusals: string[],
+  linesTraced = 0,
+  scanIndex: 0 | 1 | null = null,
+  lines: IsLineOutcome[] = [],
+): IsAxisResult {
+  return {
+    axis,
+    accepted: false,
+    refusals,
+    frequencyHz: null,
+    dampingRatio: null,
+    frequencyCi95Hz: null,
+    amplitudeMm: null,
+    linesUsed: 0,
+    linesTraced,
+    scanIndex,
+    lines,
+    shapers: null,
+    recommended: null,
+  }
+}
+
+const NOT_TRACED_REASON =
+  'The line could not be traced in the scan. It may be damaged, incompletely printed, or ' +
+  'partly outside the scan area.'
+
+function measureGroup(
+  cv: OpenCv,
+  scans: Mat[],
+  alignments: IsAlignment[],
+  spec: IsTestSpec,
+  group: IsLineGroup,
+  scanReference: ScaleReference,
+): IsAxisResult {
+  // Group-to-scan assignment: the scan in which the group's measured direction is most
+  // sensor-row aligned, accepted only when that alignment is dominant.
+  const dir = measuredDirection(group.lines[0])
+  let scanIndex: 0 | 1 | null = null
+  let bestDominance = 0
+  for (let i = 0; i < 2; i++) {
+    const { ux, uy } = imageDirection(alignments[i], dir)
+    const dominance = Math.abs(ux) / Math.hypot(ux, uy)
+    if (dominance >= AXIS_DOMINANCE && dominance > bestDominance) {
+      bestDominance = dominance
+      scanIndex = i as 0 | 1
+    }
+  }
+  if (scanIndex === null) {
+    // With no scan assigned there is no image space to place the lines in.
+    const lines: IsLineOutcome[] = group.lines.map((l, i) => ({
+      lineIndex: i,
+      axis: group.axis,
+      speedMmS: l.speedMmS,
+      traced: false,
+      accepted: false,
+      refusalReason: null,
+      startPx: null,
+      endPx: null,
+    }))
+    return refusedAxis(
+      group.axis,
+      [
+        `The ${group.axis.toUpperCase()} axis lines do not run along the scanner's sensor rows in ` +
+          'either scan, so their ring wavelength cannot be read reliably. Scan the coupon once ' +
+          'upright and once turned a quarter turn on the glass.',
+      ],
+      0,
+      null,
+      lines,
+    )
+  }
+
+  const alignment = alignments[scanIndex]
+  const gray = valueChannel(cv, scans[scanIndex])
+  let traced
+  try {
+    traced = traceGroup(cv, gray, alignment, spec, group, scanReference)
+  } finally {
+    gray.delete()
+  }
+
+  // Per-line outcomes, in geometry order. Untraced lines still get their expected span from
+  // the geometry through the alignment, so the overlay can point at a damaged line.
+  const lines: IsLineOutcome[] = group.lines.map((l, i) => {
+    const span = tracedSpanPx(alignment, spec, l)
+    return {
+      lineIndex: i,
+      axis: group.axis,
+      speedMmS: l.speedMmS,
+      traced: traced.traces[i] !== null,
+      accepted: false,
+      refusalReason: traced.traces[i] === null ? NOT_TRACED_REASON : null,
+      startPx: span.start,
+      endPx: span.end,
+    }
+  })
+
+  const tracedIndices = traced.traces
+    .map((t, i) => (t !== null ? i : -1))
+    .filter((i) => i >= 0)
+
+  if (tracedIndices.length === 0) {
+    return refusedAxis(
+      group.axis,
+      [
+        `None of the ${group.axis.toUpperCase()} axis lines could be traced in the scan. The ` +
+          'coupon may be incompletely printed or partly outside the scan area.',
+      ],
+      0,
+      scanIndex,
+      lines,
+    )
+  }
+
+  const fits = tracedIndices.map((i) => analyzeTracedLine(traced.traces[i]!))
+  for (let k = 0; k < tracedIndices.length; k++) {
+    lines[tracedIndices[k]].accepted = fits[k].accepted
+    lines[tracedIndices[k]].refusalReason = fits[k].refusalReason
+  }
+  const pool = poolAxisFits(
+    fits,
+    spec.speedsMmS,
+    tracedIndices.map((i) => group.lines[i].speedMmS),
+  )
+
+  if (!pool.accepted) {
+    const r = refusedAxis(group.axis, pool.refusals, tracedIndices.length, scanIndex, lines)
+    r.linesUsed = pool.linesUsed
+    return r
+  }
+
+  const recommendation = recommendShapers(
+    pool.frequencyHz!,
+    pool.dampingRatio!,
+    pool.frequencyCi95Hz ?? 0,
+  )
+  return {
+    axis: group.axis,
+    accepted: true,
+    refusals: pool.refusals,
+    frequencyHz: pool.frequencyHz,
+    dampingRatio: pool.dampingRatio,
+    frequencyCi95Hz: pool.frequencyCi95Hz,
+    amplitudeMm: pool.amplitudeMm,
+    linesUsed: pool.linesUsed,
+    linesTraced: tracedIndices.length,
+    scanIndex,
+    lines,
+    shapers: recommendation.options,
+    recommended: recommendation.recommended,
+  }
+}

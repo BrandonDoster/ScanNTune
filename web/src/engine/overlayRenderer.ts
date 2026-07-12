@@ -115,7 +115,10 @@ function crop(cv: OpenCv, canvas: Mat, rings: DetectedRing[], orientation: Orien
   if (rings.length === 0) return canvas
   const r = contentRect(rings, orientation, canvas.cols, canvas.rows)
   const roi = canvas.roi(new cv.Rect(r.x, r.y, r.width, r.height))
-  const cropped = roi.clone()
+  // copyTo, not clone: OpenCV.js clone() of a ROI keeps the source's row stride, which leaves
+  // the flat `data` view misaligned. copyTo always allocates a continuous Mat.
+  const cropped = new cv.Mat()
+  roi.copyTo(cropped)
   roi.delete()
   canvas.delete()
   return cropped

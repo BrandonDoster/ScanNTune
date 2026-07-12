@@ -14,6 +14,7 @@ const form = useProfileForm()
 
 const firmwares: Firmware[] = ['Klipper', 'Marlin', 'RepRapFirmware']
 
+
 const editedId = app.profilePayload?.profileId ?? null
 const existing = editedId === null ? null : store.profiles.find((p) => p.id === editedId) ?? null
 if (existing) {
@@ -181,6 +182,7 @@ function save(): void {
               :min="1"
             />
           </div>
+
         </div>
 
         <div class="gcode mt-2">

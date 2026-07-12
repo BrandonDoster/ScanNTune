@@ -22,6 +22,11 @@ import type { EmResult } from '../engine/em/emAnalyzer'
 import { renderEmOverlayMat } from '../engine/em/emOverlayRenderer'
 import type { EmAlignment } from '../engine/em/fiducialAligner'
 import type { EmProgressCallback, EmTestSpec } from '../engine/em/types'
+import { analyzeIsCoupon } from '../engine/is/isAnalyzer'
+import { renderIsOverlayMat } from '../engine/is/isOverlayRenderer'
+import type { IsAlignment } from '../engine/is/isFiducialAligner'
+import type { IsResult } from '../engine/is/resultTypes'
+import type { IsTestSpec } from '../engine/is/types'
 import type { ScaleReference } from '../engine/scannerCalibration'
 import { decodeToBgr, matToImageBitmap, grayMatToImageBitmap } from './decode'
 
@@ -230,6 +235,77 @@ async function renderEmOverlayBitmap(
   }
 }
 
+/**
+ * The outcome of analysing the two input shaper scans: the IsResult plus one detection overlay
+ * per scan, showing which lines were traced and which were skipped or never found. A scan that
+ * could not be aligned gets the plain decoded scan instead, so the UI always has an image to
+ * show.
+ */
+export interface IsProcessing {
+  result: IsResult
+  overlays: [ImageBitmap, ImageBitmap]
+}
+
+// Analyse the two input shaper scans (the coupon upright and turned a quarter turn on the glass) in
+// one call: both are decoded here and handed to the engine together, which picks per axis the scan
+// whose line group runs along the scanner's sensor rows. The IsResult is plain data (numbers,
+// strings, arrays); the overlays are rendered here and transferred.
+async function analyzeIsScans(
+  bytesA: ArrayBuffer,
+  bytesB: ArrayBuffer,
+  spec: IsTestSpec,
+  scanPxPerMm: ScaleReference,
+): Promise<IsProcessing> {
+  const cv = await loadOpenCv()
+  const imgA = await decodeToBgr(cv, bytesA)
+  try {
+    const imgB = await decodeToBgr(cv, bytesB)
+    try {
+      const holder: { alignments?: IsAlignment[] } = {}
+      const result = analyzeIsCoupon(cv, imgA, imgB, spec, scanPxPerMm, holder)
+      const imgs = [imgA, imgB]
+      const overlays: ImageBitmap[] = []
+      try {
+        for (let i = 0; i < 2; i++) {
+          const alignment = holder.alignments?.[i]
+          overlays.push(
+            alignment?.success
+              ? await renderIsOverlayBitmap(cv, imgs[i], alignment, spec, result, i as 0 | 1)
+              : await matToImageBitmap(cv, imgs[i]),
+          )
+        }
+      } catch (e) {
+        for (const bitmap of overlays) bitmap.close() // don't orphan an already rendered overlay
+        throw e
+      }
+      return Comlink.transfer(
+        { result, overlays: [overlays[0], overlays[1]] as [ImageBitmap, ImageBitmap] },
+        overlays,
+      )
+    } finally {
+      imgB.delete()
+    }
+  } finally {
+    imgA.delete()
+  }
+}
+
+async function renderIsOverlayBitmap(
+  cv: OpenCv,
+  image: Mat,
+  alignment: IsAlignment,
+  spec: IsTestSpec,
+  result: IsResult,
+  scanIndex: 0 | 1,
+): Promise<ImageBitmap> {
+  const mat = renderIsOverlayMat(cv, image, alignment, spec, result.axes, scanIndex)
+  try {
+    return await matToImageBitmap(cv, mat)
+  } finally {
+    mat.delete()
+  }
+}
+
 async function measureCardScan(
   bytes: ArrayBuffer,
   knownLongSideMm: number,
@@ -244,7 +320,7 @@ async function measureCardScan(
   }
 }
 
-const api = { analyzeScan, analyzePaScan, analyzeEmScan, measureCardScan }
+const api = { analyzeScan, analyzePaScan, analyzeEmScan, analyzeIsScans, measureCardScan }
 export type AnalysisApi = typeof api
 
 Comlink.expose(api)
