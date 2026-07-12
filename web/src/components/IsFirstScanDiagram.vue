@@ -14,7 +14,7 @@ const m = isCouponMiniature(206, 112, 92)
     viewBox="0 0 480 200"
     class="diagram"
     role="img"
-    aria-label="First scan: the resonance coupon lies on the scanner glass with the printed top face down, the corner without a hole at the top left and the fiducial holes at the other three corners. The corner without a hole marks the origin and the ringing is read from the test lines."
+    aria-label="First scan: the resonance coupon lies on the scanner glass with the printed top face down, the corner without a hole at the top left and the fiducial holes at the other three corners. The ringing is read from the test lines."
   >
     <line x1="172" y1="18" x2="300" y2="18" class="sec" stroke-width="2" />
     <polyline points="291,13 300,18 291,23" class="sec" fill="none" stroke-width="1.8" />
@@ -81,10 +81,9 @@ const m = isCouponMiniature(206, 112, 92)
       :stroke-width="m.pitchPx * 0.35"
     />
 
-    <text x="336" y="88" class="lbl">the corner without a hole marks the origin</text>
-    <rect x="316" y="108" width="14" height="4" rx="2" class="greenFill" />
-    <text x="336" y="113" class="lbl">ringing is read from the lines</text>
-    <text x="316" y="136" class="lbl">printed top face lies on the glass</text>
+    <rect x="316" y="101" width="14" height="4" rx="2" class="greenFill" />
+    <text x="336" y="106" class="lbl">ringing is read from the lines</text>
+    <text x="316" y="129" class="lbl">printed top face lies on the glass</text>
   </svg>
 </template>
 
