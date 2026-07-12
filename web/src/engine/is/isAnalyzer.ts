@@ -2,8 +2,10 @@ import type { Mat, OpenCv } from '../opencv'
 import type { IsAxis, IsTestSpec } from './types'
 import { isCouponGeometry } from './couponGeometry'
 import type { IsLineGroup } from './couponGeometry'
-import { alignIsCoupon } from './isFiducialAligner'
+import { alignIsCoupon, mmToPx } from './isFiducialAligner'
 import type { IsAlignment } from './isFiducialAligner'
+import { assessMeasurementBackdrop } from '../measurementBackdrop'
+import type { BackdropAssessment } from '../measurementBackdrop'
 import { imageDirection, measuredDirection, traceGroup, tracedSpanPx } from './lineTracer'
 import { analyzeTracedLine, poolAxisFits } from './ringAnalyzer'
 import { recommendShapers } from './shaperRecommender'
@@ -109,6 +111,32 @@ export function analyzeIsCoupon(
     }
   }
 
+  // Measurement-backdrop gate per scan: the floor showing through the open window must present
+  // a single tone that contrasts with the plastic, or the traced line edges read shifted (a dark
+  // textured build plate behind the window corrupts the ring readout).
+  for (let i = 0; i < 2; i++) {
+    const gray = valueChannel(cv, scans[i])
+    let backdrop
+    try {
+      backdrop = assessIsBackdrop(gray, alignments[i], spec, geometry)
+    } finally {
+      gray.delete()
+    }
+    if (backdrop.failure) {
+      return {
+        aligned: false,
+        failureReason:
+          `Scan ${i + 1}: the backing showing through the coupon window is ` +
+          (backdrop.failure === 'low-contrast'
+            ? 'too similar in brightness to the plastic'
+            : 'too uneven in brightness') +
+          ' to measure against. Scan the removed part against the lid or a sheet of paper, or use a light, even build plate.',
+        scans: alignments.map(scanInfo),
+        axes: [],
+      }
+    }
+  }
+
   const axes: IsAxisResult[] = []
   for (const group of geometry.groups) {
     axes.push(measureGroup(cv, scans, alignments, spec, group, scanReference))
@@ -120,6 +148,62 @@ export function analyzeIsCoupon(
     scans: alignments.map(scanInfo),
     axes,
   }
+}
+
+// Samples plastic tones on the frame band and backdrop tones between adjacent test lines inside
+// the open window (half a line pitch off each measured segment, early in its protected span,
+// before any crossings) plus the fiducial holes, all through the solved affine, and judges them
+// with the shared measurement-backdrop gate.
+function assessIsBackdrop(
+  gray: Mat,
+  alignment: IsAlignment,
+  spec: IsTestSpec,
+  geometry: ReturnType<typeof isCouponGeometry>,
+): BackdropAssessment {
+  const data = gray.data as Uint8Array
+  const cols = gray.cols
+  const rows = gray.rows
+  const sample = (xMm: number, yMm: number): number => {
+    const p = mmToPx(alignment, xMm, yMm)
+    const x = Math.round(p.x)
+    const y = Math.round(p.y)
+    if (x < 0 || y < 0 || x >= cols || y >= rows) return NaN
+    return data[y * cols + x]
+  }
+
+  const band = geometry.frameBandMm
+  const plastic: number[] = []
+  for (let t = 0.1; t <= 0.9; t += 0.1) {
+    plastic.push(
+      sample(geometry.couponWidthMm * t, band / 2),
+      sample(geometry.couponWidthMm * t, geometry.couponHeightMm - band / 2),
+      sample(band / 2, geometry.couponHeightMm * t),
+      sample(geometry.couponWidthMm - band / 2, geometry.couponHeightMm * t),
+    )
+  }
+
+  const backdrop: number[] = []
+  for (const group of geometry.groups) {
+    for (const line of group.lines) {
+      const m = line.measured
+      const len = Math.hypot(m.x1 - m.x0, m.y1 - m.y0)
+      if (len <= 0) continue
+      const dx = (m.x1 - m.x0) / len
+      const dy = (m.y1 - m.y0) / len
+      // Early in the protected span: inside the window, before any crossings.
+      const along = Math.min(line.protectedMm, len) / 2
+      const cx = m.x0 + dx * along
+      const cy = m.y0 + dy * along
+      const off = spec.linePitchMm / 2
+      backdrop.push(sample(cx - dy * off, cy + dx * off), sample(cx + dy * off, cy - dx * off))
+    }
+  }
+  for (const f of geometry.fiducials) backdrop.push(sample(f.xMm, f.yMm))
+
+  return assessMeasurementBackdrop(
+    plastic.filter(Number.isFinite),
+    backdrop.filter(Number.isFinite),
+  )
 }
 
 // The per-scan diagnostics the UI reports: how far the alignment got (plate and holes found,

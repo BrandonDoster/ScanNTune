@@ -4,7 +4,7 @@ import { couponGeometry, paValueForLine } from './types'
 import type { PaProgressCallback } from './types'
 import { alignPaCoupon } from './fiducialAligner'
 import type { PaAlignment } from './fiducialAligner'
-import { estimateLineContrast, measureLineWidthProfile, MIN_LINE_CONTRAST } from './lineMeasurer'
+import { assessLineBackdrop, measureLineWidthProfile } from './lineMeasurer'
 import type { WidthSample } from './lineMeasurer'
 import { valueChannel } from '../cvUtils'
 import { median } from '../math'
@@ -95,13 +95,15 @@ export function analyzePaCoupon(
   const gray = valueChannel(cv, image)
   const lines: PaLineScore[] = []
   try {
-    // Polarity-free contrast gate: without enough brightness separation between the lines and the
-    // base, the width profiles cannot tell a line from base texture in either direction.
-    const contrast = estimateLineContrast(cv, gray, alignment, spec)
-    if (contrast < MIN_LINE_CONTRAST) {
+    // Measurement-backdrop gate: without enough brightness separation between the lines and the
+    // base, or with an uneven base tone, the width profiles cannot locate the line edges reliably.
+    const backdrop = assessLineBackdrop(cv, gray, alignment, spec)
+    if (backdrop.failure) {
       return {
         ...failure(
-          'The test lines are too similar in brightness to the base. Print the lines in a filament that contrasts more with the base.',
+          backdrop.failure === 'low-contrast'
+            ? 'The test lines are too similar in brightness to the base. Print the lines in a filament that contrasts more with the base.'
+            : 'The base behind the test lines is too uneven in brightness to measure against. Print the base in a single plain filament and rescan.',
         ),
         measuredPxPerMm: perpPxPerMm,
         flipped: alignment.flipped,

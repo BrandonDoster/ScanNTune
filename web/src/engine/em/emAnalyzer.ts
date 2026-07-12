@@ -1,11 +1,14 @@
 import type { Mat, OpenCv } from '../opencv'
 import type { EmProgressCallback, EmTestSpec } from './types'
-import { alignEmCoupon } from './fiducialAligner'
+import { emCouponGeometry } from './types'
+import { alignEmCoupon, mmToPx } from './fiducialAligner'
 import type { EmAlignment } from './fiducialAligner'
 import type { BlockMeasurement, EmMeasurement } from './gapMeasurer'
 import { measureEmCoupon } from './gapMeasurer'
 import { valueChannel } from '../cvUtils'
 import { median } from '../math'
+import { assessMeasurementBackdrop } from '../measurementBackdrop'
+import type { BackdropAssessment } from '../measurementBackdrop'
 import { evaluateScanSetResolution } from '../resolutionGate'
 import { isotropicPxPerMm } from '../scannerCalibration'
 import type { ScaleReference } from '../scannerCalibration'
@@ -107,6 +110,17 @@ export function analyzeEmCoupon(
   const gray = valueChannel(cv, imageBgr)
   let measurement
   try {
+    // Measurement-backdrop gate: the floor showing through the comb gaps must present a single
+    // tone that contrasts with the plastic, or every gap edge reads shifted (a dark textured
+    // build plate behind the gaps biases the width wide).
+    const backdrop = assessEmBackdrop(gray, alignment, spec)
+    if (backdrop.failure) {
+      return fail(
+        backdrop.failure === 'low-contrast'
+          ? 'The backing showing through the coupon gaps is too similar in brightness to the plastic to measure against. Scan against a lighter backing: remove the part and use the lid or a sheet of paper, or print the coupon on a contrasting base.'
+          : 'The backing showing through the coupon gaps is too uneven in brightness to measure against, which happens when a textured build plate shows through. Print the coupon on a contrasting base, or remove the part and scan it against the lid or a sheet of paper.',
+      )
+    }
     measurement = measureEmCoupon(cv, gray, alignment, spec, scanPxPerMm)
   } catch (error) {
     // A coupon that aligns but shows no readable comb is a normal bad-scan outcome for the
@@ -211,6 +225,59 @@ function separatorBiasMm(
 // right-flank sub-pixel edge offsets. A symmetric edge spread widens both flanks equally and
 // oppositely, so the medians cancel; a one-sided penumbra shifts a single flank, leaving a
 // nonzero sum that equals the bead-width bias. Null when no flank offsets were collected.
+// Samples plastic tones on the frame band and rail, and backdrop tones at every commanded gap
+// midpoint of both comb rows plus the three fiducial holes, all through the solved affine, and
+// judges them with the shared measurement-backdrop gate.
+function assessEmBackdrop(
+  gray: { data: unknown; cols: number; rows: number },
+  alignment: EmAlignment,
+  spec: EmTestSpec,
+): BackdropAssessment {
+  const g = emCouponGeometry(spec)
+  const data = gray.data as Uint8Array
+  const sample = (xMm: number, yMm: number): number | null => {
+    const p = mmToPx(alignment, xMm, yMm)
+    const x = Math.round(p.x)
+    const y = Math.round(p.y)
+    if (x < 0 || y < 0 || x >= gray.cols || y >= gray.rows) return null
+    return data[y * gray.cols + x]
+  }
+
+  const plastic: number[] = []
+  const band = g.frameBandMm
+  // Frame band midpoints along all four sides, and the rail centreline.
+  for (let t = 0.1; t <= 0.9; t += 0.1) {
+    plastic.push(
+      sample(g.couponWidthMm * t, band / 2) ?? NaN,
+      sample(g.couponWidthMm * t, g.couponHeightMm - band / 2) ?? NaN,
+      sample(g.couponWidthMm * t, (g.railY0Mm + g.railY1Mm) / 2) ?? NaN,
+    )
+    plastic.push(
+      sample(band / 2, g.couponHeightMm * t) ?? NaN,
+      sample(g.couponWidthMm - band / 2, g.couponHeightMm * t) ?? NaN,
+    )
+  }
+
+  const backdrop: number[] = []
+  const rowYs: [typeof g.topRow, number][] = [
+    [g.topRow, (g.topRowY0Mm + g.topRowY1Mm) / 2],
+    [g.bottomRow, (g.bottomRowY0Mm + g.bottomRowY1Mm) / 2],
+  ]
+  for (const [rowBlocks, yMm] of rowYs) {
+    for (const block of rowBlocks) {
+      for (let j = 0; j + 1 < block.lineXsMm.length; j++) {
+        backdrop.push(sample((block.lineXsMm[j] + block.lineXsMm[j + 1]) / 2, yMm) ?? NaN)
+      }
+    }
+  }
+  for (const f of g.fiducials) backdrop.push(sample(f.xMm, f.yMm) ?? NaN)
+
+  return assessMeasurementBackdrop(
+    plastic.filter(Number.isFinite),
+    backdrop.filter(Number.isFinite),
+  )
+}
+
 function flankAsymmetry(measurement: EmMeasurement): number | null {
   const { leftFlankOffsetsMm, rightFlankOffsetsMm } = measurement
   if (leftFlankOffsetsMm.length === 0 || rightFlankOffsetsMm.length === 0) return null

@@ -68,11 +68,15 @@ const partColorsItems = [
 ]
 const scanPlanNote = computed(() => {
   if (scanPlace.value === 'plate') {
-    return (
-      'Useful for filaments that are hard to remove, like TPU or PETG. The coupon is ' +
-      'printed at the front edge of the bed, so that edge of the build plate can lie on ' +
-      'the scanner glass. The plate color needs to contrast with the filament.'
-    )
+    const placement =
+      'The coupon is printed at the front edge of the bed, so that edge of the build ' +
+      'plate can lie on the scanner glass. Useful for filaments that are hard to remove, ' +
+      'like TPU or PETG.'
+    return partColors.value === 'base'
+      ? placement +
+          ' The contrasting base backs the measured gaps, so the build plate surface does not matter.'
+      : placement +
+          ' Use a light, even build plate; a dark or textured plate shows through the gaps and the scan is refused.'
   }
   return partColors.value === 'base'
     ? 'A base is printed in a second color underneath the coupon, with a filament swap ' +
@@ -102,7 +106,7 @@ const spec = computed<EmTestSpec>(() => ({
   linesPerBlock: linesPerBlock.value ?? specDefaults.value.linesPerBlock,
   printSpeedMmS: printSpeed.value ?? specDefaults.value.printSpeedMmS,
   placement: scanPlace.value === 'plate' ? 'front' : 'center',
-  contrastBase: scanPlace.value === 'part' && partColors.value === 'base',
+  contrastBase: partColors.value === 'base',
 }))
 
 const geometry = computed(() => emCouponGeometry(spec.value))
@@ -337,7 +341,6 @@ const resolutionText = computed(() => {
             data-testid="em-scan-plan"
           />
           <v-select
-            v-if="scanPlace === 'part'"
             v-model="partColors"
             :items="partColorsItems"
             label="Colors"

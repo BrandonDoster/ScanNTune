@@ -79,11 +79,14 @@ const partColorsItems = [
 ]
 const scanPlanNote = computed(() => {
   if (scanPlace.value === 'plate') {
-    return (
+    const placement =
       'The coupon prints at the front edge of the bed so the plate edge can rest on the ' +
-      'scanner glass. Use this for filaments that are hard to remove, like TPU or PETG. ' +
-      'The plate color must contrast with the filament.'
-    )
+      'scanner glass. Use this for filaments that are hard to remove, like TPU or PETG.'
+    return partColors.value === 'base'
+      ? placement +
+          ' The contrasting base backs the open window, so the build plate surface does not matter.'
+      : placement +
+          ' Use a light, even build plate; a dark or textured plate shows through the window and the scan is refused.'
   }
   return partColors.value === 'base'
     ? 'A base prints in a second color under the coupon, with a filament swap pause ' +
@@ -114,7 +117,7 @@ const spec = computed<IsTestSpec>(() => {
     linePitchMm: linePitch.value ?? specDefaults.value.linePitchMm,
     axes: ['x', 'y'] as IsAxis[],
     placement: (scanPlace.value === 'plate' ? 'front' : 'center') as IsTestSpec['placement'],
-    contrastBase: scanPlace.value === 'part' && partColors.value === 'base',
+    contrastBase: partColors.value === 'base',
   }
 })
 
@@ -489,7 +492,6 @@ async function analyze(): Promise<void> {
             data-testid="is-scan-plan"
           />
           <v-select
-            v-if="scanPlace === 'part'"
             v-model="partColors"
             :items="partColorsItems"
             label="Colors"
