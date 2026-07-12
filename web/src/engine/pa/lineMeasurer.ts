@@ -4,14 +4,15 @@ import { couponGeometry } from './types'
 import type { PaAlignment } from './fiducialAligner'
 import { mmToPx } from './fiducialAligner'
 import { median } from '../math'
+import { EDGE_REFINE_WINDOW_PX, gradientCentroid } from '../subpixelEdge'
 
 // Profiles a PA test line's extruded width along its length to sub-pixel precision. Every 0.25 mm
 // along the line (skipping the ragged 2 mm at each end), a perpendicular intensity profile is
 // extracted by bilinear interpolation, and the line's two edges are located as the strongest
 // intensity-gradient peak on each side of the profile's extremum (the point deviating most from
-// the base tone, so lines darker or brighter than the base measure identically), refined by
-// parabolic interpolation of the gradient (the same sub-pixel edge model the card measurer uses).
-// Width is converted to mm
+// the base tone, so lines darker or brighter than the base measure identically), refined by a
+// gradient centroid (center-of-gravity, the same sub-pixel edge estimator the EM gap measurer
+// uses). Width is converted to mm
 // with the alignment's local scale along the perpendicular, so rotation, flip, and scanner
 // anisotropy are all accounted for by the affine itself.
 
@@ -149,7 +150,7 @@ function measureAt(
   if (Math.abs(profile[extIdx] - med) < MIN_LINE_CONTRAST) return NaN // no line here: a gap
 
   // Gradient magnitude (central difference); the strongest peak on each flank of the extremum is
-  // the edge, refined with parabolic interpolation of the gradient.
+  // the edge, refined with a gradient centroid around the peak.
   const grad = (k: number) => Math.abs(profile[k + 1] - profile[k - 1])
   const left = subPixEdge(grad, 1, extIdx - 1)
   const right = subPixEdge(grad, extIdx + 1, profileLen - 2)
@@ -157,8 +158,12 @@ function measureAt(
   return (right - left) * PROFILE_STEP_PX
 }
 
-// Sub-pixel index of the strongest gradient peak within [kLo, kHi], parabolic interpolation over
-// the peak and its two neighbours (clamped to +/- 1 sample). NaN when the window is empty or flat.
+// Sub-pixel index of the strongest gradient peak within [kLo, kHi], refined by the gradient
+// centroid (center-of-gravity) over a window around the peak: the first moment of the gradient
+// magnitude. For a symmetric edge-spread function the centroid is the true edge position, and
+// unlike a parabolic fit of the peak it stays continuous where bilinear resampling makes the
+// gradient piecewise constant (the same estimator the EM gap measurer uses). NaN when the window
+// is empty or the peak is below the noise floor.
 function subPixEdge(grad: (k: number) => number, kLo: number, kHi: number): number {
   if (kHi < kLo) return NaN
   let best = -1
@@ -172,11 +177,8 @@ function subPixEdge(grad: (k: number) => number, kLo: number, kHi: number): numb
   }
   if (bk < 0 || best < MIN_EDGE_GRADIENT) return NaN
 
-  const gm = grad(Math.max(kLo, bk - 1))
-  const gp = grad(Math.min(kHi, bk + 1))
-  const denom = gm - 2 * best + gp
-  const sub = Math.abs(denom) < 1e-9 ? 0 : (0.5 * (gm - gp)) / denom
-  return bk + Math.min(1, Math.max(-1, sub))
+  const windowSamples = Math.round(EDGE_REFINE_WINDOW_PX / PROFILE_STEP_PX)
+  return gradientCentroid(grad, bk, windowSamples, kLo, kHi) ?? bk
 }
 
 // Bilinear intensity at a fractional pixel position; NaN outside the image.

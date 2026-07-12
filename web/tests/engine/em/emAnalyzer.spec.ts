@@ -10,11 +10,13 @@ import { defaultEmTestSpec } from '../../../src/engine/em/types'
 import { defaultPrinterProfile } from '../../../src/engine/pa/types'
 
 const spec = defaultEmTestSpec(defaultPrinterProfile())
-const PX_PER_MM = 12
+// The analyzer refuses scans below the measurement resolution floor, so the synthetic scans are
+// rendered at the 600 dpi class resolution a real scan is expected to have.
+const PX_PER_MM = 24
 
 async function analyzeRender(options: Omit<EmRenderOptions, 'spec'>): Promise<EmResult> {
   const cv = await getCv()
-  const img = rgbaToBgrMat(cv, renderEmScan({ spec, ...options }))
+  const img = rgbaToBgrMat(cv, renderEmScan({ pxPerMm: PX_PER_MM, spec, ...options }))
   try {
     return analyzeEmCoupon(cv, img, spec, options.pxPerMm ?? PX_PER_MM)
   } finally {
@@ -126,7 +128,10 @@ describe('analyzeEmCoupon render recovery', () => {
       // per-axis reference must convert them with its vertical figure alone; the horizontal figure
       // here is deliberately far off and must not leak into the measurement.
       const cv = await getCv()
-      const img = rgbaToBgrMat(cv, renderEmScan({ spec, trueWidthMm: 0.42, quarterTurns: 1 }))
+      const img = rgbaToBgrMat(
+        cv,
+        renderEmScan({ pxPerMm: PX_PER_MM, spec, trueWidthMm: 0.42, quarterTurns: 1 }),
+      )
       try {
         const r = analyzeEmCoupon(cv, img, spec, {
           horizontal: PX_PER_MM * 2,
@@ -158,19 +163,14 @@ describe('analyzeEmCoupon render recovery', () => {
     'detects a one-sided lamp shadow and warns, with an asymmetry near the width inflation',
     async () => {
       const trueWidth = 0.42
-      // Rendered at a higher resolution so the narrowest gaps span enough pixels for the flanks to
-      // be measured independently; the tightest default-spec gap is only about a quarter millimetre.
-      const px = 24
       // A symmetric clean reference to measure how much the injected shadow inflated the width.
-      const clean = await analyzeRender({ trueWidthMm: trueWidth, pxPerMm: px })
+      const clean = await analyzeRender({ trueWidthMm: trueWidth })
       const rLeft = await analyzeRender({
         trueWidthMm: trueWidth,
-        pxPerMm: px,
         shadow: { side: 'left', extraSigmaMm: 0.16 },
       })
       const rRight = await analyzeRender({
         trueWidthMm: trueWidth,
-        pxPerMm: px,
         shadow: { side: 'right', extraSigmaMm: 0.16 },
       })
       expect(clean.success).toBe(true)
@@ -194,6 +194,18 @@ describe('analyzeEmCoupon render recovery', () => {
         expect(ratio).toBeGreaterThan(0.5)
         expect(ratio).toBeLessThan(2)
       }
+    },
+    240000,
+  )
+
+  it(
+    'fails with a resolution reason on a scan below the 150 dpi floor',
+    async () => {
+      const r = await analyzeRender({ trueWidthMm: 0.42, pxPerMm: 5 })
+      expect(r.success).toBe(false)
+      expect(r.failureReason).toContain('dpi')
+      expect(r.failureReason).toContain('150')
+      expect(r.wMm).toBeNull()
     },
     240000,
   )

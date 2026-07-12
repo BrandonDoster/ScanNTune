@@ -16,7 +16,9 @@ import type { ScaleReference } from '../../../src/engine/scannerCalibration'
 // two-scan analysis must recover them, or refuse with the specific user-worded reason. Renders
 // are mirrored (flipped: true) like a real face-down scan.
 
-const PX_PER_MM = 12
+// The analyzer refuses scans below the measurement resolution floor, so the synthetic scans are
+// rendered at the 600 dpi class resolution a real scan is expected to have.
+const PX_PER_MM = 24
 const baseSpec = defaultIsTestSpec(defaultPrinterProfile())
 // A single-axis (Y only) spec keeps the coupon, and thus the render time, small for the
 // refusal-gate tests; the flagship recovery test uses the full two-axis default.
@@ -29,8 +31,8 @@ async function analyzePair(
   reference: ScaleReference = PX_PER_MM,
 ): Promise<IsResult> {
   const cv = await getCv()
-  const a = rgbaToBgrMat(cv, renderIsScan({ spec, ...optionsA }))
-  const b = rgbaToBgrMat(cv, renderIsScan({ spec, ...optionsB }))
+  const a = rgbaToBgrMat(cv, renderIsScan({ pxPerMm: PX_PER_MM, spec, ...optionsA }))
+  const b = rgbaToBgrMat(cv, renderIsScan({ pxPerMm: PX_PER_MM, spec, ...optionsB }))
   try {
     return analyzeIsCoupon(cv, a, b, spec, reference)
   } finally {
@@ -287,6 +289,26 @@ describe('analyzeIsCoupon render recovery', () => {
         a.delete()
         b.delete()
       }
+    },
+    240000,
+  )
+
+  it(
+    'refuses a scan below the 150 dpi floor with a resolution reason',
+    async () => {
+      const truth = { y: { frequencyHz: 75, dampingRatio: 0.05, ringAmpMm: 0.25 } }
+      const r = await analyzePair(
+        ySpec,
+        { truth, quarterTurns: 0, flipped: true, pxPerMm: 5 },
+        { truth, quarterTurns: 1, flipped: true, pxPerMm: 5 },
+        5,
+      )
+      expect(r.aligned).toBe(false)
+      expect(r.failureReason).toContain('Scan 1')
+      expect(r.failureReason).toContain('dpi')
+      expect(r.failureReason).toContain('150')
+      expect(r.scans).toHaveLength(1)
+      expect(r.axes).toEqual([])
     },
     240000,
   )

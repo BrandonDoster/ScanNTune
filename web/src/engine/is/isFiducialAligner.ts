@@ -6,6 +6,7 @@ import { analyzeThresholdBands, valueChannel } from '../cvUtils'
 import { solveCornerHoleCandidates } from '../cornerFiducialSolver'
 import type { AffineMmToPx, CornerCandidate, Point } from '../cornerFiducialSolver'
 import { median } from '../math'
+import { MIN_ALIGN_PX_PER_MM } from '../resolutionGate'
 
 // Locates the IS coupon's three square fiducial holes in a scan and solves the
 // exactly-determined affine mapping coupon-frame millimetres to scan pixels, following the EM
@@ -138,13 +139,9 @@ function tryAlign(cv: OpenCv, objectWhite: Mat, gray: Mat, g: IsCouponGeometry):
       }
     }
     const nominalAreaMm2 = g.couponWidthMm * g.couponHeightMm
-    // Resolution floor: below 1 px/mm (about 26 dpi) a ~0.45 mm test bead spans less than
-    // half a pixel and a 0.25 mm ring amplitude under a quarter, so nothing downstream could
-    // trace a line even if the plate were located; a blob smaller than this cannot be a
-    // usable coupon scan. Every real flatbed setting (75 dpi and up) clears it by a wide
-    // margin, so this rejects only non-coupon blobs, never a plausible scan.
-    const MIN_PX_PER_MM = 1
-    const minBasePx = nominalAreaMm2 * MIN_PX_PER_MM * MIN_PX_PER_MM
+    // Degenerate-alignment floor: a blob smaller than the coupon at MIN_ALIGN_PX_PER_MM
+    // cannot be a usable coupon scan (see resolutionGate for the derivation).
+    const minBasePx = nominalAreaMm2 * MIN_ALIGN_PX_PER_MM * MIN_ALIGN_PX_PER_MM
     if (baseIndex < 0 || baseArea < minBasePx) {
       return fail(
         'No coupon was found in the scan. Place the printed coupon flat on the scanner glass so the whole plate is visible.',

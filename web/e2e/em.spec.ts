@@ -3,19 +3,19 @@ import { fileURLToPath } from 'node:url'
 import type { ScannerCalibration } from '../src/engine/types'
 
 // End-to-end flow (extrusion multiplier) tests. The synthetic scan is rendered by the emRender
-// helper at 12 px/mm with a ground-truth bead width of 0.42 mm; the real scan is a 600 dpi
+// helper at 24 px/mm with a ground-truth bead width of 0.42 mm; the real scan is a 600 dpi
 // flatbed scan of a printed coupon (default spec, calibrated scanner at 23.622 px/mm).
 const emSynthetic = fileURLToPath(new URL('./fixtures/em_synthetic.png', import.meta.url))
 const emReal = fileURLToPath(new URL('./fixtures/em_real_scan.png', import.meta.url))
 
 // Stored scanner calibrations matching the fixtures (fields per useCalibration and
-// isUsableCalibration). The synthetic render is exactly 12 px/mm; the real scanner resolves
+// isUsableCalibration). The synthetic render is exactly 24 px/mm; the real scanner resolves
 // 23.622 px/mm at its 600 dpi setting.
 const syntheticCalibration: ScannerCalibration = {
-  pxPerMm: 12,
-  dpi: 304.8,
+  pxPerMm: 24,
+  dpi: 609.6,
   referenceMm: 85.6,
-  measuredWidthPx: 1027.2,
+  measuredWidthPx: 2054.4,
   straightnessPx: 0.1,
   parallelismDegrees: 0.02,
   calibratedUtc: '2026-07-01T00:00:00.000Z',

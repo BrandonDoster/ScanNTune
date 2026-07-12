@@ -6,6 +6,7 @@ import type { BlockMeasurement, EmMeasurement } from './gapMeasurer'
 import { measureEmCoupon } from './gapMeasurer'
 import { valueChannel } from '../cvUtils'
 import { median } from '../math'
+import { insufficientResolutionReason } from '../resolutionGate'
 import type { ScaleReference } from '../scannerCalibration'
 
 // Top-level EM analysis: aligns the coupon, measures its comb geometry, and estimates the
@@ -85,6 +86,13 @@ export function analyzeEmCoupon(
 
   const fail = (reason: string) =>
     failure(reason, alignment.flipped, alignment.rotationQuarterTurns)
+
+  // The affine's scale prices the scan's resolution; a scan too coarse for the sub-pixel gap
+  // readout is refused before any numbers come out of it.
+  const resolutionReason = insufficientResolutionReason(
+    Math.hypot(alignment.affine.a, alignment.affine.c),
+  )
+  if (resolutionReason) return fail(resolutionReason)
 
   onProgress?.({ stage: 'measure' })
   const gray = valueChannel(cv, imageBgr)

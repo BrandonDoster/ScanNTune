@@ -12,13 +12,14 @@ import { defaultPrinterProfile } from '../../../src/engine/pa/types'
 
 describe('renderEmOverlayMat', () => {
   const spec = defaultEmTestSpec(defaultPrinterProfile())
-  const PX_PER_MM = 12
+  // At the 600 dpi class resolution the analyzer's measurement resolution gate accepts.
+  const PX_PER_MM = 24
 
   it(
     'renders the overlay cropped to the coupon outline plus a small margin',
     async () => {
       const cv = await getCv()
-      const bgr = rgbaToBgrMat(cv, renderEmScan({ spec, trueWidthMm: 0.42 }))
+      const bgr = rgbaToBgrMat(cv, renderEmScan({ spec, trueWidthMm: 0.42, pxPerMm: PX_PER_MM }))
       let overlay = null
       try {
         const alignment = alignEmCoupon(cv, bgr, spec)
@@ -49,7 +50,7 @@ describe('renderEmOverlayMat', () => {
 
   it('throws when the alignment did not succeed', async () => {
     const cv = await getCv()
-    const bgr = rgbaToBgrMat(cv, renderEmScan({ spec, trueWidthMm: 0.42 }))
+    const bgr = rgbaToBgrMat(cv, renderEmScan({ spec, trueWidthMm: 0.42, pxPerMm: PX_PER_MM }))
     try {
       const failed: EmAlignment = {
         success: false,

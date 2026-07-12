@@ -8,6 +8,7 @@ import { estimateLineContrast, measureLineWidthProfile, MIN_LINE_CONTRAST } from
 import type { WidthSample } from './lineMeasurer'
 import { valueChannel } from '../cvUtils'
 import { median } from '../math'
+import { insufficientResolutionReason } from '../resolutionGate'
 
 // Turns an aligned PA coupon scan into a pressure-advance estimate. Each test line is profiled
 // with measureLineWidthProfile and scored by the RMS width deviation inside +/- 2 mm windows
@@ -75,6 +76,18 @@ export function analyzePaCoupon(
   if (alignmentHolder) alignmentHolder.alignment = alignment
   if (!alignment.success) {
     return failure(alignment.failureReason ?? 'The coupon could not be aligned.')
+  }
+
+  // The local scale along the width-profile direction prices the scan's resolution; a scan too
+  // coarse for the sub-pixel width readout is refused before any numbers come out of it.
+  const perpPxPerMm = Math.hypot(alignment.b, alignment.d)
+  const resolutionReason = insufficientResolutionReason(perpPxPerMm)
+  if (resolutionReason) {
+    return {
+      ...failure(resolutionReason),
+      flipped: alignment.flipped,
+      rotationQuarterTurns: alignment.rotationQuarterTurns,
+    }
   }
 
   const g = couponGeometry(spec)

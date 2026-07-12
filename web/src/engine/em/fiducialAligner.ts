@@ -4,6 +4,7 @@ import { emCouponGeometry, pitchForBlock } from './types'
 import { analyzeThresholdBands } from '../cvUtils'
 import { solveFromCornerHoles } from '../cornerFiducialSolver'
 import type { Point } from '../cornerFiducialSolver'
+import { MIN_ALIGN_PX_PER_MM } from '../resolutionGate'
 
 // Locates the EM coupon's three square fiducial holes in a scan and solves the exactly-determined
 // affine mapping coupon-frame millimetres to scan pixels, mirroring the PA fiducial aligner. The
@@ -94,8 +95,7 @@ function tryAlign(
     }
     const nominalAreaMm2 = g.couponWidthMm * g.couponHeightMm
     // Sanity floor, not a tuned constant: any scanner above ~26 dpi (1 px/mm) exceeds this.
-    const MIN_PX_PER_MM = 1
-    const minBasePx = nominalAreaMm2 * MIN_PX_PER_MM * MIN_PX_PER_MM
+    const minBasePx = nominalAreaMm2 * MIN_ALIGN_PX_PER_MM * MIN_ALIGN_PX_PER_MM
     if (baseIndex < 0 || baseArea < minBasePx) {
       return fail(
         'No coupon was found in the scan. Place the printed coupon flat on the scanner glass so the whole plate is visible.',

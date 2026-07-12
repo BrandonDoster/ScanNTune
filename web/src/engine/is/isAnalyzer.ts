@@ -9,6 +9,7 @@ import { analyzeTracedLine, poolAxisFits } from './ringAnalyzer'
 import { recommendShapers } from './shaperRecommender'
 import type { IsAxisResult, IsLineOutcome, IsResult, IsScanInfo } from './resultTypes'
 import { valueChannel } from '../cvUtils'
+import { insufficientResolutionReason } from '../resolutionGate'
 import { isUsableReference } from '../scannerCalibration'
 import type { ScaleReference } from '../scannerCalibration'
 
@@ -62,6 +63,20 @@ export function analyzeIsCoupon(
         failureReason:
           `Scan ${i + 1} could not be aligned: ` +
           (alignment.failureReason ?? 'the coupon could not be located in the scan.'),
+        scans: alignments.map(scanInfo),
+        axes: [],
+      }
+    }
+    // The affine's scale prices this scan's resolution; a scan too coarse for the sub-pixel
+    // line tracing is refused per scan, the same way an unalignable scan is.
+    const resolutionReason = insufficientResolutionReason(
+      Math.hypot(alignment.affine!.a, alignment.affine!.c),
+    )
+    if (resolutionReason) {
+      alignments.push(alignment) // the overlay can still show the located coupon
+      return {
+        aligned: false,
+        failureReason: `Scan ${i + 1}: ${resolutionReason}`,
         scans: alignments.map(scanInfo),
         axes: [],
       }

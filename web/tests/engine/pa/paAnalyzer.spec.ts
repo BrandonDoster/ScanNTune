@@ -61,6 +61,9 @@ describe('parabolicMinimum', () => {
 
 describe('analyzePaCoupon', () => {
   const spec = defaultPaTestSpec()
+  // The analyzer refuses scans below the measurement resolution floor, so the synthetic scans
+  // are rendered at the 600 dpi class resolution a real scan is expected to have.
+  const PX_PER_MM = 24
 
   it.each([
     [0.012, 0, false],
@@ -72,7 +75,12 @@ describe('analyzePaCoupon', () => {
     const cv = await getCv()
     const bgr = rgbaToBgrMat(
       cv,
-      renderPaScan({ truePa: truePa as number, rotationDegrees: rot as number, flipped: flip as boolean }),
+      renderPaScan({
+        truePa: truePa as number,
+        rotationDegrees: rot as number,
+        flipped: flip as boolean,
+        pxPerMm: PX_PER_MM,
+      }),
     )
     try {
       const r = analyzePaCoupon(cv, bgr, spec)
@@ -101,6 +109,7 @@ describe('analyzePaCoupon', () => {
           baseGray: 40,
           lineGray: 220,
           backgroundGray: 245,
+          pxPerMm: PX_PER_MM,
         }),
       )
       try {
@@ -119,12 +128,32 @@ describe('analyzePaCoupon', () => {
     const cv = await getCv()
     const bgr = rgbaToBgrMat(
       cv,
-      renderPaScan({ truePa: 0.03, baseGray: 120, lineGray: 135, backgroundGray: 245 }),
+      renderPaScan({
+        truePa: 0.03,
+        baseGray: 120,
+        lineGray: 135,
+        backgroundGray: 245,
+        pxPerMm: PX_PER_MM,
+      }),
     )
     try {
       const r = analyzePaCoupon(cv, bgr, spec)
       expect(r.success).toBe(false)
       expect(r.failureReason).toContain('too similar in brightness')
+      expect(r.bestPa).toBeNull()
+    } finally {
+      bgr.delete()
+    }
+  }, 120000)
+
+  it('fails with a resolution reason on a scan below the 150 dpi floor', async () => {
+    const cv = await getCv()
+    const bgr = rgbaToBgrMat(cv, renderPaScan({ truePa: 0.03, pxPerMm: 5 }))
+    try {
+      const r = analyzePaCoupon(cv, bgr, spec)
+      expect(r.success).toBe(false)
+      expect(r.failureReason).toContain('dpi')
+      expect(r.failureReason).toContain('150')
       expect(r.bestPa).toBeNull()
     } finally {
       bgr.delete()
@@ -146,7 +175,7 @@ describe('analyzePaCoupon', () => {
 
   it('emits progress events: align, one measure per line in order, then score', async () => {
     const cv = await getCv()
-    const bgr = rgbaToBgrMat(cv, renderPaScan({ truePa: 0.03 }))
+    const bgr = rgbaToBgrMat(cv, renderPaScan({ truePa: 0.03, pxPerMm: PX_PER_MM }))
     const events: PaProgress[] = []
     try {
       const r = analyzePaCoupon(cv, bgr, spec, undefined, (p) => events.push(p))

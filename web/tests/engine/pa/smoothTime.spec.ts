@@ -98,7 +98,7 @@ describe('analyzePaCoupon on a smooth-time render', () => {
     const spec = defaultSmoothTimeTestSpec(truePa)
     const step = (spec.paEnd - spec.paStart) / (spec.lineCount - 1)
     const cv = await getCv()
-    const bgr = rgbaToBgrMat(cv, renderPaScan({ spec, truePa, trueSmoothTime }))
+    const bgr = rgbaToBgrMat(cv, renderPaScan({ spec, truePa, trueSmoothTime, pxPerMm: 24 }))
     try {
       const r = analyzePaCoupon(cv, bgr, spec)
       expect(r.success).toBe(true)

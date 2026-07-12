@@ -6,6 +6,7 @@ import { mmToPx } from './fiducialAligner'
 import { median } from '../math'
 import { isUsableReference, referenceAlongDirection } from '../scannerCalibration'
 import type { ScaleReference } from '../scannerCalibration'
+import { EDGE_REFINE_WINDOW_PX, gradientCentroid } from '../subpixelEdge'
 
 // Measures the EM coupon's comb geometry to sub-pixel precision. For each test block, horizontal
 // intensity profiles are extracted along the scan-space direction of the coupon's x-axis (walked
@@ -64,11 +65,6 @@ const ROW_MIDDLE_FRACTION = 0.6
 // that land on the background and plastic plateaus for any line/gap duty cycle the pitch sweep
 // produces, unlike the extremes (noise) or the mean (duty-cycle dependent).
 const PLATEAU_PERCENTILE = 0.1
-// Gradient-centroid half-window around a mid-level crossing, in px. Two pixels covers the full
-// effective edge spread (scanner optics plus the one-pixel area integration plus the bilinear
-// resampling); detectLines shrinks it to half the narrowest commanded feature when the scan
-// resolution is low, so the window never reaches a neighbouring edge's ramp.
-const EDGE_REFINE_WINDOW_PX = 2
 
 interface DetectedLine {
   leftPx: number // profile-local sub-pixel positions, px
@@ -372,19 +368,11 @@ function refineEdge(
   const denom = b - a
   const crossing = crossK - 1 + (Math.abs(denom) < 1e-12 ? 0.5 : (mid - a) / denom)
 
-  // Centroid window, clamped to the differentiable interior.
-  const lo = Math.max(1, crossK - windowSamples)
-  const hi = Math.min(n - 2, crossK + windowSamples)
-  let weight = 0
-  let moment = 0
-  for (let k = lo; k <= hi; k++) {
-    const gk = grad(k)
-    weight += gk
-    moment += gk * k
-  }
-  if (weight <= 0) return { pos: crossing, offset: 0 }
-  const pos = moment / weight
-  return { pos, offset: pos - crossing }
+  // Gradient centroid over the window clamped to the differentiable interior; the linear-crossing
+  // seed is the fallback when the window carries no gradient weight (a flat plateau).
+  const centroid = gradientCentroid(grad, crossK, windowSamples, 1, n - 2)
+  if (centroid === null) return { pos: crossing, offset: 0 }
+  return { pos: centroid, offset: centroid - crossing }
 }
 
 // Linear-interpolated percentile of an ascending-sorted array.
