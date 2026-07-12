@@ -495,15 +495,15 @@ const resolutionText = computed(() => {
       <template v-if="result.success">
         <div class="tiles mb-3">
           <MetricTile
-            label="Measured line width"
-            :value="`${result.wMm!.toFixed(3)} mm`"
-            testid="em-width"
-          />
-          <MetricTile
             v-if="newSlicerFlow"
             label="New slicer flow"
             :value="newSlicerFlow"
             testid="em-flow"
+          />
+          <MetricTile
+            label="Measured line width"
+            :value="`${result.wMm!.toFixed(3)} mm`"
+            testid="em-width"
           />
           <MetricTile
             label="Blocks measured"
