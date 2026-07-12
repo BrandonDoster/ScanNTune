@@ -54,8 +54,17 @@ export interface IsAxisResult {
   recommended: ShaperOption | null
 }
 
-/** Orientation diagnostics of one aligned scan. */
+/**
+ * Alignment and orientation diagnostics of one analyzed scan. A scan that failed to align
+ * still gets an entry reporting how far its alignment progressed; scans the analysis never
+ * reached get none.
+ */
 export interface IsScanInfo {
+  /** True when the coupon plate and its three corner fiducial holes were located. */
+  fiducialsFound: boolean
+  /** True when the coupon orientation was solved; `flipped` and `rotationQuarterTurns` are
+   *  only meaningful when this is true. */
+  orientationSolved: boolean
   flipped: boolean
   rotationQuarterTurns: number
 }

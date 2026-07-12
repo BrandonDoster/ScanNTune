@@ -254,27 +254,26 @@ const scanCards = computed<ScanCard[]>(() => {
   const p = processing.value
   const r = p?.result
   if (!p || !r) return []
-  // r.scans lists the successfully aligned scans in order, so on a failed pair its length is
-  // the index of the scan that failed to align; every scan after it was never attempted.
-  const alignedCount = r.scans.length
+  // r.scans lists the analyzed scans in order, including the scan whose alignment failed
+  // (its entry reports how far the alignment got); every scan after it was never attempted.
   return p.overlays.map((bitmap, i) => {
-    const info = r.aligned || i < alignedCount ? r.scans[i] : null
+    const info = r.scans[i] ?? null
     const axes = r.axes.filter((a) => a.scanIndex === i)
     const rows: ScanCardRow[] = [
       {
         label: 'Fiducials',
-        value: info ? 'Found' : i > alignedCount ? 'Not analyzed' : 'Not found',
-        sev: info ? 'ok' : i > alignedCount ? 'mute' : 'warn',
+        value: info ? (info.fiducialsFound ? 'Found' : 'Not found') : 'Not analyzed',
+        sev: info ? (info.fiducialsFound ? 'ok' : 'warn') : 'mute',
       },
       {
         label: 'Flipped',
-        value: info ? (info.flipped ? 'yes' : 'no') : 'Not resolved',
-        sev: info ? 'ok' : 'mute',
+        value: info?.orientationSolved ? (info.flipped ? 'yes' : 'no') : 'Not resolved',
+        sev: info?.orientationSolved ? 'ok' : 'mute',
       },
       {
         label: 'Rotation',
-        value: info ? `${info.rotationQuarterTurns * 90} degrees` : 'Not resolved',
-        sev: info ? 'ok' : 'mute',
+        value: info?.orientationSolved ? `${info.rotationQuarterTurns * 90} degrees` : 'Not resolved',
+        sev: info?.orientationSolved ? 'ok' : 'mute',
       },
       {
         label: 'Measures',

@@ -7,7 +7,7 @@ import type { IsAlignment } from './isFiducialAligner'
 import { imageDirection, measuredDirection, traceGroup, tracedSpanPx } from './lineTracer'
 import { analyzeTracedLine, poolAxisFits } from './ringAnalyzer'
 import { recommendShapers } from './shaperRecommender'
-import type { IsAxisResult, IsLineOutcome, IsResult } from './resultTypes'
+import type { IsAxisResult, IsLineOutcome, IsResult, IsScanInfo } from './resultTypes'
 import { valueChannel } from '../cvUtils'
 import { isUsableReference } from '../scannerCalibration'
 import type { ScaleReference } from '../scannerCalibration'
@@ -48,21 +48,21 @@ export function analyzeIsCoupon(
   const geometry = isCouponGeometry(spec)
   const scans = [scanA, scanB]
   const alignments: IsAlignment[] = []
-  // The caller (the worker's overlay rendering) sees whatever alignments succeeded, even
-  // when the analysis stops at a failed scan.
+  // The caller (the worker's overlay rendering) sees every attempted alignment, including a
+  // failed one at the end when the analysis stops at a scan that could not be aligned.
   if (alignmentHolder) alignmentHolder.alignments = alignments
   for (let i = 0; i < 2; i++) {
     const alignment = alignIsCoupon(cv, scans[i], spec)
     if (!alignment.success) {
+      // The failed alignment still contributes its per-scan diagnostics: which pipeline
+      // stages succeeded before the failure is what the UI reports per scan.
+      alignments.push(alignment)
       return {
         aligned: false,
         failureReason:
           `Scan ${i + 1} could not be aligned: ` +
           (alignment.failureReason ?? 'the coupon could not be located in the scan.'),
-        scans: alignments.map((a) => ({
-          flipped: a.flipped,
-          rotationQuarterTurns: a.rotationQuarterTurns,
-        })),
+        scans: alignments.map(scanInfo),
         axes: [],
       }
     }
@@ -79,10 +79,7 @@ export function analyzeIsCoupon(
         failureReason:
           `Scan ${i + 1} shows the coupon's bed side. Place the coupon with the printed top ` +
           'face against the glass and rescan.',
-        scans: alignments.map((a) => ({
-          flipped: a.flipped,
-          rotationQuarterTurns: a.rotationQuarterTurns,
-        })),
+        scans: alignments.map(scanInfo),
         axes: [],
       }
     }
@@ -97,11 +94,19 @@ export function analyzeIsCoupon(
   return {
     aligned: true,
     failureReason: null,
-    scans: alignments.map((a) => ({
-      flipped: a.flipped,
-      rotationQuarterTurns: a.rotationQuarterTurns,
-    })),
+    scans: alignments.map(scanInfo),
     axes,
+  }
+}
+
+// The per-scan diagnostics the UI reports: how far the alignment got (plate and holes found,
+// orientation solved) plus the resolved orientation itself.
+function scanInfo(a: IsAlignment): IsScanInfo {
+  return {
+    fiducialsFound: a.fiducialsFound,
+    orientationSolved: a.orientationSolved,
+    flipped: a.flipped,
+    rotationQuarterTurns: a.rotationQuarterTurns,
   }
 }
 

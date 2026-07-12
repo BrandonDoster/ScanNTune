@@ -277,6 +277,11 @@ describe('analyzeIsCoupon render recovery', () => {
         expect(r.aligned).toBe(false)
         expect(r.failureReason).toContain('configured test settings')
         expect(r.failureReason).toContain('lines per speed')
+        // The per-scan diagnostics must not contradict the failure reason: the plate and its
+        // fiducial holes WERE found, only the content verification refused the scan.
+        expect(r.scans).toHaveLength(1)
+        expect(r.scans[0].fiducialsFound).toBe(true)
+        expect(r.scans[0].orientationSolved).toBe(true)
         expect(r.axes).toEqual([])
       } finally {
         a.delete()
@@ -298,6 +303,9 @@ describe('analyzeIsCoupon render recovery', () => {
       const r = analyzeIsCoupon(cv, blankA, blankB, ySpec, PX_PER_MM)
       expect(r.aligned).toBe(false)
       expect(r.failureReason).toBeTruthy()
+      expect(r.scans).toHaveLength(1)
+      expect(r.scans[0].fiducialsFound).toBe(false)
+      expect(r.scans[0].orientationSolved).toBe(false)
       expect(r.axes).toEqual([])
     } finally {
       blankA.delete()

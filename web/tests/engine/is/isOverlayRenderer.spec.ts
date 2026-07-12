@@ -146,6 +146,8 @@ describe('renderIsOverlayMat', () => {
         success: false,
         failureReason: 'test',
         affine: null,
+        fiducialsFound: false,
+        orientationSolved: false,
         flipped: false,
         rotationQuarterTurns: 0,
       }

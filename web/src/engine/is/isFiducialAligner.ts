@@ -23,6 +23,11 @@ export interface IsAlignment {
   failureReason: string | null
   /** Maps coupon-frame mm to scan px: px = A * mm + t. Null when alignment failed. */
   affine: AffineMmToPx | null
+  /** True once three plausible corner holes were located, even if alignment later failed. */
+  fiducialsFound: boolean
+  /** True once a geometrically valid orientation was solved from the holes; `flipped` and
+   *  `rotationQuarterTurns` are only meaningful when this is true. */
+  orientationSolved: boolean
   flipped: boolean
   rotationQuarterTurns: number
 }
@@ -70,6 +75,11 @@ export function alignIsCoupon(cv: OpenCv, imageBgr: Mat, spec: IsTestSpec): IsAl
  *  means further: plate found, shape ok, holes found, orientation solved, content verified). */
 type AlignAttempt = IsAlignment & { stage: number }
 
+/** Stage from which the three corner holes were located. */
+const STAGE_HOLES_FOUND = 3
+/** Stage from which a geometrically valid orientation was solved. */
+const STAGE_ORIENTATION_SOLVED = 4
+
 function stripStage(attempt: AlignAttempt): IsAlignment {
   const { stage: _stage, ...alignment } = attempt
   return alignment
@@ -81,13 +91,23 @@ export function mmToPx(alignment: IsAlignment, xMm: number, yMm: number): { x: n
   return { x: A.a * xMm + A.b * yMm + A.tx, y: A.c * xMm + A.d * yMm + A.ty }
 }
 
-function fail(reason: string, stage: number): AlignAttempt {
+// A failed attempt still reports how far it got, so the UI can state which pipeline stages
+// succeeded before the failure. A stage-4 failure knows the best orientation hypothesis, so
+// its flip and rotation are carried along; earlier failures leave the defaults, which the
+// `orientationSolved` flag marks as meaningless.
+function fail(
+  reason: string,
+  stage: number,
+  orientation?: { flipped: boolean; rotationQuarterTurns: number },
+): AlignAttempt {
   return {
     success: false,
     failureReason: reason,
     affine: null,
-    flipped: false,
-    rotationQuarterTurns: 0,
+    fiducialsFound: stage >= STAGE_HOLES_FOUND,
+    orientationSolved: stage >= STAGE_ORIENTATION_SOLVED,
+    flipped: orientation?.flipped ?? false,
+    rotationQuarterTurns: orientation?.rotationQuarterTurns ?? 0,
     stage,
   }
 }
@@ -348,6 +368,7 @@ function selectCandidateByContent(
         'often a different number of lines per speed. Set the same print settings that ' +
         'generated this coupon, including lines per speed, and analyze again.',
       4,
+      candidates[best],
     )
   }
   if (candidates.length > 1 && bestScore - secondScore < MIN_PROBE_MARGIN) {
@@ -355,6 +376,7 @@ function selectCandidateByContent(
       'The coupon orientation is ambiguous in this scan: both possible orientations match the ' +
         'printed pattern about equally well. Rescan the coupon flat on the glass with the lid closed.',
       4,
+      candidates[best],
     )
   }
   const c = candidates[best]
@@ -362,6 +384,8 @@ function selectCandidateByContent(
     success: true,
     failureReason: null,
     affine: c.affine,
+    fiducialsFound: true,
+    orientationSolved: true,
     flipped: c.flipped,
     rotationQuarterTurns: c.rotationQuarterTurns,
     stage: 5,
