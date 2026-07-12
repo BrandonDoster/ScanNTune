@@ -223,6 +223,7 @@ watch([measuredMm, dpi, scannerType], () => {
           :min="1"
           :precision="2"
           placeholder="85.50"
+          testid="reference-mm"
         />
         <NumericField
           v-model="dpi"
@@ -232,6 +233,7 @@ watch([measuredMm, dpi, scannerType], () => {
           :precision="0"
           hint="For best results scan at 600 dpi, and use the same resolution for your coupon."
           class="mt-3"
+          testid="scan-dpi"
         />
         <div class="mt-3">
           <div class="field-label mb-1">Sensor type</div>
