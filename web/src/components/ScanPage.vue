@@ -562,6 +562,7 @@ function getCoupon(file: string): void {
           density="comfortable"
           hide-details
           class="firmware-select"
+          data-testid="firmware-select"
         />
       </div>
       <p class="text-body-2 text-medium-emphasis mt-1">
@@ -615,7 +616,7 @@ function getCoupon(file: string): void {
           would be measured on top of the old correction and come out wrong.
         </span>
       </div>
-      <CodeBlock :code="resetCommand.code" />
+      <CodeBlock :code="resetCommand.code" data-testid="reset-skew-code" />
       <p v-if="resetCommand.hint" class="tip mt-0">{{ resetCommand.hint }}</p>
     </section>
 
@@ -675,7 +676,7 @@ function getCoupon(file: string): void {
         plate, or the white lid behind a dark plate. Scan the plate once. Turn it on the glass and
         scan it again. Use the same face down for every scan of a plate.
       </p>
-      <p class="tip mb-2">
+      <p class="tip mb-2" data-testid="scan-dpi-hint">
         <strong>{{ scanDpiHint || 'Scan at 600 dpi.' }}</strong>
       </p>
       <p class="tip mb-3">
@@ -819,8 +820,20 @@ function getCoupon(file: string): void {
           </div>
         </template>
         <template v-else>
-          <NumericField v-model="baselineMm" label="Plate baseline (mm)" :step="10" :min="10" />
-          <NumericField v-model="gridN" label="Rings per side" :step="1" :min="2" />
+          <NumericField
+            v-model="baselineMm"
+            label="Plate baseline (mm)"
+            :step="10"
+            :min="10"
+            testid="baseline-mm-input"
+          />
+          <NumericField
+            v-model="gridN"
+            label="Rings per side"
+            :step="1"
+            :min="2"
+            testid="grid-n-input"
+          />
         </template>
       </div>
 
@@ -941,6 +954,7 @@ function getCoupon(file: string): void {
         <button
           type="button"
           class="fix-tab"
+          data-testid="fix-tab-skew"
           :class="{ active: activeFixTab === 'skew' }"
           @click="activeFixTab = 'skew'"
         >
@@ -949,6 +963,7 @@ function getCoupon(file: string): void {
         <button
           type="button"
           class="fix-tab"
+          data-testid="fix-tab-size"
           :class="{ active: activeFixTab === 'size' }"
           @click="activeFixTab = 'size'"
         >
@@ -970,6 +985,7 @@ function getCoupon(file: string): void {
           v-if="skewFix?.secondaryCode"
           :code="skewFix.secondaryCode"
           :caption="skewFix.secondaryCaption"
+          data-testid="skew-code-secondary"
         />
         <p v-if="skewFix?.hint" class="tip mt-0">{{ skewFix.hint }}</p>
       </div>

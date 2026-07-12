@@ -163,7 +163,12 @@ const note = computed<string | null>(() => {
       </template>
 
       <template v-else>
-        <span v-if="pill" class="pill" :class="pill.sev"><span class="dot"></span>{{ pill.text }}</span>
+        <span
+          v-if="pill"
+          class="pill"
+          :class="pill.sev"
+          :data-testid="badResolution ? 'scan-resolution-badge' : undefined"
+        ><span class="dot"></span>{{ pill.text }}</span>
         <p v-if="note" class="muted" data-testid="failure-reason">
           {{ note }}
         </p>
