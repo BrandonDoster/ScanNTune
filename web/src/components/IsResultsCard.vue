@@ -33,20 +33,14 @@ function percent(v: number): string {
 
 // Several lines of an axis often fail for the same reason, and the engine reports each line;
 // verbatim repetition adds no information, so identical reasons are collapsed. With a single
-// distinct reason the count prefix is dropped too (the skipped note already carries the
-// tally); per-reason counts only matter when the reasons differ.
+// distinct reason the count prefix is dropped too; per-reason counts only matter when the
+// reasons differ. Shown only for a refused axis: on a measured axis the per-line outcomes
+// are already visible on the scan cards and overlays.
 function dedupedRefusals(a: IsAxisResult): string[] {
   const counts = new Map<string, number>()
   for (const reason of a.refusals) counts.set(reason, (counts.get(reason) ?? 0) + 1)
   if (counts.size === 1) return [...counts.keys()]
   return [...counts.entries()].map(([reason, n]) => (n > 1 ? `${n} lines: ${reason}` : reason))
-}
-
-// On a measured axis the refusals only concern the skipped minority, so the note leads with
-// the skipped count; without it the reason list can read as contradicting the measured chip.
-function skippedNote(a: IsAxisResult): string {
-  const skipped = a.linesTraced - a.linesUsed
-  return `${skipped} of ${a.linesTraced} lines skipped: ${dedupedRefusals(a).join(' ')}`
 }
 
 // The ready-to-paste snippet in the selected firmware's own configuration language. Klipper
@@ -125,15 +119,6 @@ const snippet = computed(() => {
               :testid="`is-lines-${axis.axis}`"
             />
           </div>
-          <v-alert
-            v-if="axis.refusals.length > 0"
-            type="info"
-            variant="tonal"
-            density="compact"
-            class="mb-2 soft-alert"
-            :text="skippedNote(axis)"
-            :data-testid="`is-notes-${axis.axis}`"
-          />
           <v-table density="compact" class="shaper-table" :data-testid="`is-shapers-${axis.axis}`">
             <thead>
               <tr>

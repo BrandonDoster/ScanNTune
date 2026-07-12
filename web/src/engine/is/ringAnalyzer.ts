@@ -496,8 +496,8 @@ export function analyzeTracedLine(line: TracedLine): LineFit {
   // fit, so it must be reported as such before any fit-quality verdict.
   if (!(params.ringAmpMm >= AMPLITUDE_DETECTION_K * noiseRmsMm) || !(params.ringAmpMm > 0)) {
     return refuse(
-      'The ringing amplitude on this line is below the detection threshold (4 times the noise floor). ' +
-        'The print shows too little ringing to measure; raise the corner speed or the acceleration and reprint.',
+      'The ringing amplitude on this line is below the detection threshold (4 times the noise floor), ' +
+        'so the line was skipped.',
     )
   }
   if (r2 < MIN_R2) {
@@ -511,8 +511,8 @@ export function analyzeTracedLine(line: TracedLine): LineFit {
     params.frequencyHz >= F_MAX_HZ - BOUND_MARGIN_HZ
   ) {
     return refuse(
-      `The fitted frequency sits at the edge of the ${F_MIN_HZ} to ${F_MAX_HZ} Hz search range, ` +
-        'so it cannot be trusted. The true resonance likely lies outside the measurable range.',
+      `The frequency fitted on this line sits at the edge of the ${F_MIN_HZ} to ${F_MAX_HZ} Hz ` +
+        'search range, so it cannot be trusted.',
     )
   }
   // A polish that walks to the edge of the seed's search band contradicts the spectrum: the
@@ -575,11 +575,28 @@ export function poolAxisFits(fits: LineFit[], speedsMmS: number[], lineSpeeds: n
   })
 
   if (accepted.length < MIN_ACCEPTED_LINES) {
+    // The advice depends on why the lines were refused: a majority of amplitude-gate refusals
+    // means the traced ringing is too weak (a weak print, or lamp shadow attenuating the
+    // signal), a majority of band-edge refusals means the resonance is probably outside the
+    // searchable band, and anything else most often points at the scanner's lamp shadow
+    // crossing the measured edges.
+    const amplitudeCount = refusals.filter((r) => r.includes('below the detection threshold')).length
+    const bandEdgeCount = refusals.filter((r) => r.includes('search range')).length
+    let advice =
+      `When most lines of a scan are refused, the scanner's lamp shadow is often falling ` +
+      `across the measured edges; rescan with the coupon rotated a half turn on the glass.`
+    if (amplitudeCount * 2 > refusals.length) {
+      advice =
+        'The ringing amplitude is below the detection threshold on most lines. Rescan with ' +
+        'the coupon rotated a half turn on the glass, since lamp shadow can weaken the traced ' +
+        'ringing; if it still reads too weak, raise the corner speed or the acceleration and reprint.'
+    } else if (bandEdgeCount * 2 > refusals.length) {
+      advice = 'The true resonance likely lies outside the measurable range.'
+    }
     return refuse(
       `Only ${accepted.length} of the axis's lines produced a usable ringing fit (at least ` +
-        `${MIN_ACCEPTED_LINES} are needed for a trustworthy estimate). When most lines of a ` +
-        `scan are refused, the scanner's lamp shadow is often falling across the measured ` +
-        `edges; rescan with the coupon rotated a half turn on the glass.`,
+        `${MIN_ACCEPTED_LINES} are needed for a trustworthy estimate). ` +
+        advice,
     )
   }
 

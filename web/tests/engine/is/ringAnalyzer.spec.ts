@@ -200,6 +200,35 @@ describe('poolAxisFits', () => {
     expect(pool.refusals).toContain('line reason A')
   })
 
+  it('carries the rescan-then-reprint advice when most refused lines failed the amplitude gate', () => {
+    const amp = 'The ringing amplitude on this line is below the detection threshold'
+    const fits = [goodFit(75), refusedFit(amp), refusedFit(amp), refusedFit('line reason B')]
+    const pool = poolAxisFits(fits, [150], [150, 150, 150, 150])
+    expect(pool.accepted).toBe(false)
+    const axisReason = pool.refusals.find((r) => r.includes('usable ringing fit'))!
+    expect(axisReason).toContain('rotated a half turn')
+    expect(axisReason).toContain('raise the corner speed')
+  })
+
+  it('carries the out-of-range note when most refused lines hit the search-band edge', () => {
+    const edge = 'The frequency fitted on this line sits at the edge of the 20 to 150 Hz search range'
+    const fits = [goodFit(75), refusedFit(edge), refusedFit(edge), refusedFit('line reason B')]
+    const pool = poolAxisFits(fits, [150], [150, 150, 150, 150])
+    expect(pool.accepted).toBe(false)
+    const axisReason = pool.refusals.find((r) => r.includes('usable ringing fit'))!
+    expect(axisReason).toContain('outside the measurable range')
+    expect(axisReason).not.toContain('half turn')
+  })
+
+  it('keeps the half-turn rescan advice when the refusals have no single dominant cause', () => {
+    const amp = 'The ringing amplitude on this line is below the detection threshold'
+    const fits = [goodFit(75), refusedFit(amp), refusedFit('line reason B'), refusedFit('line reason C')]
+    const pool = poolAxisFits(fits, [150], [150, 150, 150, 150])
+    expect(pool.accepted).toBe(false)
+    const axisReason = pool.refusals.find((r) => r.includes('usable ringing fit'))!
+    expect(axisReason).toContain('half turn')
+  })
+
   it('refuses scattered replicate frequencies', () => {
     const fits = [60, 68, 75, 82, 90].map((f) => goodFit(f))
     const pool = poolAxisFits(fits, [150], [150, 150, 150, 150, 150])
