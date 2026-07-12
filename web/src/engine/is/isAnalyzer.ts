@@ -90,6 +90,25 @@ export function analyzeIsCoupon(
     alignments.push(alignment)
   }
 
+  // Orientation-pair gate: with both axes under test, the two scans must differ by an odd
+  // number of quarter turns, or one axis's lines run along the scanner's transport axis in
+  // BOTH scans and that axis is unmeasurable before any tracing. A half turn (or none)
+  // between the scans keeps every group on the same scanner axis, so it is refused here as
+  // a scanning mistake instead of surfacing later as a per-axis refusal.
+  if (
+    geometry.groups.length > 1 &&
+    (alignments[0].rotationQuarterTurns - alignments[1].rotationQuarterTurns) % 2 === 0
+  ) {
+    return {
+      aligned: false,
+      failureReason:
+        'The two scans differ by a half turn or not at all, so the X and Y lines cannot ' +
+        'both be measured. Rescan one of them with the coupon turned a quarter turn on the glass.',
+      scans: alignments.map(scanInfo),
+      axes: [],
+    }
+  }
+
   // The solved affines' scales price each scan's resolution: both scans are judged together
   // (against the calibration's expected resolution when known, else against each other), so a
   // scan too coarse for the sub-pixel line tracing or taken at the wrong resolution setting is
@@ -276,6 +295,7 @@ function measureGroup(
       traced: false,
       accepted: false,
       refusalReason: null,
+      refusalCategory: null,
       startPx: null,
       endPx: null,
     }))
@@ -312,6 +332,7 @@ function measureGroup(
       traced: traced.traces[i] !== null,
       accepted: false,
       refusalReason: traced.traces[i] === null ? NOT_TRACED_REASON : null,
+      refusalCategory: traced.traces[i] === null ? ('not-traced' as const) : null,
       startPx: span.start,
       endPx: span.end,
     }
@@ -338,6 +359,7 @@ function measureGroup(
   for (let k = 0; k < tracedIndices.length; k++) {
     lines[tracedIndices[k]].accepted = fits[k].accepted
     lines[tracedIndices[k]].refusalReason = fits[k].refusalReason
+    lines[tracedIndices[k]].refusalCategory = fits[k].refusalCategory
   }
   const pool = poolAxisFits(
     fits,
