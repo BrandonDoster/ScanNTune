@@ -3,18 +3,18 @@ import { couponOrigin, EDGE_MARGIN_MM, prepareProfile, setupPreamble } from '../
 import {
   BASE_LAYERS,
   basePerimeters,
+  beadExtrusionMm,
   type Box,
   type Emitter,
   type ExtrudeFn,
   extrude,
-  extrusionMm,
+  flowWarningLimitMm3S,
   frameBandInfill,
   HIGH_FLOW_WARNING_THRESHOLD_MM3_S,
   NOMINAL_WIDTH_FACTOR,
   PEDESTAL_LAYERS,
   PEDESTAL_WIDTH_FACTOR,
   PERIMETER_LOOPS,
-  RASTER_SPEED_FACTOR,
   rasterBase,
   retract,
   travel,
@@ -57,13 +57,17 @@ export function generateIsGcodeWithReport(
   warnings.push(...rampWarnings(fitted))
 
   const nominal = profile.nozzleDiameterMm * NOMINAL_WIDTH_FACTOR
+  const flowLimit = flowWarningLimitMm3S(filament)
   for (const speed of fitted.speedsMmS) {
     const flow = speed * nominal * profile.layerHeightMm
-    if (flow > HIGH_FLOW_WARNING_THRESHOLD_MM3_S) {
+    if (flow > flowLimit) {
       warnings.push(
-        `The ${speed} mm/s tier extrudes ${flow.toFixed(1)} mm^3/s; a typical hotend melts ` +
-          `about ${HIGH_FLOW_WARNING_THRESHOLD_MM3_S} mm^3/s and thins the lines above that. ` +
-          'The ringing wavelength is still readable from slightly thinned lines.',
+        `The ${speed} mm/s tier extrudes ${flow.toFixed(1)} mm^3/s, above ` +
+          (filament.maxVolumetricFlowMm3S > 0
+            ? `the filament's configured ${flowLimit} mm^3/s maximum volumetric flow, `
+            : `the roughly ${flowLimit} mm^3/s a typical hotend melts, `) +
+          'so the lines print thinner. The ringing wavelength is still readable from ' +
+          'slightly thinned lines.',
       )
     }
   }
@@ -98,7 +102,7 @@ function primeOnTheMove(
   y: number,
 ): void {
   const len = Math.hypot(x - e.x, y - e.y)
-  const eAmt = p.retractMm + extrusionMm(len, lineWidthMm, p.layerHeightMm, f.filamentDiameterMm)
+  const eAmt = p.retractMm + beadExtrusionMm(p, f, len, lineWidthMm)
   e.lines.push(
     `G1 X${x.toFixed(3)} Y${y.toFixed(3)} E${eAmt.toFixed(5)} F${Math.round(PRIME_SPEED_MM_S * 60)}`,
   )
@@ -179,6 +183,12 @@ function emitIsGcode(profile: PrinterProfile, filament: FilamentProfile, spec: I
       [
         '; ScanNTune input shaper resonance test',
         `; speed tiers ${spec.speedsMmS.join(', ')} mm/s, acceleration ${spec.accelMmS2} mm/s^2`,
+        ...(spec.sweep
+          ? [
+              `; resonant run-up sweep ${spec.sweepFromHz} to ${spec.sweepToHz} Hz over ` +
+                `${spec.sweepCycles} cycles`,
+            ]
+          : []),
       ],
       // The test rings the frame on purpose: the spec's acceleration and corner speed
       // replace the profile's limits for the whole print.
@@ -207,11 +217,13 @@ function emitIsGcode(profile: PrinterProfile, filament: FilamentProfile, spec: I
     for (let layer = 0; layer < BASE_LAYERS; layer++) {
       const z = profile.layerHeightMm * (layer + 1)
       L.push(`G1 Z${z.toFixed(3)} F600`)
+      // The first base layer prints at the profile's first layer speed for bed adhesion.
+      const speed = layer === 0 ? profile.firstLayerSpeedMmS : undefined
       basePerimeters(e, profile, filament, nominal, ox, oy, g.couponWidthMm, g.couponHeightMm,
-        holes)
+        holes, extrude, speed)
       rasterBase(e, profile, filament, nominal, ox + infillInset, oy + infillInset,
         g.couponWidthMm - 2 * infillInset, g.couponHeightMm - 2 * infillInset,
-        layer % 2 === 0, baseRasterHoles)
+        layer % 2 === 0, baseRasterHoles, extrude, speed)
     }
     // Filament change to the contrasting color.
     retract(e, profile, 1)
@@ -238,12 +250,17 @@ function emitIsGcode(profile: PrinterProfile, filament: FilamentProfile, spec: I
     // layers.
     const pedestal = layer < PEDESTAL_LAYERS
     const width = pedestal ? PEDESTAL_WIDTH_FACTOR * nominal : nominal
+    // On the bed (no contrast base) the pedestal layer IS the first layer: everything on
+    // it prints at the profile's first layer speed for adhesion.
+    const firstLayerSpeed =
+      !spec.contrastBase && layer === 0 ? profile.firstLayerSpeedMmS : undefined
     travel(e, profile, ox + 0.5 * nominal, oy + 0.5 * nominal)
     retract(e, profile, -1)
     // Nothing of this layer exists yet under the perimeters, so they extrude plainly; the
     // window box is the hole that turns the outline loops into a band frame.
     basePerimeters(e, profile, filament, nominal, ox, oy, g.couponWidthMm, g.couponHeightMm,
-      [{ x0: ox + g.windowBox.x0, y0: oy + g.windowBox.y0, x1: ox + g.windowBox.x1, y1: oy + g.windowBox.y1 }])
+      [{ x0: ox + g.windowBox.x0, y0: oy + g.windowBox.y0, x1: ox + g.windowBox.x1, y1: oy + g.windowBox.y1 }],
+      extrude, firstLayerSpeed)
     // The test lines travel retracted and restore pressure with their moving primes.
     retract(e, profile, 1)
 
@@ -262,13 +279,13 @@ function emitIsGcode(profile: PrinterProfile, filament: FilamentProfile, spec: I
     if (!pedestal) L.push('M106 S255')
     for (const group of g.groups) {
       for (const line of group.lines) {
-        // The pedestal layer only needs to stick: its lines are capped to the same speed the
-        // band fill uses on that layer, because a single first-layer bead at the fast tiers
-        // would be dragged off the bed. On a contrast base the pedestal bonds to plastic
-        // instead of the bed, which is easier, but the cap stays as a conservative choice.
-        // The measured layers run at the full tier speed.
+        // The pedestal layer only needs to stick: its lines are capped to the profile's
+        // first layer speed, because a single first-layer bead at the fast tiers would be
+        // dragged off the bed. On a contrast base the pedestal bonds to plastic instead
+        // of the bed, which is easier, but the cap stays as a conservative choice. The
+        // measured layers run at the full tier speed.
         const speed = pedestal
-          ? Math.min(line.speedMmS, profile.travelSpeedMmS * RASTER_SPEED_FACTOR)
+          ? Math.min(line.speedMmS, profile.firstLayerSpeedMmS)
           : line.speedMmS
         const runUpSpeed = Math.min(spec.cornerSpeedMmS, speed)
         travel(e, profile, ox + line.prime.x0, oy + line.prime.y0)
@@ -280,6 +297,13 @@ function emitIsGcode(profile: PrinterProfile, filament: FilamentProfile, spec: I
         // taken without deceleration, so the corner dumps no pressure and the bead stays
         // continuous through it.
         extrude(e, profile, filament, width, ox + line.runUp.x1, oy + line.runUp.y1, runUpSpeed)
+        // Resonant run-up teeth (empty without the sweep): consecutive 90 degree corners
+        // at the run-up cruise, each an unbraked per-axis velocity step under the same
+        // junction limits as the launch corner, ending colinear with the measured
+        // segment so the built-up ring carries into it. One continuous bead throughout.
+        for (const tooth of line.teeth) {
+          extrude(e, profile, filament, width, ox + tooth.x1, oy + tooth.y1, runUpSpeed)
+        }
         // Crossings over beads printed earlier this layer are taken at full flow, the way
         // grid infill crosses itself: the free beads must weld into the stiff grid, and
         // with pressure advance disabled a zero-E stretch drains nozzle pressure and
@@ -315,7 +339,7 @@ function emitIsGcode(profile: PrinterProfile, filament: FilamentProfile, spec: I
     // on retracted hops (startRetracted skips the first strip's own retract) and cross
     // the window without stringing.
     frameBandInfill(e, profile, filament, nominal, ox, oy, g.couponWidthMm, g.couponHeightMm,
-      g.frameBandMm, holes, layer % 2 === 0, bandExtrude, true)
+      g.frameBandMm, holes, layer % 2 === 0, bandExtrude, true, firstLayerSpeed)
   }
 
   // Hand the printer back: nothing is re-applied numerically. The user's own shaper,

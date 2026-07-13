@@ -18,10 +18,8 @@ import type { ScanResolutionVerdict } from '../util/scanResolution'
 import { analyzeIsScans } from '../workerClient'
 import type { IsProcessing } from '../workerClient'
 import type { Firmware } from '../engine/gcode/profileTypes'
-import {
-  generateIsGcodeWithReport,
-  HIGH_FLOW_WARNING_THRESHOLD_MM3_S,
-} from '../engine/is/gcodeGenerator'
+import { generateIsGcodeWithReport } from '../engine/is/gcodeGenerator'
+import { flowWarningLimitMm3S } from '../engine/gcode/emitter'
 import {
   defaultIsTestSpec,
   fitSpecToBed,
@@ -71,6 +69,10 @@ const {
     linesPerSpeed: specDefaults.value.linesPerSpeed,
     measuredLineMm: specDefaults.value.measuredLineMm,
     linePitchMm: specDefaults.value.linePitchMm,
+    sweep: specDefaults.value.sweep,
+    sweepFromHz: specDefaults.value.sweepFromHz,
+    sweepToHz: specDefaults.value.sweepToHz,
+    sweepCycles: specDefaults.value.sweepCycles,
     scanPlace: 'part' as ScanPlace,
     partColors: 'single' as PartColors,
   }),
@@ -88,6 +90,10 @@ const {
   linesPerSpeed,
   measuredLineMm: measuredLine,
   linePitchMm: linePitch,
+  sweep,
+  sweepFromHz,
+  sweepToHz,
+  sweepCycles,
   scanPlace,
   partColors,
 } = settingsForm
@@ -124,6 +130,10 @@ const spec = computed<IsTestSpec>(() => {
     linesPerSpeed: linesPerSpeed.value ?? specDefaults.value.linesPerSpeed,
     measuredLineMm: measuredLine.value ?? specDefaults.value.measuredLineMm,
     linePitchMm: linePitch.value ?? specDefaults.value.linePitchMm,
+    sweep: sweep.value,
+    sweepFromHz: sweepFromHz.value ?? specDefaults.value.sweepFromHz,
+    sweepToHz: sweepToHz.value ?? specDefaults.value.sweepToHz,
+    sweepCycles: sweepCycles.value ?? specDefaults.value.sweepCycles,
     axes: ['x', 'y'] as IsAxis[],
     placement: (scanPlace.value === 'plate' ? 'front' : 'center') as IsTestSpec['placement'],
     contrastBase: partColors.value === 'base',
@@ -168,14 +178,19 @@ const accelNote = computed(() => {
 const highFlowText = computed(() => {
   const s = fittedSpec.value
   const p = store.selected
-  if (!s || !p) return ''
+  const f = store.selectedFilament
+  if (!s || !p || !f) return ''
   const nominal = p.nozzleDiameterMm * NOMINAL_WIDTH_FACTOR
   const flow = Math.max(...s.speedsMmS) * nominal * p.layerHeightMm
-  if (flow <= HIGH_FLOW_WARNING_THRESHOLD_MM3_S) return ''
+  const limit = flowWarningLimitMm3S(f)
+  if (flow <= limit) return ''
   return (
-    `The line speed extrudes ${flow.toFixed(1)} mm^3/s, above the roughly ` +
-    `${HIGH_FLOW_WARNING_THRESHOLD_MM3_S} mm^3/s a typical hotend melts, so the lines print ` +
-    'thinner. The ringing wavelength is still readable from slightly thinned lines.'
+    `The line speed extrudes ${flow.toFixed(1)} mm^3/s, above ` +
+    (f.maxVolumetricFlowMm3S > 0
+      ? `the filament's configured ${limit} mm^3/s maximum volumetric flow, `
+      : `the roughly ${limit} mm^3/s a typical hotend melts, `) +
+    'so the lines print thinner. The ringing wavelength is still readable from slightly ' +
+    'thinned lines.'
   )
 })
 
@@ -502,6 +517,53 @@ async function analyze(): Promise<void> {
         />
         <p v-if="accelNote" class="tip mb-0">{{ accelNote }}</p>
       </div>
+      <v-divider class="my-3" />
+      <div class="field-group mt-1" :class="{ 'optional-off': !sweep }">
+        <span class="group-label">Resonant run-up</span>
+        <v-switch
+          v-model="sweep"
+          label="Resonant run-up (frequency sweep)"
+          density="compact"
+          color="primary"
+          hide-details
+          data-testid="is-sweep-toggle"
+        />
+        <v-expand-transition>
+          <p v-if="!sweep" class="tip mt-0 mb-0" data-testid="is-sweep-note">
+            Enable this when the printed lines show almost no ringing after the corner, which
+            is common on small stiff printers. The run-up becomes a comb of corners that
+            sweeps the frequency band and builds the ringing up before each measured line,
+            at the cost of a larger coupon.
+          </p>
+        </v-expand-transition>
+        <div v-if="sweep" class="fields mt-2">
+          <NumericField
+            v-model="sweepFromHz"
+            label="Sweep start (Hz)"
+            :step="5"
+            :min="20"
+            data-testid="is-sweep-from"
+            hint="Start of the excited frequency band."
+          />
+          <NumericField
+            v-model="sweepToHz"
+            label="Sweep end (Hz)"
+            :step="5"
+            :min="25"
+            data-testid="is-sweep-to"
+            hint="End of the excited frequency band, reached right before the corner."
+          />
+          <NumericField
+            v-model="sweepCycles"
+            label="Sweep cycles"
+            :step="2"
+            :min="4"
+            data-testid="is-sweep-cycles"
+            hint="More cycles strengthen the buildup but lengthen the coupon."
+          />
+        </div>
+      </div>
+      <v-divider class="my-3" />
       <div class="field-group mt-1">
         <span class="group-label">Scanning plan</span>
         <div class="fields">
@@ -523,40 +585,40 @@ async function analyze(): Promise<void> {
           />
         </div>
         <p class="tip mb-0" data-testid="is-scan-plan-note">{{ scanPlanNote }}</p>
+        <v-expansion-panels flat class="advanced-panels mt-1">
+          <v-expansion-panel data-testid="is-advanced-panel">
+            <v-expansion-panel-title class="adv-title">
+              Advanced: line pitch, read length, lines per speed
+            </v-expansion-panel-title>
+            <v-expansion-panel-text>
+              <div class="fields">
+                <NumericField
+                  v-model="linePitch"
+                  label="Line pitch (mm)"
+                  :step="0.1"
+                  :min="0.1"
+                  :precision="2"
+                  hint="Raise only if neighbouring lines touch on a strongly ringing printer."
+                />
+                <NumericField
+                  v-model="measuredLine"
+                  label="Clean read length (mm)"
+                  :step="5"
+                  :min="20"
+                  hint="Cover at least five wavelengths of the lowest resonance of interest."
+                />
+                <NumericField
+                  v-model="linesPerSpeed"
+                  label="Lines per speed"
+                  :step="1"
+                  :min="3"
+                  hint="More lines tolerate damaged or unreadable lines in the scan."
+                />
+              </div>
+            </v-expansion-panel-text>
+          </v-expansion-panel>
+        </v-expansion-panels>
       </div>
-      <v-expansion-panels flat class="advanced-panels mt-1">
-        <v-expansion-panel data-testid="is-advanced-panel">
-          <v-expansion-panel-title class="adv-title">
-            Advanced: line pitch, read length, lines per speed
-          </v-expansion-panel-title>
-          <v-expansion-panel-text>
-            <div class="fields">
-              <NumericField
-                v-model="linePitch"
-                label="Line pitch (mm)"
-                :step="0.1"
-                :min="0.1"
-                :precision="2"
-                hint="Raise only if neighbouring lines touch on a strongly ringing printer."
-              />
-              <NumericField
-                v-model="measuredLine"
-                label="Clean read length (mm)"
-                :step="5"
-                :min="20"
-                hint="Cover at least five wavelengths of the lowest resonance of interest."
-              />
-              <NumericField
-                v-model="linesPerSpeed"
-                label="Lines per speed"
-                :step="1"
-                :min="3"
-                hint="More lines tolerate damaged or unreadable lines in the scan."
-              />
-            </div>
-          </v-expansion-panel-text>
-        </v-expansion-panel>
-      </v-expansion-panels>
       <div class="facts mt-2">
         <v-chip
           v-if="tiersText"
@@ -578,33 +640,35 @@ async function analyze(): Promise<void> {
         </v-chip>
         <span v-if="!canGenerate" class="tip mt-0">Choose a printer profile first.</span>
       </div>
-      <v-alert
-        v-if="fitError"
-        type="error"
-        variant="tonal"
-        density="compact"
-        class="mt-3 soft-alert"
-        :text="fitError"
-        data-testid="is-fit-error"
-      />
-      <v-alert
-        v-if="rampNotes.length > 0"
-        type="warning"
-        variant="tonal"
-        density="compact"
-        class="mt-3 soft-alert"
-        :text="rampNotes.join(' ')"
-        data-testid="is-ramp-warning"
-      />
-      <v-alert
-        v-if="fitNotes.length > 0"
-        type="info"
-        variant="tonal"
-        density="compact"
-        class="mt-3 soft-alert"
-        :text="fitNotes.join(' ')"
-        data-testid="is-fit-notes"
-      />
+      <div class="alert-stack mt-3">
+        <v-alert
+          v-if="fitError"
+          type="error"
+          variant="tonal"
+          density="compact"
+          class="soft-alert"
+          :text="fitError"
+          data-testid="is-fit-error"
+        />
+        <v-alert
+          v-if="rampNotes.length > 0"
+          type="warning"
+          variant="tonal"
+          density="compact"
+          class="soft-alert"
+          :text="rampNotes.join(' ')"
+          data-testid="is-ramp-warning"
+        />
+        <v-alert
+          v-if="fitNotes.length > 0"
+          type="info"
+          variant="tonal"
+          density="compact"
+          class="soft-alert"
+          :text="fitNotes.join(' ')"
+          data-testid="is-fit-notes"
+        />
+      </div>
     </section>
 
     <!-- 4. Generate -->
@@ -914,6 +978,15 @@ async function analyze(): Promise<void> {
 }
 .soft-alert {
   font-size: 0.875rem;
+}
+.optional-off {
+  opacity: 0.75;
+}
+.optional-off .group-label {
+  opacity: 0.4;
+}
+.alert-stack > * + * {
+  margin-top: 8px;
 }
 .gen-row {
   display: flex;

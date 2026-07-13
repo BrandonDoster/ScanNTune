@@ -30,6 +30,10 @@ const IS: IsSettings = {
   linesPerSpeed: 5,
   measuredLineMm: 30,
   linePitchMm: 2.5,
+  sweep: true,
+  sweepFromHz: 35,
+  sweepToHz: 150,
+  sweepCycles: 16,
   scanPlace: 'part',
   partColors: 'single',
 }

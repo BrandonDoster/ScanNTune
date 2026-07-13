@@ -4,6 +4,7 @@ import { defaultIsTestSpec, type IsTestSpec } from '../../../src/engine/is/types
 import {
   accelRampMm,
   BLOCK_GAP_MM,
+  effectiveRunUpMm,
   FIDUCIAL_INSET_MM,
   FIDUCIAL_SIZE_MM,
   fieldExtentMm,
@@ -16,6 +17,10 @@ import {
   MIN_FRAME_BAND_MM,
   PRIME_MM,
   protectedSpanMm,
+  SWEEP_STUB_MM,
+  SWEEP_TOOTH_CLEARANCE_MM,
+  sweepCells,
+  sweepLegMm,
   TAIL_EDGE_CLEARANCE_MM,
   TAIL_MARGIN_MM,
 } from '../../../src/engine/is/couponGeometry'
@@ -403,5 +408,116 @@ describe('isCouponGeometry frame band sizing', () => {
     )!
     expect(far.xMm).toBeCloseTo(g.couponWidthMm - FIDUCIAL_INSET_MM - FIDUCIAL_SIZE_MM / 2, 9)
     expect(far.yMm).toBeCloseTo(g.couponHeightMm - FIDUCIAL_INSET_MM - FIDUCIAL_SIZE_MM / 2, 9)
+  })
+})
+
+describe('isCouponGeometry resonant run-up sweep', () => {
+  const sweepSpec: IsTestSpec = { ...spec, sweep: true }
+  const gs = isCouponGeometry(sweepSpec)
+
+  it('leaves the geometry teeth-free and unchanged when the sweep is off', () => {
+    for (const group of g.groups) {
+      for (const line of group.lines) expect(line.teeth).toEqual([])
+    }
+    // The sweep band fields must not leak into a sweep-off layout.
+    const other = isCouponGeometry({ ...spec, sweepFromHz: 50, sweepToHz: 100, sweepCycles: 8 })
+    expect(other.couponWidthMm).toBeCloseTo(g.couponWidthMm, 9)
+    expect(other.couponHeightMm).toBeCloseTo(g.couponHeightMm, 9)
+  })
+
+  it('sweeps the forcing frequency geometrically from sweepFromHz to sweepToHz', () => {
+    const cells = sweepCells(sweepSpec)
+    expect(cells).toHaveLength(sweepSpec.sweepCycles)
+    const v = sweepSpec.cornerSpeedMmS
+    const freqs = cells.map((c) => v / (c.forwardMm + Math.abs(c.lateralMm)))
+    expect(freqs[0]).toBeCloseTo(sweepSpec.sweepFromHz, 6)
+    expect(freqs[freqs.length - 1]).toBeCloseTo(sweepSpec.sweepToHz, 6)
+    for (let k = 2; k < freqs.length; k++) {
+      expect(freqs[k] / freqs[k - 1]).toBeCloseTo(freqs[1] / freqs[0], 6)
+    }
+  })
+
+  it('caps the lateral tooth depth so the tip clears the neighbouring leg', () => {
+    for (const c of sweepCells(sweepSpec)) {
+      expect(Math.abs(c.lateralMm)).toBeLessThanOrEqual(
+        sweepSpec.linePitchMm - SWEEP_TOOTH_CLEARANCE_MM + 1e-9,
+      )
+      expect(Math.abs(c.lateralMm)).toBeGreaterThan(0)
+      expect(c.forwardMm).toBeGreaterThan(0)
+    }
+  })
+
+  it('chains run-up, teeth, and measured segment as one connected axis-aligned path', () => {
+    for (const group of gs.groups) {
+      for (const line of group.lines) {
+        expect(line.teeth.length).toBe(2 * sweepSpec.sweepCycles)
+        let prev = { x: line.runUp.x1, y: line.runUp.y1 }
+        for (const t of line.teeth) {
+          expect(t.x0).toBeCloseTo(prev.x, 9)
+          expect(t.y0).toBeCloseTo(prev.y, 9)
+          // Axis-aligned: exactly one coordinate changes per segment.
+          expect((t.x0 === t.x1) !== (t.y0 === t.y1)).toBe(true)
+          prev = { x: t.x1, y: t.y1 }
+        }
+        expect(prev.x).toBeCloseTo(line.measured.x0, 9)
+        expect(prev.y).toBeCloseTo(line.measured.y0, 9)
+        // The final side step runs colinear into the measured segment, so the built-up
+        // ring launches without an extra corner.
+        const last = line.teeth[line.teeth.length - 1]
+        if (group.axis === 'y') {
+          expect(last.y1).toBeCloseTo(last.y0, 9)
+          expect(last.x1).toBeGreaterThan(last.x0)
+        } else {
+          expect(last.x1).toBeCloseTo(last.x0, 9)
+          expect(last.y1).toBeLessThan(last.y0)
+        }
+      }
+    }
+  })
+
+  it('keeps a straight stub between the window edge and the first tooth', () => {
+    for (const group of gs.groups) {
+      for (const line of group.lines) {
+        const first = line.teeth[0]
+        const stub =
+          group.axis === 'y' ? first.y0 - gs.windowBox.y0 : gs.windowBox.x1 - first.x0
+        expect(stub).toBeGreaterThanOrEqual(SWEEP_STUB_MM - 1e-9)
+      }
+    }
+  })
+
+  it('keeps every tooth inside the open window and clear of neighbouring legs', () => {
+    for (const group of gs.groups) {
+      for (let i = 0; i < group.lines.length; i++) {
+        const line = group.lines[i]
+        for (const t of line.teeth) {
+          for (const [x, y] of [
+            [t.x0, t.y0],
+            [t.x1, t.y1],
+          ]) {
+            expect(x).toBeGreaterThan(gs.windowBox.x0)
+            expect(x).toBeLessThan(gs.windowBox.x1)
+            expect(y).toBeGreaterThan(gs.windowBox.y0)
+            expect(y).toBeLessThan(gs.windowBox.y1)
+          }
+          // Out steps stay within one capped depth of the leg centreline, on the side
+          // away from the measured direction.
+          const lat =
+            group.axis === 'y' ? line.runUp.x0 - Math.min(t.x0, t.x1) : Math.max(t.y0, t.y1) - line.runUp.y0
+          expect(lat).toBeLessThanOrEqual(
+            sweepSpec.linePitchMm - SWEEP_TOOTH_CLEARANCE_MM + 1e-9,
+          )
+        }
+      }
+    }
+  })
+
+  it('grows the coupon by the sweep leg and reports it via effectiveRunUpMm', () => {
+    expect(effectiveRunUpMm(spec)).toBeCloseTo(spec.runUpMm, 9)
+    expect(effectiveRunUpMm(sweepSpec)).toBeCloseTo(sweepLegMm(sweepSpec), 9)
+    expect(sweepLegMm(sweepSpec)).toBeGreaterThan(spec.runUpMm)
+    const growth = sweepLegMm(sweepSpec) - spec.runUpMm
+    expect(gs.couponWidthMm).toBeCloseTo(g.couponWidthMm + growth, 9)
+    expect(gs.couponHeightMm).toBeCloseTo(g.couponHeightMm + growth, 9)
   })
 })

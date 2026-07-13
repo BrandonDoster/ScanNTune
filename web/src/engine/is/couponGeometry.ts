@@ -13,6 +13,15 @@ export const LEG_INSET_MM = 3
 export const TAIL_MARGIN_MM = 1
 /** Clearance kept between a tail's stop point and the coupon outer perimeter. */
 export const TAIL_EDGE_CLEARANCE_MM = 1
+/**
+ * Straight in-window stretch kept between the window edge and the first sweep tooth, so
+ * the fiducial aligner's leg probes (1 and 4 mm inside the window) always land on a
+ * straight bead.
+ */
+export const SWEEP_STUB_MM = 5
+/** Bead width plus working clearance reserved between a tooth tip and the neighbouring
+ *  line's leg; it caps the lateral tooth depth at `linePitchMm` minus this value. */
+export const SWEEP_TOOTH_CLEARANCE_MM = 1
 
 /** Distance to reach `speedMmS` from rest (or stop from it) at `accelMmS2`: v^2 / (2a). */
 export function accelRampMm(speedMmS: number, accelMmS2: number): number {
@@ -25,6 +34,56 @@ export function accelRampMm(speedMmS: number, accelMmS2: number): number {
  */
 export function tierRampMm(spec: IsTestSpec, speedMmS: number): number {
   return accelRampMm(speedMmS, spec.accelMmS2) - accelRampMm(spec.cornerSpeedMmS, spec.accelMmS2)
+}
+
+/**
+ * One forcing period of the resonant run-up sweep: the leg advances `forwardMm` at the
+ * corner speed, then steps `lateralMm` sideways (signed, perpendicular to the leg). The
+ * leg-axis velocity is therefore a square wave, v during the advance and 0 during the
+ * side step, whose fundamental frequency is cornerSpeed / (forwardMm + |lateralMm|):
+ * every 90 degree tooth corner is a full per-axis velocity step at the corner speed,
+ * and steps arriving at the structure's resonance period add in phase (forced resonance,
+ * the same excitation principle as the community's swept ringing-tower zigzags).
+ */
+export interface SweepCell {
+  forwardMm: number
+  lateralMm: number
+}
+
+/**
+ * The sweep's forcing cells: one per cycle, frequencies geometrically spaced from
+ * `sweepFromHz` to `sweepToHz` (low first, so the highest frequencies, where stiff
+ * machines resonate, excite last and reach the launch corner with the least decay).
+ * Cells are paired with a common lateral depth so every out step is undone by the next
+ * cell's back step and the leg returns exactly to its centreline. The lateral depth is
+ * the equal-dwell ideal v / (2f), capped so a tooth tip keeps its clearance from the
+ * neighbouring line's leg.
+ */
+export function sweepCells(spec: IsTestSpec): SweepCell[] {
+  if (!spec.sweep) return []
+  const v = spec.cornerSpeedMmS
+  const depthCap = spec.linePitchMm - SWEEP_TOOTH_CLEARANCE_MM
+  const n = spec.sweepCycles
+  const ratio = Math.pow(spec.sweepToHz / spec.sweepFromHz, 1 / (n - 1))
+  const freqs = Array.from({ length: n }, (_, k) => spec.sweepFromHz * Math.pow(ratio, k))
+  const cells: SweepCell[] = []
+  for (let k = 0; k < n; k += 2) {
+    const depth = Math.min(depthCap, v / (2 * freqs[k]), v / (2 * freqs[k + 1]))
+    cells.push({ forwardMm: v / freqs[k] - depth, lateralMm: -depth })
+    cells.push({ forwardMm: v / freqs[k + 1] - depth, lateralMm: depth })
+  }
+  return cells
+}
+
+/** In-window leg length the sweep needs: the straight stub plus every cell's advance. */
+export function sweepLegMm(spec: IsTestSpec): number {
+  return SWEEP_STUB_MM + sweepCells(spec).reduce((s, c) => s + c.forwardMm, 0)
+}
+
+/** In-window run-up length actually laid out: the sweep's leg when enabled, else the
+ *  spec's straight run-up. */
+export function effectiveRunUpMm(spec: IsTestSpec): number {
+  return spec.sweep ? sweepLegMm(spec) : spec.runUpMm
 }
 
 /**
@@ -84,6 +143,12 @@ export interface IsLine {
   measured: IsSegment
   /** Colinear continuation of the measured segment: the deceleration tail in the band. */
   tail: IsSegment
+  /**
+   * The resonant run-up teeth: consecutive axis-aligned segments from the run-up end to
+   * the corner, alternating leg advances and lateral side steps (see `sweepCells`).
+   * Empty when the sweep is disabled; the run-up then reaches the corner directly.
+   */
+  teeth: IsSegment[]
   /**
    * Protected span from the corner: acceleration ramp plus the clean read length. All
    * crossings of this line lie beyond it.
@@ -158,8 +223,39 @@ export function maxPackedRampMm(spec: IsTestSpec): number {
   return Math.max(...offsets.map((off, i) => F - off + tierRampMm(spec, speedOf(spec, i))))
 }
 
+/**
+ * The sweep teeth of one line, built backward from its corner. `leg` is the unit travel
+ * direction of the run-up leg and `lateral` the unit direction of the measured segment:
+ * every out step (negative cell lateral) points AWAY from the measured direction, toward
+ * the neighbouring legs whose in-phase teeth keep the same pitch, and the final back step
+ * runs colinear into the measured segment, so the launch carries the built-up ring.
+ */
+function sweepTeeth(
+  spec: IsTestSpec,
+  corner: { x: number; y: number },
+  leg: { x: number; y: number },
+  lateral: { x: number; y: number },
+): IsSegment[] {
+  const cells = sweepCells(spec)
+  if (cells.length === 0) return []
+  const advance = cells.reduce((s, c) => s + c.forwardMm, 0)
+  let px = corner.x - leg.x * advance
+  let py = corner.y - leg.y * advance
+  const segs: IsSegment[] = []
+  const step = (x: number, y: number) => {
+    segs.push({ x0: px, y0: py, x1: x, y1: y })
+    px = x
+    py = y
+  }
+  for (const c of cells) {
+    step(px + leg.x * c.forwardMm, py + leg.y * c.forwardMm)
+    step(px + lateral.x * c.lateralMm, py + lateral.y * c.lateralMm)
+  }
+  return segs
+}
+
 function boundingBox(lines: IsLine[]): IsBox {
-  const segs = (l: IsLine) => [l.prime, l.runUp, l.measured, l.tail]
+  const segs = (l: IsLine) => [l.prime, l.runUp, l.measured, l.tail, ...l.teeth]
   const xs = lines.flatMap((l) => segs(l).flatMap((s) => [s.x0, s.x1]))
   const ys = lines.flatMap((l) => segs(l).flatMap((s) => [s.y0, s.y1]))
   return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) }
@@ -180,16 +276,20 @@ function boundingBox(lines: IsLine[]): IsBox {
 function buildYGroup(spec: IsTestSpec, bandMm: number, couponW: number): IsLineGroup {
   const offsets = lineOffsets(spec)
   const F = fieldExtentMm(spec)
+  const advance = effectiveRunUpMm(spec) - (spec.sweep ? SWEEP_STUB_MM : 0)
   const lines = offsets.map((off, i) => {
     const speedMmS = speedOf(spec, i)
-    const y = bandMm + spec.runUpMm + off
+    const y = bandMm + effectiveRunUpMm(spec) + off
     const x = bandMm + INNER_MARGIN_MM + (F - off)
+    const teeth = sweepTeeth(spec, { x, y }, { x: 0, y: 1 }, { x: 1, y: 0 })
+    const legEndY = spec.sweep ? y - advance : y
     return {
       speedMmS,
       prime: { x0: x, y0: LEG_INSET_MM, x1: x, y1: LEG_INSET_MM + PRIME_MM },
-      runUp: { x0: x, y0: LEG_INSET_MM + PRIME_MM, x1: x, y1: y },
+      runUp: { x0: x, y0: LEG_INSET_MM + PRIME_MM, x1: x, y1: legEndY },
       measured: { x0: x, y0: y, x1: couponW - bandMm + spec.weldMm, y1: y },
       tail: { x0: couponW - bandMm + spec.weldMm, y0: y, x1: couponW - bandMm + tailDepthMm(speedMmS, spec), y1: y },
+      teeth,
       protectedMm: protectedSpanMm(spec, speedMmS),
       crossingsMm: [],
     }
@@ -227,16 +327,20 @@ function buildXGroup(
     ? bandMm + 2 * INNER_MARGIN_MM + maxPackedRampMm(spec) + spec.measuredLineMm
     : bandMm + INNER_MARGIN_MM
   const yMeasured = yGroup ? yGroup.lines.map((l) => l.measured.y0) : []
+  const advance = effectiveRunUpMm(spec) - (spec.sweep ? SWEEP_STUB_MM : 0)
   const lines = offsets.map((off, i) => {
     const speedMmS = speedOf(spec, i)
     const x = firstX + (F - off)
     const y = couponH - bandMm - INNER_MARGIN_MM - (F - off)
+    const teeth = sweepTeeth(spec, { x, y }, { x: -1, y: 0 }, { x: 0, y: -1 })
+    const legEndX = spec.sweep ? x + advance : x
     return {
       speedMmS,
       prime: { x0: couponW - LEG_INSET_MM, y0: y, x1: couponW - LEG_INSET_MM - PRIME_MM, y1: y },
-      runUp: { x0: couponW - LEG_INSET_MM - PRIME_MM, y0: y, x1: x, y1: y },
+      runUp: { x0: couponW - LEG_INSET_MM - PRIME_MM, y0: y, x1: legEndX, y1: y },
       measured: { x0: x, y0: y, x1: x, y1: bandMm - spec.weldMm },
       tail: { x0: x, y0: bandMm - spec.weldMm, x1: x, y1: bandMm - tailDepthMm(speedMmS, spec) },
+      teeth,
       protectedMm: protectedSpanMm(spec, speedMmS),
       crossingsMm: yMeasured.map((yk) => y - yk).sort((a, b) => a - b),
     }
@@ -266,13 +370,14 @@ export function isCouponGeometry(spec: IsTestSpec): IsCouponGeometry {
   const hasY = spec.axes.includes('y')
   const packed = maxPackedRampMm(spec) + spec.measuredLineMm
   const F = fieldExtentMm(spec)
-  const crossTerm = INNER_MARGIN_MM + F + spec.runUpMm
+  const runUp = effectiveRunUpMm(spec)
+  const crossTerm = INNER_MARGIN_MM + F + runUp
   const interiorW = hasY
     ? INNER_MARGIN_MM + packed + (hasX ? crossTerm : 0)
-    : INNER_MARGIN_MM + F + spec.runUpMm
+    : INNER_MARGIN_MM + F + runUp
   const interiorH = hasX
     ? INNER_MARGIN_MM + packed + (hasY ? crossTerm : 0)
-    : INNER_MARGIN_MM + F + spec.runUpMm
+    : INNER_MARGIN_MM + F + runUp
   const bandMm = frameBandMm(spec)
   const couponWidthMm = interiorW + 2 * bandMm
   const couponHeightMm = interiorH + 2 * bandMm

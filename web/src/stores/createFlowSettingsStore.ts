@@ -5,6 +5,7 @@ import { usePrinterProfiles } from './usePrinterProfiles'
 /** How a stored settings field is validated when it is loaded back from localStorage. */
 export type FieldKind =
   | { kind: 'nullableNumber' }
+  | { kind: 'boolean' }
   | { kind: 'enum'; values: readonly string[] }
 
 export type FieldKinds<S> = { readonly [K in keyof S & string]: FieldKind }
@@ -28,6 +29,7 @@ function isValidFieldValue(value: unknown, kind: FieldKind): boolean {
   if (kind.kind === 'nullableNumber') {
     return value === null || (typeof value === 'number' && Number.isFinite(value))
   }
+  if (kind.kind === 'boolean') return typeof value === 'boolean'
   return typeof value === 'string' && kind.values.includes(value)
 }
 

@@ -8,6 +8,10 @@ export type IsSettings = {
   linesPerSpeed: number | null
   measuredLineMm: number | null
   linePitchMm: number | null
+  sweep: boolean
+  sweepFromHz: number | null
+  sweepToHz: number | null
+  sweepCycles: number | null
   scanPlace: ScanPlace
   partColors: PartColors
 }
@@ -18,6 +22,10 @@ const FIELDS: FieldKinds<IsSettings> = {
   linesPerSpeed: { kind: 'nullableNumber' },
   measuredLineMm: { kind: 'nullableNumber' },
   linePitchMm: { kind: 'nullableNumber' },
+  sweep: { kind: 'boolean' },
+  sweepFromHz: { kind: 'nullableNumber' },
+  sweepToHz: { kind: 'nullableNumber' },
+  sweepCycles: { kind: 'nullableNumber' },
   scanPlace: { kind: 'enum', values: SCAN_PLACES },
   partColors: { kind: 'enum', values: PART_COLORS },
 }
