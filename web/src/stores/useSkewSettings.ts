@@ -1,6 +1,6 @@
 import { createFlowSettingsStore, type FieldKinds } from './createFlowSettingsStore'
 
-/** User-adjustable settings of the skew/shrinkage flow; defaults live in ScanPage. */
+/** User-adjustable settings of the skew/shrinkage flow; defaults live in SkewPage. */
 export type SkewSettings = {
   dpi: number | null
   baselineMm: number | null
