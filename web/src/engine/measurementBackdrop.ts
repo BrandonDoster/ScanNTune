@@ -25,6 +25,57 @@ export const MIN_BACKDROP_CONTRAST = 30
  */
 export const MAX_BACKDROP_SPREAD_RATIO = 0.25
 
+/** A gray tone sampled at a known scan-pixel position, for spatial detrending. */
+export interface TonePoint {
+  x: number
+  y: number
+  tone: number
+}
+
+/**
+ * Removes the best-fit first-degree polynomial trend (a + b*x + c*y, ordinary least squares)
+ * from spatially located tone samples and re-adds the mean level. A smooth low-frequency
+ * brightness gradient across the backdrop, such as one-sided scanner-lamp shading, is absorbed
+ * by the fitted plane and no longer counts as tone spread, while high-frequency unevenness (a
+ * textured build plate) stays in the residuals and is still judged by the spread criterion.
+ * With too few points for a stable fit, or a degenerate (collinear) sample layout, the tones
+ * are returned unchanged.
+ */
+export function detrendTones(points: TonePoint[]): number[] {
+  const n = points.length
+  if (n < 3) return points.map((p) => p.tone)
+
+  // Normal equations of the ordinary least squares plane fit v = a + b*x + c*y.
+  let sx = 0, sy = 0, sv = 0, sxx = 0, sxy = 0, syy = 0, sxv = 0, syv = 0
+  for (const p of points) {
+    sx += p.x
+    sy += p.y
+    sv += p.tone
+    sxx += p.x * p.x
+    sxy += p.x * p.y
+    syy += p.y * p.y
+    sxv += p.x * p.tone
+    syv += p.y * p.tone
+  }
+  // 3x3 system [[n, sx, sy], [sx, sxx, sxy], [sy, sxy, syy]] * [a, b, c] = [sv, sxv, syv],
+  // solved by Cramer's rule with a determinant guard against a degenerate sample layout.
+  const det =
+    n * (sxx * syy - sxy * sxy) - sx * (sx * syy - sxy * sy) + sy * (sx * sxy - sxx * sy)
+  const scale = Math.max(n * sxx * syy, 1)
+  if (!Number.isFinite(det) || Math.abs(det) < 1e-9 * scale) return points.map((p) => p.tone)
+
+  const a =
+    (sv * (sxx * syy - sxy * sxy) - sx * (sxv * syy - sxy * syv) + sy * (sxv * sxy - sxx * syv)) /
+    det
+  const b =
+    (n * (sxv * syy - sxy * syv) - sv * (sx * syy - sxy * sy) + sy * (sx * syv - sxv * sy)) / det
+  const c =
+    (n * (sxx * syv - sxv * sxy) - sx * (sx * syv - sxv * sy) + sv * (sx * sxy - sxx * sy)) / det
+
+  const mean = sv / n
+  return points.map((p) => mean + (p.tone - (a + b * p.x + c * p.y)))
+}
+
 export interface BackdropAssessment {
   /** Polarity-free contrast: median absolute deviation of feature tones from the backdrop median. */
   contrast: number

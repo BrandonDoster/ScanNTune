@@ -31,10 +31,23 @@ export interface EmRenderOptions {
    * 'right' = the plastic-to-background edge). Absent means a symmetric edge (unchanged output).
    */
   shadow?: { side: 'left' | 'right'; extraSigmaMm: number }
+  /**
+   * One-sided scanner-lamp shading, fixed in IMAGE space: `lampSide` is the image side the lamp
+   * illuminates from, independent of how the coupon lies on the glass. A shading that only
+   * darkened a fixed image side of each gap would bias both 180-degree orientations identically
+   * (the rotated coupon presents a congruent scene), which is not what real scans show; the
+   * observed sign flip comes from the lamp meeting the printed bead's asymmetric flank. Every
+   * bead's coupon +X flank is modelled as the sloped one: it casts a shadow skirt into the gap
+   * when it faces away from the lamp and catches a bright glare fringe when it faces the lamp,
+   * so the width bias flips sign when the coupon turns 180 degrees on the glass. `extraSigmaMm`
+   * sets the disturbance reach (the strength). Requires the comb lines to render vertically in
+   * the image (0 or 2 quarter turns). Absent means no shading (unchanged output).
+   */
+  lampShading?: { lampSide: 'left' | 'right'; extraSigmaMm: number }
 }
 
-type Resolved = Required<Omit<EmRenderOptions, 'baseGray' | 'shadow'>> &
-  Pick<EmRenderOptions, 'baseGray' | 'shadow'>
+type Resolved = Required<Omit<EmRenderOptions, 'baseGray' | 'shadow' | 'lampShading'>> &
+  Pick<EmRenderOptions, 'baseGray' | 'shadow' | 'lampShading'>
 
 const DEFAULTS: Omit<Resolved, 'spec' | 'trueWidthMm'> = {
   pxPerMm: 12,
@@ -78,8 +91,51 @@ function softEdge(d: number, sigma: number): number {
 }
 
 // Peak coverage of an injected one-sided shadow skirt, kept below the 0.5 plastic-vs-gap mid level
-// so the skirt darkens the gap without moving the edge's mid-level crossing.
+// so the skirt darkens the gap without moving the edge's mid-level crossing. The glare fringe of
+// lampShading uses the same peak mirrored into the plastic (coverage dips to 1 - SKIRT_PEAK, still
+// above mid), so shadow and glare pull the edge centroid by the same magnitude in opposite
+// directions.
 const SKIRT_PEAK = 0.4
+
+/** The disturbance one coupon-space flank of every test line carries. */
+interface FlankEffect {
+  kind: 'shadow' | 'glare'
+  reachMm: number
+}
+
+interface FlankEffects {
+  left?: FlankEffect
+  right?: FlankEffect
+}
+
+// Resolves the shading options into per-coupon-flank disturbances. `shadow` is coupon-anchored
+// directly; `lampShading` is image-anchored and resolves through the coupon's orientation: the
+// bead's sloped coupon +X flank shadows the gap when it faces away from the lamp and glares when
+// it faces the lamp.
+function resolveFlankEffects(o: Resolved, cos: number): FlankEffects {
+  if (o.shadow && o.lampShading) {
+    throw new Error('Use either the shadow option or the lampShading option, not both.')
+  }
+  if (o.shadow) {
+    const effect: FlankEffect = { kind: 'shadow', reachMm: o.shadow.extraSigmaMm }
+    return o.shadow.side === 'left' ? { left: effect } : { right: effect }
+  }
+  if (!o.lampShading) return {}
+  // d(coupon x)/d(image x): the image direction the coupon's +X axis (and flank) faces.
+  const axis = (o.flipped ? -1 : 1) * cos
+  if (Math.abs(axis) < 1e-9) {
+    throw new Error(
+      'lampShading requires the comb lines to render vertically in the image (0 or 2 quarter turns).',
+    )
+  }
+  const facesImage = axis > 0 ? 'right' : 'left'
+  return {
+    right: {
+      kind: facesImage === o.lampShading.lampSide ? 'glare' : 'shadow',
+      reachMm: o.lampShading.extraSigmaMm,
+    },
+  }
+}
 
 /** Coverage (0..1) of an axis-aligned box, softened at its edges by `sigma` mm. */
 function boxCoverage(
@@ -107,6 +163,7 @@ function couponCoverage(
   y: number,
   g: ReturnType<typeof emCouponGeometry>,
   o: Resolved,
+  effects: FlankEffects,
 ): { plastic: number; hole: number } {
   const sigma = o.blurSigmaMm
   const scaleX = (xMm: number) => xMm * o.pitchScale
@@ -141,26 +198,29 @@ function couponCoverage(
         const half = o.trueWidthMm / 2
         // Signed distance into the line (positive inside plastic, negative in the adjacent gap).
         const d = half - Math.abs(x - c)
-        const flank = x < c ? 'left' : 'right'
-        const shadowed = o.shadow !== undefined && o.shadow.side === flank
-        const reach = shadowed ? o.shadow!.extraSigmaMm : 0
+        const effect = x < c ? effects.left : effects.right
+        const reach = effect?.kind === 'shadow' ? effect.reachMm : 0
         if (d < -sigma && d < -reach) continue
-        // The real plastic edge stays sharp (the mid-level crossing sits on the true edge). A
-        // one-sided lamp penumbra adds a shadow skirt in the gap next to one flank only (left =
-        // x < c, the background-to-plastic edge in increasing x; right = x > c): a partial-darkness
-        // ramp that stays below the plastic-vs-gap mid level, so it does not move the crossing but
-        // its gradient pulls the centroid outward into the gap. That is the bias a real scan shows.
+        // The real plastic edge stays sharp (the mid-level crossing sits on the true edge). The
+        // disturbances stay on the far side of the 0.5 mid level, confined to the band from
+        // `sigma` (just past the sharp edge, so the two samples straddling the mid-level crossing
+        // stay clean and the crossing stays on the true edge) out to the effect's reach (kept
+        // inside the centroid window). A smooth triangular deviation peaks mid-band; its gradient,
+        // seen by the wider centroid window but not by the local crossing, pulls the centroid
+        // without moving the crossing: the sub-pixel bias a real lamp imprints.
         let edge = softEdge(d, sigma)
-        if (shadowed && reach > sigma && d < -sigma && d > -reach) {
-          // Sub-mid shadow skirt in the gap next to this flank, confined to the band from `sigma`
-          // (just past the sharp edge, so the two samples straddling the mid-level crossing stay
-          // clean and the crossing stays on the true edge) out to `reach` (kept inside the centroid
-          // window). A smooth triangular darkening peaks mid-band; its gradient, seen by the wider
-          // centroid window but not by the local crossing, pulls the centroid outward into the gap:
-          // the one-sided bias a real lamp penumbra imprints, and the shift the diagnostic recovers.
-          const u = (-d - sigma) / (reach - sigma) // 0 at the band's inner edge, 1 at its outer edge
-          const triangle = 1 - Math.abs(2 * u - 1)
-          edge = Math.max(edge, SKIRT_PEAK * triangle)
+        if (effect && effect.reachMm > sigma) {
+          if (effect.kind === 'shadow' && d < -sigma && d > -effect.reachMm) {
+            // Sub-mid shadow skirt in the gap next to this flank: pulls the centroid outward into
+            // the gap, so the gap reads narrower and the bead wider.
+            const u = (-d - sigma) / (effect.reachMm - sigma) // 0 at the inner band edge, 1 outer
+            edge = Math.max(edge, SKIRT_PEAK * (1 - Math.abs(2 * u - 1)))
+          } else if (effect.kind === 'glare' && d > sigma && d < effect.reachMm) {
+            // Above-mid glare fringe on the plastic slope facing the lamp: pulls the centroid
+            // inward into the plastic, so the gap reads wider and the bead narrower.
+            const u = (d - sigma) / (effect.reachMm - sigma)
+            edge = Math.min(edge, 1 - SKIRT_PEAK * (1 - Math.abs(2 * u - 1)))
+          }
         }
         const lineCoverage = Math.min(rowCoverage, edge)
         coverage = Math.max(coverage, lineCoverage)
@@ -194,6 +254,7 @@ export function renderEmScan(options: EmRenderOptions): RgbaImage {
   const rad = ((o.rotationDegrees + o.quarterTurns * 90) * Math.PI) / 180
   const cos = Math.cos(rad)
   const sin = Math.sin(rad)
+  const effects = resolveFlankEffects(o, cos)
   const wMm = Math.abs(cos) * w0Mm + Math.abs(sin) * h0Mm
   const hMm = Math.abs(sin) * w0Mm + Math.abs(cos) * h0Mm
   const width = Math.round(wMm * o.pxPerMm)
@@ -219,7 +280,7 @@ export function renderEmScan(options: EmRenderOptions): RgbaImage {
           if (bx < 0 || by < 0 || bx > Wc || by > Hc) {
             acc += o.backgroundGray
           } else {
-            const { plastic, hole } = couponCoverage(bx, by, g, o)
+            const { plastic, hole } = couponCoverage(bx, by, g, o, effects)
             // The stack, top to bottom: plastic, then the contrasting base (if any) backing
             // the window interior, then the scanner background showing through the fiducial
             // through-holes and where there is no base.
