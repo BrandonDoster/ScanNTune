@@ -673,8 +673,9 @@ function getCoupon(file: string): void {
       </div>
       <p class="tip mb-2">
         Cover the plate with a backing that contrasts with its color: dark paper behind a light
-        plate, or the white lid behind a dark plate. Scan the plate once. Turn it on the glass and
-        scan it again. Use the same face down for every scan of a plate.
+        plate, or the white lid behind a dark plate. Scan the flat plate with its first-layer side
+        on the glass; the hole rims are countersunk on the other face. Scan the plate once. Turn
+        it on the glass and scan it again. Use the same face down for every scan of a plate.
       </p>
       <p class="tip mb-2" data-testid="scan-dpi-hint">
         <strong>{{ scanDpiHint || 'Scan at 600 dpi.' }}</strong>

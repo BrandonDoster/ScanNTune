@@ -32,6 +32,17 @@
 //  hole prints horizontally. Symmetric about the hole axis: the centre is
 //  unmoved, and there is no "correct" side to scan.
 //
+//  Flat (XY) holes are COUNTERSUNK from the top face: the measured 5 mm
+//  bore survives only in a thin land at the scan (bed) face and the rest
+//  opens as a 45 deg cone. A scanner reads a deep bore as a tunnel, not a
+//  2D aperture: a CCD's non-telecentric lens compresses hole spacing on
+//  the sensor axis in proportion to edge depth, the offset lamp shadows
+//  one side of the rim, and a CIS defocuses everything above ~0.5 mm.
+//  The land puts the whole measured edge at the glass; the 45 deg wall
+//  can neither occlude nor shadow the aperture. The cone only widens
+//  upward, so it prints with zero overhang. The XY plate must therefore
+//  be scanned bed-face down (the flattest face, already the natural one).
+//
 //  Everything below is parametric - change a value and re-render.
 // =====================================================================
 
@@ -74,6 +85,11 @@ rib_h   = 2.0;      // FLAT (XY) rib height (mm)
 // ---- Anti elephant's-foot chamfer (FLAT XY plate underside only) ----
 chamfer   = 0.4;    // horizontal relief at the bottom edge (mm)
 chamfer_h = 0.4;    // height of the chamfer band (mm); = chamfer -> 45 deg
+
+// ---- Countersunk holes (FLAT XY plate only) --------------------------
+land_h = 0.6;       // thickness of the land carrying the measured bore at the scan face (mm);
+                    // 3 layers at 0.2 mm. Above it the hole opens as a 45 deg countersink, so
+                    // the bore wall cannot occlude or shadow the aperture and prints overhang-free
 
 // ---- Orientation marker ---------------------------------------------
 fiducial_solid = true;   // make the two orientation rings solid disks
@@ -125,6 +141,7 @@ ring_outer     = on_edge ? bore + 2 * (ring_wall + wall_boost) : ring_outer_d;
 funnel_mouth_d = bore + funnel_margin;
 rib_w_eff   = on_edge ? rib_w + wall_boost : rib_w;
 frame_w_eff = on_edge ? frame_w + wall_boost : frame_w;
+xy_mouth_d  = inner_d + 2 * (ring_h - land_h);   // 45 deg countersink mouth at the top face
 
 function pos(i) = i * pitch - half;   // centre coordinate of index i
 
@@ -146,6 +163,12 @@ assert(2 * funnel_depth < plate_thickness,
        "2*funnel_depth must leave a central throat - reduce funnel_depth below plate_thickness/2");
 assert(!on_edge || (funnel_mouth_d > bore && funnel_mouth_d <= ring_outer - 1),
        "the countersink mouth must sit between the bore and 1 mm inside the ring outer diameter, so a face rim survives");
+assert(land_h > chamfer_h,
+       "land_h must exceed chamfer_h so the elephant-foot relief stays inside the land");
+assert(land_h < ring_h,
+       "land_h must be thinner than the flat plate so a countersink remains above it");
+assert(xy_mouth_d <= ring_outer_d - 1,
+       "the XY countersink mouth must stay 1 mm inside the ring outer diameter, so a face rim survives");
 
 // =====================================================================
 //  Chamfered primitives  (45 deg relief on the underside; off when on-edge)
@@ -175,6 +198,15 @@ module ch_hole_funnel(mouth_d, bore_d, fdepth, thick) {   // symmetric bicone: f
     translate([0, 0, fdepth]) cylinder(d = bore_d, h = land);                         // central throat
     translate([0, 0, fdepth + land]) cylinder(d1 = bore_d, d2 = mouth_d, h = fdepth); // funnel to far face
     translate([0, 0, thick]) cylinder(d = mouth_d, h = 0.5 + 0.001);
+}
+
+module ch_hole_countersunk(bore_d, mouth_d, land, h) {   // flat XY: thin land at the scan face
+    // The measured bore survives only through the land at the bed (scan) face; above it the hole
+    // opens as a 45 deg cone toward the top face, so nothing overhangs when printed flat and the
+    // wall cannot occlude or shadow the aperture on the scanner.
+    ch_hole(bore_d, land);                                                        // relieved bore through the land
+    translate([0, 0, land]) cylinder(d1 = bore_d, d2 = mouth_d, h = h - land);    // countersink
+    translate([0, 0, h]) cylinder(d = mouth_d, h = 0.5);                          // top clearance
 }
 
 module ch_bar_x(x0, yc, L, w, h) {     // bar along +X, chamfered long sides
@@ -236,7 +268,7 @@ module ring_holes() {                   // punch every ring except the two solid
             if (!(fiducial_solid && j == 0 && (i == 0 || i == 1)))
                 translate([pos(i), pos(j), 0])
                     if (on_edge) ch_hole_funnel(funnel_mouth_d, bore, funnel_depth, thickness);
-                    else         ch_hole(inner_d, thickness);
+                    else         ch_hole_countersunk(inner_d, xy_mouth_d, land_h, thickness);
 }
 
 module reference_strip() {
