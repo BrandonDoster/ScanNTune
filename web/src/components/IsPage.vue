@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, shallowRef } from 'vue'
 import { useApp } from '../stores/useApp'
 import { useCalibration } from '../stores/useCalibration'
 import { usePrinterProfiles } from '../stores/usePrinterProfiles'
+import { useIsSettings } from '../stores/useIsSettings'
+import { useFlowSettingsForm } from '../composables/useFlowSettingsForm'
+import type { PartColors, ScanPlace } from '../model/scanPlan'
 import { readBytes } from '../util/preview'
 import { scaleReferenceAtDpi } from '../engine/scannerCalibration'
 import {
@@ -51,24 +54,43 @@ const calibrationLine = computed(() =>
     : 'Not calibrated',
 )
 
-// Spec defaults follow the selected printer; the fields start prefilled with them and
-// refill whenever another printer is selected (edits between switches are one-shot).
+// Spec defaults follow the selected printer. The fields are persisted per printer profile;
+// with nothing stored for the selected profile they fall back to the spec defaults, and a
+// profile switch re-applies that profile's stored settings or defaults.
 const specDefaults = computed(() => defaultIsTestSpec(store.selected ?? defaultPrinterProfile()))
-const tierSpeed = ref<number | null>(specDefaults.value.speedsMmS[0])
-const cornerSpeed = ref<number | null>(specDefaults.value.cornerSpeedMmS)
-const linesPerSpeed = ref<number | null>(specDefaults.value.linesPerSpeed)
-const measuredLine = ref<number | null>(specDefaults.value.measuredLineMm)
-const linePitch = ref<number | null>(specDefaults.value.linePitchMm)
+const isSettings = useIsSettings()
+const {
+  form: settingsForm,
+  hasStored: settingsStored,
+  reset: resetSettings,
+} = useFlowSettingsForm(
+  isSettings,
+  () => ({
+    lineSpeedMmS: specDefaults.value.speedsMmS[0],
+    cornerSpeedMmS: specDefaults.value.cornerSpeedMmS,
+    linesPerSpeed: specDefaults.value.linesPerSpeed,
+    measuredLineMm: specDefaults.value.measuredLineMm,
+    linePitchMm: specDefaults.value.linePitchMm,
+    scanPlace: 'part' as ScanPlace,
+    partColors: 'single' as PartColors,
+  }),
+  () => store.selectedId,
+)
 // The placement and contrasting-base spec fields are driven by two scanning choices:
 // where the scan happens (removed part vs the whole build plate on the scanner, the
 // latter for filaments that will not come off, e.g. TPU or PETG), and, for a removed
 // part only, whether a contrasting base is printed under the coupon. Scanning with the
 // plate is always a single-color print at the bed's front edge so the plate edge can
 // lie on the glass with the rest overhanging.
-type ScanPlace = 'part' | 'plate'
-type PartColors = 'single' | 'base'
-const scanPlace = ref<ScanPlace>('part')
-const partColors = ref<PartColors>('single')
+const {
+  lineSpeedMmS: tierSpeed,
+  cornerSpeedMmS: cornerSpeed,
+  linesPerSpeed,
+  measuredLineMm: measuredLine,
+  linePitchMm: linePitch,
+  scanPlace,
+  partColors,
+} = settingsForm
 const scanPlaceItems = [
   { title: 'Scan the removed part', value: 'part' },
   { title: 'Scan with the build plate', value: 'plate' },
@@ -93,19 +115,6 @@ const scanPlanNote = computed(() => {
         'between them. The two filaments must differ in brightness.'
     : 'The filament color must contrast with the backing, either the lid or a sheet of paper.'
 })
-
-watch(
-  () => store.selected?.id,
-  () => {
-    tierSpeed.value = specDefaults.value.speedsMmS[0]
-    cornerSpeed.value = specDefaults.value.cornerSpeedMmS
-    linesPerSpeed.value = specDefaults.value.linesPerSpeed
-    measuredLine.value = specDefaults.value.measuredLineMm
-    linePitch.value = specDefaults.value.linePitchMm
-    scanPlace.value = 'part'
-    partColors.value = 'single'
-  },
-)
 
 const spec = computed<IsTestSpec>(() => {
   return {
@@ -447,6 +456,19 @@ async function analyze(): Promise<void> {
     <section class="step mb-3">
       <div class="step-head mb-2">
         <span class="num">3</span><span class="step-title">Test settings</span>
+        <v-spacer />
+        <v-btn
+          v-if="settingsStored"
+          variant="tonal"
+          color="warning"
+          size="small"
+          prepend-icon="mdi-restore"
+          :disabled="analyzing"
+          data-testid="is-settings-reset"
+          @click="resetSettings"
+        >
+          Reset to defaults
+        </v-btn>
       </div>
       <div class="field-group">
         <span class="group-label">Speeds</span>

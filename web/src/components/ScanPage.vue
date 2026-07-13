@@ -3,6 +3,8 @@ import { computed, nextTick, reactive, ref, toRaw, watch } from 'vue'
 import { useApp } from '../stores/useApp'
 import { useCalibration } from '../stores/useCalibration'
 import { useScans } from '../stores/useScans'
+import { useSkewSettings } from '../stores/useSkewSettings'
+import { useFlowSettingsForm } from '../composables/useFlowSettingsForm'
 import { readBytes } from '../util/preview'
 import { scaleReferenceAtDpi } from '../engine/scannerCalibration'
 import {
@@ -47,9 +49,14 @@ const store = useScans()
 
 const MAX_SCANS = 24
 
-const dpi = ref<number | null>(600)
-const baselineMm = ref<number | null>(100)
-const gridN = ref<number | null>(5)
+// Scan and coupon settings, persisted across visits; nothing stored falls back to these defaults.
+const skewSettings = useSkewSettings()
+const {
+  form: settingsForm,
+  hasStored: settingsStored,
+  reset: resetSettings,
+} = useFlowSettingsForm(skewSettings, () => ({ dpi: 600, baselineMm: 100, gridN: 5 }))
+const { dpi, baselineMm, gridN } = settingsForm
 
 const isError = ref(false)
 const statusText = ref('')
@@ -835,6 +842,22 @@ function getCoupon(file: string): void {
             testid="grid-n-input"
           />
         </template>
+      </div>
+      <div v-if="settingsStored" class="mt-2">
+        <v-btn
+          variant="tonal"
+          color="warning"
+          size="small"
+          prepend-icon="mdi-restore"
+          :disabled="fieldsLocked"
+          data-testid="skew-settings-reset"
+          @click="resetSettings"
+        >
+          Reset to defaults
+        </v-btn>
+        <p v-if="fieldsLocked" class="tip">
+          Remove the loaded scans first; the settings are locked while scans are loaded.
+        </p>
       </div>
 
       <template v-if="!hasResults">

@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, shallowRef } from 'vue'
 import { useApp } from '../stores/useApp'
 import { useCalibration } from '../stores/useCalibration'
 import { usePrinterProfiles } from '../stores/usePrinterProfiles'
+import { useEmSettings } from '../stores/useEmSettings'
+import { useFlowSettingsForm } from '../composables/useFlowSettingsForm'
+import type { PartColors, ScanPlace } from '../model/scanPlan'
 import { readBytes } from '../util/preview'
 import { scaleReferenceAtDpi } from '../engine/scannerCalibration'
 import { resolutionRowValue } from '../util/scanResolution'
@@ -40,24 +43,43 @@ const calibrationLine = computed(() =>
     : 'Not calibrated',
 )
 
-// Spec defaults follow the selected printer; the fields start prefilled with them and
-// refill whenever another printer is selected (edits between switches are one-shot).
+// Spec defaults follow the selected printer. The fields are persisted per printer profile;
+// with nothing stored for the selected profile they fall back to the spec defaults, and a
+// profile switch re-applies that profile's stored settings or defaults.
 const specDefaults = computed(() => defaultEmTestSpec(store.selected ?? defaultPrinterProfile()))
-const pitchMin = ref<number | null>(specDefaults.value.pitchMinMm)
-const pitchMax = ref<number | null>(specDefaults.value.pitchMaxMm)
-const blockCount = ref<number | null>(specDefaults.value.blockCount)
-const linesPerBlock = ref<number | null>(specDefaults.value.linesPerBlock)
-const printSpeed = ref<number | null>(specDefaults.value.printSpeedMmS)
+const emSettings = useEmSettings()
+const {
+  form: settingsForm,
+  hasStored: settingsStored,
+  reset: resetSettings,
+} = useFlowSettingsForm(
+  emSettings,
+  () => ({
+    pitchMinMm: specDefaults.value.pitchMinMm,
+    pitchMaxMm: specDefaults.value.pitchMaxMm,
+    blockCount: specDefaults.value.blockCount,
+    linesPerBlock: specDefaults.value.linesPerBlock,
+    printSpeedMmS: specDefaults.value.printSpeedMmS,
+    scanPlace: 'part' as ScanPlace,
+    partColors: 'single' as PartColors,
+  }),
+  () => store.selectedId,
+)
 // The placement and contrasting-base spec fields are driven by two scanning choices:
 // where the scan happens (removed part vs the whole build plate on the scanner, the
 // latter for filaments that will not come off, e.g. TPU or PETG), and, for a removed
 // part only, whether a contrasting base is printed under the coupon. Scanning with the
 // plate is always a single-color print at the bed's front edge so the plate edge can
 // lie on the glass with the rest overhanging.
-type ScanPlace = 'part' | 'plate'
-type PartColors = 'single' | 'base'
-const scanPlace = ref<ScanPlace>('part')
-const partColors = ref<PartColors>('single')
+const {
+  pitchMinMm: pitchMin,
+  pitchMaxMm: pitchMax,
+  blockCount,
+  linesPerBlock,
+  printSpeedMmS: printSpeed,
+  scanPlace,
+  partColors,
+} = settingsForm
 const scanPlaceItems = [
   { title: 'Scan the removed part', value: 'part' },
   { title: 'Scan with the build plate', value: 'plate' },
@@ -84,19 +106,6 @@ const scanPlanNote = computed(() => {
     : 'The removed part is scanned face down on the glass. The filament color needs to ' +
         'contrast with the backing, either the scanner lid or a sheet of paper.'
 })
-
-watch(
-  () => store.selected?.id,
-  () => {
-    pitchMin.value = specDefaults.value.pitchMinMm
-    pitchMax.value = specDefaults.value.pitchMaxMm
-    blockCount.value = specDefaults.value.blockCount
-    linesPerBlock.value = specDefaults.value.linesPerBlock
-    printSpeed.value = specDefaults.value.printSpeedMmS
-    scanPlace.value = 'part'
-    partColors.value = 'single'
-  },
-)
 
 const spec = computed<EmTestSpec>(() => ({
   ...specDefaults.value,
@@ -313,6 +322,19 @@ const resolutionText = computed(() => {
     <section class="step mb-3">
       <div class="step-head mb-2">
         <span class="num">3</span><span class="step-title">Test settings</span>
+        <v-spacer />
+        <v-btn
+          v-if="settingsStored"
+          variant="tonal"
+          color="warning"
+          size="small"
+          prepend-icon="mdi-restore"
+          :disabled="analyzing"
+          data-testid="em-settings-reset"
+          @click="resetSettings"
+        >
+          Reset to defaults
+        </v-btn>
       </div>
       <div class="field-group">
         <span class="group-label">Pitch sweep</span>
