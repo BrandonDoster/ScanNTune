@@ -43,6 +43,13 @@
 //  upward, so it prints with zero overhang. The XY plate must therefore
 //  be scanned bed-face down (the flattest face, already the natural one).
 //
+//  The measured holes get NO elephant-foot relief: an inclined chamfer
+//  annulus at the rim reads asymmetrically off-axis on a CCD and shifts
+//  the detected edge with field position, i.e. a scale error. A squished
+//  first-layer edge is symmetric, and ring centres are immune to
+//  symmetric size changes, so the bare bore is the more accurate rim.
+//  The plate's outer edges keep the chamfer for easy removal.
+//
 //  Everything below is parametric - change a value and re-render.
 // =====================================================================
 
@@ -83,13 +90,17 @@ frame_w = 3.0;      // width of the four outer-edge ribs (stiff frame, mm)
 rib_h   = 2.0;      // FLAT (XY) rib height (mm)
 
 // ---- Anti elephant's-foot chamfer (FLAT XY plate underside only) ----
+// Applies to the plate's outer edges (rings, ribs, diagonals), NOT to the measured holes:
+// a chamfer ring at a hole rim reads as a field-dependent edge shift on a CCD (see the header).
 chamfer   = 0.4;    // horizontal relief at the bottom edge (mm)
 chamfer_h = 0.4;    // height of the chamfer band (mm); = chamfer -> 45 deg
 
 // ---- Countersunk holes (FLAT XY plate only) --------------------------
-land_h = 0.6;       // thickness of the land carrying the measured bore at the scan face (mm);
-                    // 3 layers at 0.2 mm. Above it the hole opens as a 45 deg countersink, so
-                    // the bore wall cannot occlude or shadow the aperture and prints overhang-free
+land_h = 0.4;       // thickness of the land carrying the measured bore at the scan face (mm);
+                    // 2 layers at 0.2 mm. Above it the hole opens as a 45 deg countersink, so
+                    // the bore wall cannot occlude or shadow the aperture and prints overhang-free.
+                    // Thin on purpose: the rim parallax scale error grows with land thickness.
+                    // Print in an opaque filament so the land does not glow through
 
 // ---- Orientation marker ---------------------------------------------
 fiducial_solid = true;   // make the two orientation rings solid disks
@@ -141,7 +152,8 @@ ring_outer     = on_edge ? bore + 2 * (ring_wall + wall_boost) : ring_outer_d;
 funnel_mouth_d = bore + funnel_margin;
 rib_w_eff   = on_edge ? rib_w + wall_boost : rib_w;
 frame_w_eff = on_edge ? frame_w + wall_boost : frame_w;
-xy_mouth_d  = inner_d + 2 * (ring_h - land_h);   // 45 deg countersink mouth at the top face
+// 45 deg countersink mouth at the top face, capped so a 0.5 mm face rim survives on each side
+xy_mouth_d  = min(inner_d + 2 * (ring_h - land_h), ring_outer_d - 1);
 
 function pos(i) = i * pitch - half;   // centre coordinate of index i
 
@@ -163,12 +175,10 @@ assert(2 * funnel_depth < plate_thickness,
        "2*funnel_depth must leave a central throat - reduce funnel_depth below plate_thickness/2");
 assert(!on_edge || (funnel_mouth_d > bore && funnel_mouth_d <= ring_outer - 1),
        "the countersink mouth must sit between the bore and 1 mm inside the ring outer diameter, so a face rim survives");
-assert(land_h > chamfer_h,
-       "land_h must exceed chamfer_h so the elephant-foot relief stays inside the land");
+assert(land_h >= 0.4,
+       "land_h must be at least two 0.2 mm layers so the land prints reliably");
 assert(land_h < ring_h,
        "land_h must be thinner than the flat plate so a countersink remains above it");
-assert(xy_mouth_d <= ring_outer_d - 1,
-       "the XY countersink mouth must stay 1 mm inside the ring outer diameter, so a face rim survives");
 
 // =====================================================================
 //  Chamfered primitives  (45 deg relief on the underside; off when on-edge)
@@ -178,14 +188,6 @@ module ch_cyl(d, h) {                 // solid post, chamfered at the bottom
         cylinder(d1 = max(0.1, d - 2 * cf), d2 = d, h = cfh);
         translate([0, 0, cfh]) cylinder(d = d, h = h - cfh);
     } else cylinder(d = d, h = h);
-}
-
-module ch_hole(d, h) {                 // hole cutter, relieved at the bottom
-    if (cf > 0 && cfh > 0) {
-        translate([0, 0, -0.5]) cylinder(d = d + 2 * cf, h = 0.5);
-        cylinder(d1 = d + 2 * cf, d2 = d, h = cfh);
-        translate([0, 0, cfh]) cylinder(d = d, h = h - cfh + 0.5);
-    } else translate([0, 0, -0.5]) cylinder(d = d, h = h + 1);
 }
 
 module ch_hole_funnel(mouth_d, bore_d, fdepth, thick) {   // symmetric bicone: funnels from BOTH faces
@@ -203,8 +205,9 @@ module ch_hole_funnel(mouth_d, bore_d, fdepth, thick) {   // symmetric bicone: f
 module ch_hole_countersunk(bore_d, mouth_d, land, h) {   // flat XY: thin land at the scan face
     // The measured bore survives only through the land at the bed (scan) face; above it the hole
     // opens as a 45 deg cone toward the top face, so nothing overhangs when printed flat and the
-    // wall cannot occlude or shadow the aperture on the scanner.
-    ch_hole(bore_d, land);                                                        // relieved bore through the land
+    // wall cannot occlude or shadow the aperture on the scanner. Deliberately NO elephant-foot
+    // relief here: the bare bore edge sits flat on the glass (see the header).
+    translate([0, 0, -0.5]) cylinder(d = bore_d, h = land + 0.5 + 0.001);         // straight bore through the land
     translate([0, 0, land]) cylinder(d1 = bore_d, d2 = mouth_d, h = h - land);    // countersink
     translate([0, 0, h]) cylinder(d = mouth_d, h = 0.5);                          // top clearance
 }
