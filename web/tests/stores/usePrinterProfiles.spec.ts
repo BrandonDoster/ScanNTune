@@ -127,6 +127,8 @@ describe('stored profile migration', () => {
     delete printer.firstLayerSpeedMmS
     delete filament.extrusionMultiplier
     delete filament.maxVolumetricFlowMm3S
+    delete filament.startGcode
+    delete filament.endGcode
     const stored = { ...printer, id: 'p1', filaments: [{ ...filament, id: 'f1' }] }
     localStorage.setItem(
       'scanntune.printerProfiles',
@@ -137,5 +139,7 @@ describe('stored profile migration', () => {
     expect(store.profiles[0].firstLayerSpeedMmS).toBe(30)
     expect(store.profiles[0].filaments[0].extrusionMultiplier).toBe(1)
     expect(store.profiles[0].filaments[0].maxVolumetricFlowMm3S).toBe(0)
+    expect(store.profiles[0].filaments[0].startGcode).toBe('')
+    expect(store.profiles[0].filaments[0].endGcode).toBe('')
   })
 })

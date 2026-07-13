@@ -26,6 +26,8 @@ export interface EditableFilament {
   chamberTempC: number | null
   extrusionMultiplier: number | null
   maxVolumetricFlowMm3S: number | null
+  startGcode: string
+  endGcode: string
 }
 
 export interface ImportSummary {
@@ -194,6 +196,8 @@ export function useProfileForm() {
       target.extrusionMultiplier = fields.extrusionMultiplier
     if (fields.maxVolumetricFlowMm3S !== undefined)
       target.maxVolumetricFlowMm3S = fields.maxVolumetricFlowMm3S
+    if (fields.filamentStartGcode !== undefined) target.startGcode = fields.filamentStartGcode
+    if (fields.filamentEndGcode !== undefined) target.endGcode = fields.filamentEndGcode
   }
 
   /** Names the profile after the imported preset, unless the user already chose a name. */
@@ -399,6 +403,8 @@ export function useProfileForm() {
       chamberTempC: f.chamberTempC!,
       extrusionMultiplier: f.extrusionMultiplier!,
       maxVolumetricFlowMm3S: f.maxVolumetricFlowMm3S!,
+      startGcode: f.startGcode,
+      endGcode: f.endGcode,
     }
   }
 

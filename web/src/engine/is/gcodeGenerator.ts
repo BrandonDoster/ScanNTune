@@ -1,5 +1,11 @@
 import type { FilamentProfile, PrinterProfile } from '../gcode/profileTypes'
-import { couponOrigin, EDGE_MARGIN_MM, prepareProfile, setupPreamble } from '../gcode/couponShell'
+import {
+  couponOrigin,
+  EDGE_MARGIN_MM,
+  prepareProfile,
+  setupPreamble,
+  teardownLines,
+} from '../gcode/couponShell'
 import {
   BASE_LAYERS,
   basePerimeters,
@@ -50,6 +56,7 @@ export function generateIsGcodeWithReport(
   // The pause G-code is only emitted (and its placeholders only reported) with a contrast base.
   const {
     profile: substituted,
+    filament: substitutedFilament,
     unknownVariables,
     warnings,
   } = prepareProfile(profile, filament, { includePause: spec.contrastBase })
@@ -72,7 +79,7 @@ export function generateIsGcodeWithReport(
     }
   }
 
-  return { gcode: emitIsGcode(substituted, filament, fitted), unknownVariables, warnings }
+  return { gcode: emitIsGcode(substituted, substitutedFilament, fitted), unknownVariables, warnings }
 }
 
 /** Feedrate of the moving prime at each line start. */
@@ -180,6 +187,7 @@ function emitIsGcode(profile: PrinterProfile, filament: FilamentProfile, spec: I
   L.push(
     ...setupPreamble(
       profile,
+      filament,
       [
         '; ScanNTune input shaper resonance test',
         `; speed tiers ${spec.speedsMmS.join(', ')} mm/s, acceleration ${spec.accelMmS2} mm/s^2`,
@@ -348,6 +356,6 @@ function emitIsGcode(profile: PrinterProfile, filament: FilamentProfile, spec: I
   L.push(...restoreShapingCommands(profile))
   L.push(...restoreMotionLimitNote(profile))
   retract(e, profile, 1)
-  L.push(...profile.endGcode.split('\n'))
+  L.push(...teardownLines(profile, filament))
   return L.join('\n') + '\n'
 }

@@ -24,6 +24,8 @@ const FILAMENT_FIELDS = new Set([
   'chamberTempC',
   'extrusionMultiplier',
   'maxVolumetricFlowMm3S',
+  'filamentStartGcode',
+  'filamentEndGcode',
 ])
 
 describe('FIELD_KINDS', () => {
@@ -41,9 +43,15 @@ describe('FIELD_KINDS', () => {
       'travelSpeedMmS',
       'firstLayerSpeedMmS',
     ])
+    // The filament's own G-code blocks import under filament-prefixed keys, so they never
+    // collide with the printer's startGcode/endGcode in the flat field map.
+    const filamentKeyRenames: Record<string, string> = {
+      startGcode: 'filamentStartGcode',
+      endGcode: 'filamentEndGcode',
+    }
     const mappedKeys = [
       ...Object.keys(defaultPrinterProfile()),
-      ...Object.keys(defaultFilamentProfile()),
+      ...Object.keys(defaultFilamentProfile()).map((k) => filamentKeyRenames[k] ?? k),
     ].filter((k) => !skip.has(k))
     for (const key of mappedKeys) {
       expect(FIELD_KINDS).toHaveProperty(key)

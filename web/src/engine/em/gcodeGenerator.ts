@@ -1,5 +1,11 @@
 import type { FilamentProfile, PrinterProfile } from '../gcode/profileTypes'
-import { couponOrigin, EDGE_MARGIN_MM, prepareProfile, setupPreamble } from '../gcode/couponShell'
+import {
+  couponOrigin,
+  EDGE_MARGIN_MM,
+  prepareProfile,
+  setupPreamble,
+  teardownLines,
+} from '../gcode/couponShell'
 import {
   BASE_LAYERS,
   basePerimeters,
@@ -59,6 +65,7 @@ export function generateEmGcodeWithReport(
   // The pause gcode is only emitted (and its placeholders only reported) with a contrast base.
   const {
     profile: substituted,
+    filament: substitutedFilament,
     unknownVariables,
     warnings,
   } = prepareProfile(profile, filament, { includePause: spec.contrastBase })
@@ -82,7 +89,7 @@ export function generateEmGcodeWithReport(
     )
   }
 
-  return { gcode: emitEmGcode(substituted, filament, spec), unknownVariables, warnings }
+  return { gcode: emitEmGcode(substituted, substitutedFilament, spec), unknownVariables, warnings }
 }
 
 function emitEmGcode(profile: PrinterProfile, rawFilament: FilamentProfile, spec: EmTestSpec): string {
@@ -108,7 +115,7 @@ function emitEmGcode(profile: PrinterProfile, rawFilament: FilamentProfile, spec
   const e: Emitter = { lines: [], x: 0, y: 0 }
   const L = e.lines
   L.push(
-    ...setupPreamble(profile, [
+    ...setupPreamble(profile, filament, [
       '; ScanNTune extrusion multiplier test',
       `; nominal line width ${nominal.toFixed(3)} mm, comb speed ${spec.printSpeedMmS} mm/s`,
     ]),
@@ -223,6 +230,6 @@ function emitEmGcode(profile: PrinterProfile, rawFilament: FilamentProfile, spec
   }
 
   retract(e, profile, 1)
-  L.push(...profile.endGcode.split('\n'))
+  L.push(...teardownLines(profile, filament))
   return L.join('\n') + '\n'
 }

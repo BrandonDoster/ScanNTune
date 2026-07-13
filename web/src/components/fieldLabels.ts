@@ -21,6 +21,8 @@ export const FIELD_LABELS: Record<keyof typeof FIELD_KINDS, string> = {
   chamberTempC: 'Chamber temp',
   extrusionMultiplier: 'Extrusion multiplier',
   maxVolumetricFlowMm3S: 'Max volumetric flow',
+  filamentStartGcode: 'Filament start G-code',
+  filamentEndGcode: 'Filament end G-code',
 }
 
 /** Falls back to the raw field name if it is somehow not in FIELD_LABELS (should not happen for

@@ -35,7 +35,7 @@ const FILAMENT_NUMERIC_FIELDS = [
   'maxVolumetricFlowMm3S',
 ] as const
 
-const FILAMENT_STRING_FIELDS = ['id', 'name', 'filamentType'] as const
+const FILAMENT_STRING_FIELDS = ['id', 'name', 'filamentType', 'startGcode', 'endGcode'] as const
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
@@ -90,6 +90,8 @@ function backfillNewFields(value: unknown): unknown {
       const f = raw as Record<string, unknown>
       if (f.extrusionMultiplier === undefined) f.extrusionMultiplier = 1
       if (f.maxVolumetricFlowMm3S === undefined) f.maxVolumetricFlowMm3S = 0
+      if (f.startGcode === undefined) f.startGcode = ''
+      if (f.endGcode === undefined) f.endGcode = ''
     }
   }
   return value

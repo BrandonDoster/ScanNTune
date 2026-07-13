@@ -15,6 +15,12 @@ export interface FilamentProfile {
   /** The filament's maximum volumetric flow in mm^3/s; 0 means not configured, and the
    *  high-flow warnings then judge against a conservative default instead. */
   maxVolumetricFlowMm3S: number
+  /** Filament-specific start G-code, run right after the printer's start G-code; the same
+   *  slicer variables are substituted. Empty means the filament adds nothing. */
+  startGcode: string
+  /** Filament-specific end G-code, run right before the printer's end G-code; the same
+   *  slicer variables are substituted. Empty means the filament adds nothing. */
+  endGcode: string
 }
 
 export interface PrinterProfile {
@@ -51,6 +57,8 @@ export function defaultFilamentProfile(): FilamentProfile {
     chamberTempC: 0,
     extrusionMultiplier: 1,
     maxVolumetricFlowMm3S: 0,
+    startGcode: '',
+    endGcode: '',
   }
 }
 

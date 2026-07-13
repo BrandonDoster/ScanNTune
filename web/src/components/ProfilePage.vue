@@ -321,6 +321,23 @@ function save(): void {
               hint="The high-flow warnings use this limit. Leave 0 when the limit is not known."
             />
           </div>
+          <div class="group-caption">G-code</div>
+          <v-textarea
+            v-model="form.currentFilament.value.startGcode"
+            label="Filament start G-code"
+            rows="3"
+            density="comfortable"
+            class="mono mb-2"
+            hint="Runs right after the printer start G-code and supports the same slicer variables. Leave empty when the filament needs no extra commands."
+          />
+          <v-textarea
+            v-model="form.currentFilament.value.endGcode"
+            label="Filament end G-code"
+            rows="3"
+            density="comfortable"
+            class="mono"
+            hint="Runs right before the printer end G-code and supports the same slicer variables. Leave empty when the filament needs no extra commands."
+          />
         </div>
       </v-tabs-window-item>
     </v-tabs-window>
