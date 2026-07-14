@@ -4,7 +4,7 @@ import { getCv } from '../../helpers/cv'
 import { renderEmScan } from '../../helpers/emRender'
 import type { EmRenderOptions } from '../../helpers/emRender'
 import { rgbaToBgrMat } from '../../../src/engine/imageData'
-import { analyzeEmCoupon } from '../../../src/engine/em/emAnalyzer'
+import { analyzeEmCoupon, analyzeEmCoupons } from '../../../src/engine/em/emAnalyzer'
 import type { EmResult } from '../../../src/engine/em/emAnalyzer'
 import { defaultEmTestSpec } from '../../../src/engine/em/types'
 import { defaultPrinterProfile } from '../../../src/engine/pa/types'
@@ -274,6 +274,167 @@ describe('analyzeEmCoupon render recovery', () => {
       expect(r.wMm).toBeNull()
     },
     240000,
+  )
+
+  it(
+    'a single scan under one-sided lamp shading is biased away from the ground truth',
+    async () => {
+      const trueWidth = 0.42
+      const r = await analyzeRender({
+        trueWidthMm: trueWidth,
+        lampShading: { lampSide: 'left', extraSigmaMm: 0.16 },
+      })
+      expect(r.success).toBe(true)
+      expect(r.wMm).not.toBeNull()
+      // The lamp bias exceeds the clean-render recovery tolerance: this is the error the second,
+      // 180-degree-rotated scan exists to cancel.
+      expect(Math.abs(r.wMm! - trueWidth)).toBeGreaterThan(0.005)
+      expect(r.shadowWarning).toBe(true)
+      expect(r.scans).toHaveLength(1)
+    },
+    240000,
+  )
+
+  it(
+    'pooling a second scan rotated 180 degrees cancels the lamp-side bias',
+    async () => {
+      const trueWidth = 0.42
+      const cv = await getCv()
+      const render = (quarterTurns: 0 | 2) =>
+        rgbaToBgrMat(
+          cv,
+          renderEmScan({
+            pxPerMm: PX_PER_MM,
+            spec,
+            trueWidthMm: trueWidth,
+            quarterTurns,
+            lampShading: { lampSide: 'left', extraSigmaMm: 0.16 },
+          }),
+        )
+      const imgA = render(0)
+      const imgB = render(2)
+      try {
+        // The same image-fixed lamp biases the two orientations in opposite directions.
+        const rA = analyzeEmCoupon(cv, imgA, spec, PX_PER_MM)
+        const rB = analyzeEmCoupon(cv, imgB, spec, PX_PER_MM)
+        expect(rA.success).toBe(true)
+        expect(rB.success).toBe(true)
+        expect(Math.sign(rA.wMm! - trueWidth)).toBe(-Math.sign(rB.wMm! - trueWidth))
+
+        // Combined with equal weight per scan, the bias cancels and the clean tolerance holds
+        // again.
+        const pooled = analyzeEmCoupons(cv, [imgA, imgB], spec, PX_PER_MM)
+        expect(pooled.success).toBe(true)
+        expect(pooled.wMm).not.toBeNull()
+        expect(Math.abs(pooled.wMm! - trueWidth)).toBeLessThanOrEqual(0.005)
+        expect(pooled.shadowWarning).toBe(false)
+        expect(pooled.scans).toHaveLength(2)
+        expect(pooled.scans[0].rotationQuarterTurns).not.toBe(pooled.scans[1].rotationQuarterTurns)
+        expect(pooled.blocksMeasured).toBe(
+          pooled.scans[0].blocksMeasured + pooled.scans[1].blocksMeasured,
+        )
+      } finally {
+        imgA.delete()
+        imgB.delete()
+      }
+    },
+    480000,
+  )
+
+  it(
+    'cancels the lamp bias even when one scan of the 180 degree pair keeps fewer samples',
+    async () => {
+      const trueWidth = 0.42
+      const cv = await getCv()
+      // The 180 degree scan is rendered much noisier, so the MAD cleaning drops more of its
+      // samples: a naive sample-level pool would lean toward the cleaner scan and leave part of
+      // the lamp bias uncancelled, while the equal-weight per-scan combination cancels it fully.
+      const render = (quarterTurns: 0 | 2, noiseSigma: number) =>
+        rgbaToBgrMat(
+          cv,
+          renderEmScan({
+            pxPerMm: PX_PER_MM,
+            spec,
+            trueWidthMm: trueWidth,
+            quarterTurns,
+            noiseSigma,
+            lampShading: { lampSide: 'left', extraSigmaMm: 0.16 },
+          }),
+        )
+      const imgA = render(0, 0)
+      const imgB = render(2, 10)
+      try {
+        const combined = analyzeEmCoupons(cv, [imgA, imgB], spec, PX_PER_MM)
+        expect(combined.success).toBe(true)
+        expect(combined.wMm).not.toBeNull()
+        expect(Math.abs(combined.wMm! - trueWidth)).toBeLessThanOrEqual(0.005)
+        expect(combined.shadowWarning).toBe(false)
+        expect(combined.scans).toHaveLength(2)
+      } finally {
+        imgA.delete()
+        imgB.delete()
+      }
+    },
+    480000,
+  )
+
+  it(
+    'passes a smooth brightness-gradient backing but still refuses a textured one',
+    async () => {
+      const cv = await getCv()
+      // A one-sided lamp gradient: multiplicative shading across the whole scan, strong enough
+      // that the raw backing spread would have tripped the unevenness refusal before detrending.
+      const shade = (rgba: ReturnType<typeof renderEmScan>) => {
+        for (let py = 0; py < rgba.height; py++) {
+          for (let px = 0; px < rgba.width; px++) {
+            const i = (py * rgba.width + px) * 4
+            const factor = 0.35 + (0.9 * px) / (rgba.width - 1)
+            for (let c = 0; c < 3; c++) {
+              rgba.data[i + c] = Math.max(0, Math.min(255, Math.round(rgba.data[i + c] * factor)))
+            }
+          }
+        }
+        return rgba
+      }
+      const gradient = shade(
+        renderEmScan({ pxPerMm: PX_PER_MM, spec, trueWidthMm: 0.42, plasticGray: 20, backgroundGray: 150 }),
+      )
+      const imgGradient = rgbaToBgrMat(cv, gradient)
+      try {
+        const r = analyzeEmCoupon(cv, imgGradient, spec, PX_PER_MM)
+        expect(r.failureReason).toBeNull()
+        expect(r.success).toBe(true)
+        expect(Math.abs(r.wMm! - 0.42)).toBeLessThanOrEqual(0.008)
+      } finally {
+        imgGradient.delete()
+      }
+
+      // High-frequency texture must still refuse: same speckled-plate construction as the
+      // dedicated textured-backdrop test above.
+      const textured = renderEmScan({ pxPerMm: PX_PER_MM, spec, trueWidthMm: 0.42, plasticGray: 20, backgroundGray: 150 })
+      let seed = 987654321
+      const rand = () => {
+        seed = (seed * 1664525 + 1013904223) >>> 0
+        return seed / 4294967296
+      }
+      for (let i = 0; i < textured.data.length; i += 4) {
+        if (textured.data[i] === 150) {
+          const tone = 40 + Math.round(rand() * 110)
+          textured.data[i] = tone
+          textured.data[i + 1] = tone
+          textured.data[i + 2] = tone
+        }
+      }
+      const imgTextured = rgbaToBgrMat(cv, textured)
+      try {
+        const r = analyzeEmCoupon(cv, imgTextured, spec, PX_PER_MM)
+        expect(r.success).toBe(false)
+        expect(r.failureReason).toContain('too uneven')
+      } finally {
+        imgTextured.delete()
+      }
+    },
+    480000,
   )
 
   it('fails with a reason on a blank image', async () => {

@@ -658,3 +658,117 @@ describe('validation and reporting', () => {
     )
   })
 })
+
+describe('resonant run-up sweep emission', () => {
+  const sweepSpec = { ...spec, sweep: true }
+  const gs = isCouponGeometry(sweepSpec)
+  const oxs = (profile.bedWidthMm - gs.couponWidthMm) / 2
+  const oys = (profile.bedDepthMm - gs.couponHeightMm) / 2
+  const report = generateIsGcodeWithReport(profile, filament, sweepSpec)
+  const lines = report.gcode.split('\n')
+
+  it('announces the sweep in the preamble', () => {
+    expect(report.gcode).toContain('; resonant run-up sweep 35 to 150 Hz over 16 cycles')
+    // The sweep-off default stays silent about it.
+    expect(generateIsGcodeWithReport(profile, filament, spec).gcode).not.toContain(
+      'resonant run-up sweep',
+    )
+  })
+
+  it('extrudes every tooth as a full-flow move at the run-up feedrate', () => {
+    const chunk = measuredChunk(lines)
+    for (const group of gs.groups) {
+      for (const line of group.lines) {
+        for (const tooth of line.teeth) {
+          const len = Math.hypot(tooth.x1 - tooth.x0, tooth.y1 - tooth.y0)
+          const move =
+            `G1 X${(oxs + tooth.x1).toFixed(3)} Y${(oys + tooth.y1).toFixed(3)} ` +
+            `E${(len * ePerMm(nominal)).toFixed(5)} F${runUpFeed}`
+          expect(chunk).toContain(move)
+        }
+      }
+    }
+  })
+
+  it('keeps the corner-to-measured contract: the last tooth ends on the corner', () => {
+    const chunk = measuredChunk(lines)
+    for (const group of gs.groups) {
+      for (const line of group.lines) {
+        const last = line.teeth[line.teeth.length - 1]
+        expect(last.x1).toBeCloseTo(line.measured.x0, 9)
+        expect(last.y1).toBeCloseTo(line.measured.y0, 9)
+        // The measured segment still prints as its own move from the corner.
+        const idx = chunk.findIndex((l) =>
+          l.startsWith(
+            `G1 X${(oxs + line.measured.x1).toFixed(3)} Y${(oys + line.measured.y1).toFixed(3)} E`,
+          ),
+        )
+        expect(idx).toBeGreaterThanOrEqual(0)
+      }
+    }
+  })
+})
+
+describe('filament flow settings', () => {
+  it('scales every extrusion by the filament extrusion multiplier', () => {
+    const rich = { ...filament, extrusionMultiplier: 1.2 }
+    const gcode = generateIsGcodeWithReport(profile, rich, spec).gcode
+    const line = allLines[0]
+    const scaled =
+      `G1 X${(ox + line.measured.x0).toFixed(3)} Y${(oy + line.measured.y0).toFixed(3)} ` +
+      `E${(runUpLen(line) * ePerMm(nominal) * 1.2).toFixed(5)} F${runUpFeed}`
+    expect(gcode).toContain(scaled)
+  })
+
+  it('judges the high-flow warning against the filament limit when configured', () => {
+    // The default spec extrudes 12.6 mm^3/s: above the 12 default, below a 20 limit.
+    expect(
+      generateIsGcodeWithReport(profile, filament, spec).warnings.some((w) =>
+        w.includes('typical hotend'),
+      ),
+    ).toBe(true)
+    const strong = { ...filament, maxVolumetricFlowMm3S: 20 }
+    expect(
+      generateIsGcodeWithReport(profile, strong, spec).warnings.some((w) =>
+        w.includes('mm^3/s'),
+      ),
+    ).toBe(false)
+    const weak = { ...filament, maxVolumetricFlowMm3S: 10 }
+    expect(
+      generateIsGcodeWithReport(profile, weak, spec).warnings.some((w) =>
+        w.includes("filament's configured 10 mm^3/s"),
+      ),
+    ).toBe(true)
+  })
+})
+
+describe('first layer speed', () => {
+  const firstLayerFeed = profile.firstLayerSpeedMmS * 60
+
+  it('prints the whole first coupon layer at the profile first layer speed', () => {
+    const report = generateIsGcodeWithReport(profile, filament, spec)
+    const chunks = layerChunks(report.gcode.split('\n'))
+    const feedsOf = (chunk: string[]) =>
+      chunk
+        .map((l) => l.match(/^G1 X.*E[\d.]+ F(\d+)$/))
+        .filter((m): m is RegExpMatchArray => m !== null)
+        .map((m) => Number(m[1]))
+    // Layer 1: every printing move at the first layer feed (pedestal lines included).
+    expect(feedsOf(chunks[0]).every((f) => f === firstLayerFeed)).toBe(true)
+    // The measured layer keeps its normal speeds.
+    expect(feedsOf(chunks[chunks.length - 1]).some((f) => f > firstLayerFeed)).toBe(true)
+  })
+
+  it('caps only the base first layer when a contrast base is printed', () => {
+    const report = generateIsGcodeWithReport(profile, filament, { ...spec, contrastBase: true })
+    const chunks = layerChunks(report.gcode.split('\n'))
+    const feedsOf = (chunk: string[]) =>
+      chunk
+        .map((l) => l.match(/^G1 X.*E[\d.]+ F(\d+)$/))
+        .filter((m): m is RegExpMatchArray => m !== null)
+        .map((m) => Number(m[1]))
+    expect(feedsOf(chunks[0]).every((f) => f === firstLayerFeed)).toBe(true)
+    // The second base layer runs at the normal raster speed again.
+    expect(feedsOf(chunks[1]).some((f) => f > firstLayerFeed)).toBe(true)
+  })
+})

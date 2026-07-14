@@ -49,18 +49,20 @@ export async function analyzePaScan(
   )
 }
 
-// Analyse one extrusion-multiplier coupon scan: align the fiducials, measure the comb gaps, and
-// render the block overlay, all inside the worker.
-export async function analyzeEmScan(
-  bytes: Uint8Array,
+// Analyse one or two extrusion-multiplier coupon scans in one worker call: align the fiducials,
+// measure the comb gaps (pooling the width samples over the scans), and render one block overlay
+// per scan. The optional second scan is the same coupon rotated 180 degrees on the glass, which
+// cancels one-sided scanner-lamp shading in the pooled estimate.
+export async function analyzeEmScans(
+  bytesList: Uint8Array[],
   spec: EmTestSpec,
   scanPxPerMm: ScaleReference,
   expectedDpi: number | null,
   onProgress?: EmProgressCallback,
 ): Promise<EmProcessing> {
-  const b = bytes.slice().buffer
-  return getApi().analyzeEmScan(
-    Comlink.transfer(b, [b]),
+  const buffers = bytesList.map((bytes) => bytes.slice().buffer)
+  return getApi().analyzeEmScans(
+    Comlink.transfer(buffers, buffers),
     spec,
     scanPxPerMm,
     expectedDpi,

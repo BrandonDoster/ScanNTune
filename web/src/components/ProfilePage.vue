@@ -170,6 +170,13 @@ function save(): void {
               :min="10"
             />
             <NumericField
+              v-model="form.firstLayerSpeedMmS.value"
+              label="First layer speed (mm/s)"
+              :step="5"
+              :min="5"
+              hint="Everything on the first layer prints at most this fast, for bed adhesion."
+            />
+            <NumericField
               v-model="form.printAccelMmS2.value"
               label="Acceleration (mm/s2)"
               :step="500"
@@ -296,6 +303,41 @@ function save(): void {
               :min="0"
             />
           </div>
+          <div class="group-caption">Flow</div>
+          <div class="row">
+            <NumericField
+              v-model="form.currentFilament.value.extrusionMultiplier"
+              label="Extrusion multiplier / flow ratio"
+              :step="0.01"
+              :min="0.5"
+              :precision="2"
+              hint="Generated test prints extrude at this factor. The extrusion multiplier test itself always prints at 1.0."
+            />
+            <NumericField
+              v-model="form.currentFilament.value.maxVolumetricFlowMm3S"
+              label="Max volumetric flow (mm³/s)"
+              :step="1"
+              :min="0"
+              hint="The high-flow warnings use this limit. Leave 0 when the limit is not known."
+            />
+          </div>
+          <div class="group-caption">G-code</div>
+          <v-textarea
+            v-model="form.currentFilament.value.startGcode"
+            label="Filament start G-code"
+            rows="3"
+            density="comfortable"
+            class="mono mb-2"
+            hint="Runs right after the printer start G-code and supports the same slicer variables. Leave empty when the filament needs no extra commands."
+          />
+          <v-textarea
+            v-model="form.currentFilament.value.endGcode"
+            label="Filament end G-code"
+            rows="3"
+            density="comfortable"
+            class="mono"
+            hint="Runs right before the printer end G-code and supports the same slicer variables. Leave empty when the filament needs no extra commands."
+          />
         </div>
       </v-tabs-window-item>
     </v-tabs-window>

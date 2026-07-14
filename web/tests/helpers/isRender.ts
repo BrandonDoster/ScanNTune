@@ -168,8 +168,13 @@ function couponCoverage(
   const halfW = o.lineWidthMm / 2
   for (const rl of lines) {
     if (coverage >= 1) break
-    // Straight legs: the run-up in the window (the prime and tail sit under the bands).
+    // Straight legs: the run-up in the window (the prime and tail sit under the bands),
+    // plus the resonant run-up teeth when the spec sweeps.
     coverage = Math.max(coverage, segmentCoverage(x, y, rl.line.runUp, halfW, sigma))
+    for (const tooth of rl.line.teeth) {
+      if (coverage >= 1) break
+      coverage = Math.max(coverage, segmentCoverage(x, y, tooth, halfW, sigma))
+    }
     // The measured segment with the ringing lateral path.
     const m = rl.line.measured
     if (rl.horizontal) {

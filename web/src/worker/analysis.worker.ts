@@ -17,7 +17,7 @@ import { analyzePaCoupon } from '../engine/pa/paAnalyzer'
 import { renderPaOverlayMat } from '../engine/pa/paOverlayRenderer'
 import type { PaAlignment } from '../engine/pa/fiducialAligner'
 import type { PaProgressCallback, PaResult, PaTestSpec } from '../engine/pa/types'
-import { analyzeEmCoupon } from '../engine/em/emAnalyzer'
+import { analyzeEmCoupons } from '../engine/em/emAnalyzer'
 import type { EmResult } from '../engine/em/emAnalyzer'
 import { renderEmOverlayMat } from '../engine/em/emOverlayRenderer'
 import type { EmAlignment } from '../engine/em/fiducialAligner'
@@ -187,17 +187,19 @@ async function renderPaOverlayBitmap(
 }
 
 /**
- * The outcome of analysing one extrusion-multiplier coupon scan: the EmResult plus an overlay
- * tinting each measured test block by its agreement with the overall estimate. When the coupon
- * could not be aligned the overlay is the plain decoded scan, so the UI always has an image to show.
+ * The outcome of analysing one or two extrusion-multiplier coupon scans: the pooled EmResult plus
+ * one overlay per scan, tinting each measured test block by its agreement with the overall
+ * estimate. A scan whose coupon could not be aligned gets the plain decoded scan instead, so the
+ * UI always has an image to show; a scan the engine never reached (after an earlier failure) is
+ * shown plain as well.
  */
 export interface EmProcessing {
   result: EmResult
-  overlay: ImageBitmap
+  overlays: ImageBitmap[]
 }
 
-async function analyzeEmScan(
-  bytes: ArrayBuffer,
+async function analyzeEmScans(
+  bytesList: ArrayBuffer[],
   spec: EmTestSpec,
   scanPxPerMm: ScaleReference,
   expectedDpi: number | null,
@@ -206,18 +208,29 @@ async function analyzeEmScan(
   const { report, finish } = stageReporter('EM', onProgress)
   const cv = await loadOpenCv()
   report({ stage: 'decode' })
-  const img = await decodeToBgr(cv, bytes)
+  const imgs: Mat[] = []
   try {
-    const holder: { alignment?: EmAlignment } = {}
-    const result = analyzeEmCoupon(cv, img, spec, scanPxPerMm, expectedDpi, holder, report)
+    for (const bytes of bytesList) imgs.push(await decodeToBgr(cv, bytes))
+    const holders: { alignment?: EmAlignment }[] = imgs.map(() => ({}))
+    const result = analyzeEmCoupons(cv, imgs, spec, scanPxPerMm, expectedDpi, holders, report)
     report({ stage: 'render' })
-    const overlay = holder.alignment?.success
-      ? await renderEmOverlayBitmap(cv, img, holder.alignment, spec, result)
-      : await matToImageBitmap(cv, img)
+    const overlays: ImageBitmap[] = []
+    try {
+      for (let i = 0; i < imgs.length; i++) {
+        overlays.push(
+          holders[i].alignment?.success
+            ? await renderEmOverlayBitmap(cv, imgs[i], holders[i].alignment!, spec, result)
+            : await matToImageBitmap(cv, imgs[i]),
+        )
+      }
+    } catch (e) {
+      for (const bitmap of overlays) bitmap.close() // don't orphan an already rendered overlay
+      throw e
+    }
     finish()
-    return Comlink.transfer({ result, overlay }, [overlay])
+    return Comlink.transfer({ result, overlays }, overlays)
   } finally {
-    img.delete()
+    for (const img of imgs) img.delete()
   }
 }
 
@@ -322,7 +335,7 @@ async function measureCardScan(
   }
 }
 
-const api = { analyzeScan, analyzePaScan, analyzeEmScan, analyzeIsScans, measureCardScan }
+const api = { analyzeScan, analyzePaScan, analyzeEmScans, analyzeIsScans, measureCardScan }
 export type AnalysisApi = typeof api
 
 Comlink.expose(api)

@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, shallowRef } from 'vue'
 import { useApp } from '../stores/useApp'
 import { useCalibration } from '../stores/useCalibration'
 import { usePrinterProfiles } from '../stores/usePrinterProfiles'
+import { useEmSettings } from '../stores/useEmSettings'
+import { useFlowSettingsForm } from '../composables/useFlowSettingsForm'
+import type { PartColors, ScanPlace } from '../model/scanPlan'
 import { readBytes } from '../util/preview'
 import { scaleReferenceAtDpi } from '../engine/scannerCalibration'
 import { resolutionRowValue } from '../util/scanResolution'
-import { analyzeEmScan } from '../workerClient'
+import { analyzeEmScans } from '../workerClient'
 import type { EmProcessing } from '../workerClient'
 import { emCorrection } from '../engine/em/emCorrectionFormatter'
-import { generateEmGcodeWithReport, HIGH_FLOW_WARNING_THRESHOLD_MM3_S } from '../engine/em/gcodeGenerator'
+import { generateEmGcodeWithReport } from '../engine/em/gcodeGenerator'
 import {
   accelRampMm,
   defaultEmTestSpec,
@@ -18,7 +21,8 @@ import {
   type EmProgress,
   type EmTestSpec,
 } from '../engine/em/types'
-import { fitsA4 } from '../engine/gcode/emitter'
+import { fitsA4, flowWarningLimitMm3S } from '../engine/gcode/emitter'
+import { defaultFilamentProfile } from '../engine/gcode/profileTypes'
 import { defaultPrinterProfile } from '../engine/pa/types'
 import PrinterProfileCard from './PrinterProfileCard.vue'
 import EmScanOrientationDiagram from './EmScanOrientationDiagram.vue'
@@ -40,24 +44,43 @@ const calibrationLine = computed(() =>
     : 'Not calibrated',
 )
 
-// Spec defaults follow the selected printer; the fields start prefilled with them and
-// refill whenever another printer is selected (edits between switches are one-shot).
+// Spec defaults follow the selected printer. The fields are persisted per printer profile;
+// with nothing stored for the selected profile they fall back to the spec defaults, and a
+// profile switch re-applies that profile's stored settings or defaults.
 const specDefaults = computed(() => defaultEmTestSpec(store.selected ?? defaultPrinterProfile()))
-const pitchMin = ref<number | null>(specDefaults.value.pitchMinMm)
-const pitchMax = ref<number | null>(specDefaults.value.pitchMaxMm)
-const blockCount = ref<number | null>(specDefaults.value.blockCount)
-const linesPerBlock = ref<number | null>(specDefaults.value.linesPerBlock)
-const printSpeed = ref<number | null>(specDefaults.value.printSpeedMmS)
+const emSettings = useEmSettings()
+const {
+  form: settingsForm,
+  hasStored: settingsStored,
+  reset: resetSettings,
+} = useFlowSettingsForm(
+  emSettings,
+  () => ({
+    pitchMinMm: specDefaults.value.pitchMinMm,
+    pitchMaxMm: specDefaults.value.pitchMaxMm,
+    blockCount: specDefaults.value.blockCount,
+    linesPerBlock: specDefaults.value.linesPerBlock,
+    printSpeedMmS: specDefaults.value.printSpeedMmS,
+    scanPlace: 'part' as ScanPlace,
+    partColors: 'single' as PartColors,
+  }),
+  () => store.selectedId,
+)
 // The placement and contrasting-base spec fields are driven by two scanning choices:
 // where the scan happens (removed part vs the whole build plate on the scanner, the
 // latter for filaments that will not come off, e.g. TPU or PETG), and, for a removed
 // part only, whether a contrasting base is printed under the coupon. Scanning with the
 // plate is always a single-color print at the bed's front edge so the plate edge can
 // lie on the glass with the rest overhanging.
-type ScanPlace = 'part' | 'plate'
-type PartColors = 'single' | 'base'
-const scanPlace = ref<ScanPlace>('part')
-const partColors = ref<PartColors>('single')
+const {
+  pitchMinMm: pitchMin,
+  pitchMaxMm: pitchMax,
+  blockCount,
+  linesPerBlock,
+  printSpeedMmS: printSpeed,
+  scanPlace,
+  partColors,
+} = settingsForm
 const scanPlaceItems = [
   { title: 'Scan the removed part', value: 'part' },
   { title: 'Scan with the build plate', value: 'plate' },
@@ -85,19 +108,6 @@ const scanPlanNote = computed(() => {
         'contrast with the backing, either the scanner lid or a sheet of paper.'
 })
 
-watch(
-  () => store.selected?.id,
-  () => {
-    pitchMin.value = specDefaults.value.pitchMinMm
-    pitchMax.value = specDefaults.value.pitchMaxMm
-    blockCount.value = specDefaults.value.blockCount
-    linesPerBlock.value = specDefaults.value.linesPerBlock
-    printSpeed.value = specDefaults.value.printSpeedMmS
-    scanPlace.value = 'part'
-    partColors.value = 'single'
-  },
-)
-
 const spec = computed<EmTestSpec>(() => ({
   ...specDefaults.value,
   pitchMinMm: pitchMin.value ?? specDefaults.value.pitchMinMm,
@@ -116,9 +126,10 @@ const footprintText = computed(
 const exceedsA4 = computed(() => !fitsA4(geometry.value.couponWidthMm, geometry.value.couponHeightMm))
 const layerHeight = computed(() => (store.selected ?? defaultPrinterProfile()).layerHeightMm)
 const flowText = computed(() => `${volumetricFlowMm3S(spec.value, layerHeight.value).toFixed(1)} mm^3/s`)
-const highFlow = computed(
-  () => volumetricFlowMm3S(spec.value, layerHeight.value) > HIGH_FLOW_WARNING_THRESHOLD_MM3_S,
-)
+const highFlow = computed(() => {
+  const f = store.selectedFilament ?? defaultFilamentProfile()
+  return volumetricFlowMm3S(spec.value, layerHeight.value) > flowWarningLimitMm3S(f)
+})
 const rampWarning = computed(() => {
   const p = store.selected
   if (!p) return false
@@ -164,8 +175,15 @@ function generate(): void {
   URL.revokeObjectURL(url)
 }
 
-// Scan card state. While an analysis runs, the upload and flow controls are locked.
+// Scan step state: one scan is required, a second scan of the same coupon rotated 180 degrees
+// on the glass is optional (it cancels one-sided scanner-lamp shading in the pooled estimate).
+// While an analysis runs, the upload and flow controls are locked.
+const scanFiles = ref<File[]>([])
+const scanPickHint = ref('')
 const analyzing = ref(false)
+// True once "Analyze" was clicked; the per-file delete buttons give way to the "Start over"
+// reset until the step is cleared again.
+const analysisStarted = ref(false)
 const progressText = ref('')
 const scanError = ref('')
 // The user's CURRENT slicer flow, entered either as a factor (PrusaSlicer extrusion
@@ -197,33 +215,72 @@ const processing = shallowRef<EmProcessing | null>(null)
 const analyzedSpec = shallowRef<EmTestSpec | null>(null)
 
 function resetProcessing(): void {
-  processing.value?.overlay.close()
+  zoomed.value = null
+  processing.value?.overlays.forEach((bitmap) => bitmap.close())
   processing.value = null
   analyzedSpec.value = null
 }
 
 onBeforeUnmount(resetProcessing)
 
-async function onPick(e: Event): Promise<void> {
+// The overlay a scan card was clicked on, shown full size in a dialog; null when closed.
+const zoomed = shallowRef<ImageBitmap | null>(null)
+
+function onPickScans(e: Event): void {
   const input = e.target as HTMLInputElement
-  const file = input.files?.[0]
+  const picked = Array.from(input.files ?? [])
   // Clear the input so picking the same file again still fires change.
   input.value = ''
   // A disabled input still receives drops in some browsers; the calibration is a hard
   // requirement and a running analysis must not be doubled up.
-  if (!file || analyzing.value || !calibration.calibration) return
-  const usedSpec = spec.value
+  if (picked.length === 0 || analyzing.value || analysisStarted.value || !calibration.calibration)
+    return
+  scanPickHint.value = ''
+  const room = 2 - scanFiles.value.length
+  if (picked.length > room) {
+    scanPickHint.value =
+      'The analysis uses at most two scan images. The files beyond the first two were not added.'
+  }
+  scanFiles.value = [...scanFiles.value, ...picked.slice(0, Math.max(0, room))]
+}
+
+function removeScan(index: number): void {
+  if (analyzing.value || analysisStarted.value) return
+  scanFiles.value = scanFiles.value.filter((_, i) => i !== index)
+  scanPickHint.value = ''
+}
+
+// Clears the whole scan step (files, result, overlays, and errors) so new scans can be picked
+// and analyzed from a clean slate.
+function startOver(): void {
+  if (analyzing.value) return
+  resetProcessing()
+  scanFiles.value = []
+  scanPickHint.value = ''
+  scanError.value = ''
+  analysisStarted.value = false
+}
+
+const canAnalyze = computed(
+  () => scanFiles.value.length >= 1 && isCalibrated.value && !analyzing.value,
+)
+
+async function analyze(): Promise<void> {
+  const files = scanFiles.value
   const cal = calibration.calibration
+  if (files.length === 0 || analyzing.value || !cal) return
+  const usedSpec = spec.value
   analyzing.value = true
+  analysisStarted.value = true
   progressText.value = 'Reading the scan'
   scanError.value = ''
   resetProcessing()
   try {
-    const bytes = await readBytes(file)
+    const bytesList = await Promise.all(files.map((file) => readBytes(file)))
     // The calibration's scale error holds across resolutions; the scan is expected at the
     // calibration DPI, so the calibration is priced at exactly that resolution.
     const scanPxPerMm = scaleReferenceAtDpi(cal, cal.dpi)
-    processing.value = await analyzeEmScan(bytes, usedSpec, scanPxPerMm, cal.dpi, onProgress)
+    processing.value = await analyzeEmScans(bytesList, usedSpec, scanPxPerMm, cal.dpi, onProgress)
     analyzedSpec.value = usedSpec
   } catch (err) {
     console.error('EM scan analysis failed', err)
@@ -255,7 +312,15 @@ const newSlicerFlow = computed(() => {
   const isPercent = entered > 5
   const factor = isPercent ? entered / 100 : entered
   const corrected = factor * (s.nominalLineWidthMm / r.wMm)
-  return isPercent ? `${(corrected * 100).toFixed(1)}%` : corrected.toFixed(3)
+  // The one-sided shading residual expressed as an uncertainty on the corrected flow,
+  // presented the same way the input shaper states its frequency confidence interval.
+  const uncertainty = r.flankAsymmetryMm !== null ? (Math.abs(r.flankAsymmetryMm) / r.wMm) * corrected : null
+  if (isPercent) {
+    const ci = uncertainty !== null ? ` ± ${(uncertainty * 100).toFixed(1)}` : ''
+    return `${(corrected * 100).toFixed(1)}${ci}%`
+  }
+  const ci = uncertainty !== null ? ` ± ${uncertainty.toFixed(3)}` : ''
+  return `${corrected.toFixed(3)}${ci}`
 })
 const pitchScaleOff = computed(() => {
   const p = result.value?.pitchScale
@@ -265,6 +330,78 @@ const pitchScaleOff = computed(() => {
 const resolutionText = computed(() => {
   const px = result.value?.measuredPxPerMm
   return px != null && px > 0 ? resolutionRowValue(px) : null
+})
+
+// The shadow alert only fires on a single-scan result, where a second scan can fix it; for a
+// combined pair the surviving residual is already carried as the flow tile's uncertainty.
+const showShadowWarning = computed(() => {
+  const r = result.value
+  return !!r?.shadowWarning && r.scans.length <= 1
+})
+const shadowWarningText =
+  'The scanner lamp shades one side of each gap in this scan, which biases the measured line width. Add a second scan of the same coupon rotated 180 degrees on the glass; the two orientations carry opposite biases that cancel in the combined result.'
+
+// Per-scan card facts, shown when two scans were analyzed: each scan's own orientation,
+// resolution, and block tally from the result's per-scan diagnostics. A scan the engine never
+// reached (after an earlier scan failed) has no diagnostics entry and reads as not analyzed.
+type CardSev = 'ok' | 'warn' | 'mute'
+const CARD_ICON: Record<CardSev, string> = {
+  ok: 'mdi-check-circle',
+  warn: 'mdi-alert-circle',
+  mute: 'mdi-minus-circle-outline',
+}
+const CARD_COLOR: Record<CardSev, string> = { ok: 'success', warn: 'warning', mute: 'grey' }
+interface ScanCardRow {
+  label: string
+  value: string
+  sev: CardSev
+}
+interface ScanCard {
+  index: number
+  title: string
+  fileName: string
+  bitmap: ImageBitmap
+  rows: ScanCardRow[]
+}
+const scanCards = computed<ScanCard[]>(() => {
+  const p = processing.value
+  const r = p?.result
+  const s = analyzedSpec.value
+  if (!p || !r || !s || p.overlays.length < 2) return []
+  return p.overlays.map((bitmap, i) => {
+    const info = r.scans[i] ?? null
+    const aligned = info !== null && info.measuredPxPerMm !== null
+    const measured = info !== null && info.blocksMeasured > 0
+    const rows: ScanCardRow[] = [
+      {
+        label: 'Flipped',
+        value: aligned ? (info!.flipped ? 'yes' : 'no') : 'Not resolved',
+        sev: aligned ? 'ok' : info ? 'warn' : 'mute',
+      },
+      {
+        label: 'Rotation',
+        value: aligned ? `${info!.rotationQuarterTurns * 90} degrees` : 'Not resolved',
+        sev: aligned ? 'ok' : info ? 'warn' : 'mute',
+      },
+      {
+        label: 'Resolution',
+        value: resolutionRowValue(info?.measuredPxPerMm ?? undefined),
+        sev: aligned ? 'ok' : 'mute',
+      },
+      {
+        label: 'Blocks',
+        value: measured ? `${info!.blocksMeasured} of ${2 * s.blockCount}` : 'Not measured',
+        sev: measured ? 'ok' : 'mute',
+      },
+    ]
+    return {
+      index: i,
+      title: `Scan ${i + 1}`,
+      fileName: scanFiles.value[i]?.name ?? '',
+      bitmap,
+      rows,
+    }
+  })
 })
 </script>
 
@@ -313,6 +450,19 @@ const resolutionText = computed(() => {
     <section class="step mb-3">
       <div class="step-head mb-2">
         <span class="num">3</span><span class="step-title">Test settings</span>
+        <v-spacer />
+        <v-btn
+          v-if="settingsStored"
+          variant="tonal"
+          color="warning"
+          size="small"
+          prepend-icon="mdi-restore"
+          :disabled="analyzing"
+          data-testid="em-settings-reset"
+          @click="resetSettings"
+        >
+          Reset to defaults
+        </v-btn>
       </div>
       <div class="field-group">
         <span class="group-label">Pitch sweep</span>
@@ -435,9 +585,10 @@ const resolutionText = computed(() => {
       </div>
       <p class="tip mb-3">
         Scan the printed coupon top face down at the calibrated resolution. Place it with the
-        test lines parallel to the direction the scanner lamp travels; rotating the coupon
-        180 degrees is fine, but 90 degrees lets the lamp shadow the narrow gaps and degrades
-        the measurement. Then drop the image in.
+        test lines parallel to the direction the scanner lamp travels; a quarter turn lets the
+        lamp shadow the narrow gaps and degrades the measurement. A second scan of the same
+        coupon rotated 180 degrees on the glass is optional; it cancels the one-sided shading
+        the lamp can add.
       </p>
       <div class="diagram-wrap mb-3">
         <EmScanOrientationDiagram />
@@ -458,26 +609,78 @@ const resolutionText = computed(() => {
         ratio (0.96) or as a percentage (96). The result shows the corrected value in the
         same format.
       </p>
-      <label class="dropzone" :class="{ 'dropzone-disabled': !isCalibrated }">
-        <input
-          type="file"
-          accept="image/*"
-          class="file-input"
-          :disabled="!isCalibrated || analyzing"
-          data-testid="em-scan-input"
-          @change="onPick"
-        />
-        <v-icon size="28" :color="isCalibrated ? 'primary' : undefined">mdi-image-plus</v-icon>
-        <span class="dz-label">Choose the scan image</span>
-        <span class="dz-sub">or drop it here</span>
-      </label>
+      <div class="scan-inputs mb-3">
+        <label class="dropzone" :class="{ 'dropzone-disabled': !isCalibrated || analysisStarted }">
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            class="file-input"
+            :disabled="!isCalibrated || analyzing || analysisStarted"
+            data-testid="em-scan-input"
+            @change="onPickScans"
+          />
+          <v-icon
+            size="28"
+            :color="scanFiles.length > 0 ? 'success' : isCalibrated ? 'primary' : undefined"
+          >
+            {{ scanFiles.length > 0 ? 'mdi-check-circle' : 'mdi-image-plus' }}
+          </v-icon>
+          <span class="dz-label">Scan images</span>
+          <span class="dz-sub">One scan is required; a second one rotated 180 degrees is optional.</span>
+        </label>
+        <div v-if="scanFiles.length > 0 && scanCards.length === 0" class="scan-files">
+          <div
+            v-for="(file, i) in scanFiles"
+            :key="`${file.name}-${i}`"
+            class="scan-file"
+            :data-testid="`em-scan-file-${i}`"
+          >
+            <v-icon size="16" color="success">mdi-image-check</v-icon>
+            <span class="scan-file-name">{{ file.name }}</span>
+            <v-btn
+              v-if="!analysisStarted"
+              icon="mdi-close"
+              size="x-small"
+              variant="text"
+              :aria-label="`Remove ${file.name}`"
+              :data-testid="`em-scan-remove-${i}`"
+              @click="removeScan(i)"
+            />
+          </div>
+        </div>
+        <p v-if="scanPickHint" class="tip mt-0 mb-0" data-testid="em-scan-pick-hint">
+          {{ scanPickHint }}
+        </p>
+      </div>
       <p v-if="!isCalibrated" class="tip" data-testid="em-scan-needs-calibration">
         Calibrate the scanner first (step 1); the analysis needs the scanner's true
         resolution.
       </p>
-      <div v-if="analyzing" class="d-flex align-center ga-2 mt-3">
-        <v-progress-circular indeterminate size="20" width="2" color="primary" />
-        <span class="tip mt-0" data-testid="em-progress">{{ progressText || 'Analyzing the scan...' }}</span>
+      <div class="gen-row">
+        <v-btn
+          color="primary"
+          prepend-icon="mdi-magnify-scan"
+          :disabled="!canAnalyze"
+          data-testid="em-analyze"
+          @click="analyze"
+        >
+          Analyze
+        </v-btn>
+        <v-btn
+          v-if="analysisStarted"
+          variant="tonal"
+          prepend-icon="mdi-restart"
+          :disabled="analyzing"
+          data-testid="em-start-over"
+          @click="startOver"
+        >
+          Start over
+        </v-btn>
+        <div v-if="analyzing" class="d-flex align-center ga-2">
+          <v-progress-circular indeterminate size="20" width="2" color="primary" />
+          <span class="tip mt-0" data-testid="em-progress">{{ progressText || 'Analyzing the scan...' }}</span>
+        </div>
       </div>
       <v-alert
         v-if="scanError"
@@ -487,6 +690,46 @@ const resolutionText = computed(() => {
         :text="scanError"
         data-testid="em-scan-error"
       />
+
+      <div v-if="scanCards.length > 0" class="scan-cards mt-4" data-testid="em-scan-cards">
+        <div v-for="card in scanCards" :key="card.index" class="island" :data-testid="`em-scan-card-${card.index}`">
+          <button
+            type="button"
+            class="preview"
+            :aria-label="`Show the ${card.title} overlay full size`"
+            @click="zoomed = card.bitmap"
+          >
+            <OverlayCanvas :bitmap="card.bitmap" />
+          </button>
+          <div class="body">
+            <div class="card-title">{{ card.title }}</div>
+            <div
+              v-if="card.fileName"
+              class="card-subtitle"
+              :data-testid="`em-scan-card-file-${card.index}`"
+            >
+              {{ card.fileName }}
+            </div>
+            <div class="status">
+              <template v-for="r in card.rows" :key="r.label">
+                <v-icon :color="CARD_COLOR[r.sev]" size="16">{{ CARD_ICON[r.sev] }}</v-icon>
+                <span class="slabel">{{ r.label }}</span>
+                <span class="sval" :class="r.sev">{{ r.value }}</span>
+              </template>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <v-dialog
+        :model-value="zoomed !== null"
+        max-width="1100"
+        @update:model-value="zoomed = null"
+      >
+        <v-card class="pa-2">
+          <OverlayCanvas v-if="zoomed" :bitmap="zoomed" />
+        </v-card>
+      </v-dialog>
     </section>
 
     <!-- 6. Result -->
@@ -510,7 +753,7 @@ const resolutionText = computed(() => {
           />
           <MetricTile
             label="Blocks measured"
-            :value="`${result.blocksMeasured} of ${2 * analyzedSpec!.blockCount}`"
+            :value="`${result.blocksMeasured} of ${2 * analyzedSpec!.blockCount * Math.max(result.scans.length, 1)}`"
             testid="em-blocks"
           />
         </div>
@@ -551,12 +794,12 @@ const resolutionText = computed(() => {
           </v-chip>
         </div>
         <v-alert
-          v-if="result.shadowWarning"
+          v-if="showShadowWarning"
           type="warning"
           variant="tonal"
           class="mb-3"
           data-testid="em-shadow-warning"
-          text="Rotate the coupon 90 degrees on the scanner glass and rescan. The scanner lamp casts a one-sided shadow across the lines in this orientation, which inflates the measured bead width."
+          :text="shadowWarningText"
         />
         <template v-if="correction">
           <CodeBlock :code="correction.command" data-testid="em-code" />
@@ -577,8 +820,8 @@ const resolutionText = computed(() => {
       />
 
       <OverlayCanvas
-        v-if="processing?.overlay"
-        :bitmap="processing.overlay"
+        v-if="processing && processing.overlays.length === 1"
+        :bitmap="processing.overlays[0]"
         label="Detected blocks and measurements"
         class="mt-3"
       />
@@ -715,5 +958,109 @@ const resolutionText = computed(() => {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
   gap: 8px;
+}
+.scan-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.scan-files {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.scan-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px 2px 8px;
+  border-radius: 8px;
+  background: rgb(var(--v-theme-surface-bright));
+}
+.scan-file-name {
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+  flex: 1;
+}
+.scan-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.island {
+  display: flex;
+  background: rgb(var(--v-theme-surface-bright));
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.09);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.preview {
+  flex: 0 0 200px;
+  background: rgb(var(--v-theme-background));
+  border: none;
+  border-right: 1px solid rgba(var(--v-theme-on-surface), 0.09);
+  min-height: 150px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: zoom-in;
+}
+.body {
+  flex: 1 1 320px;
+  padding: 14px 16px;
+  min-width: 0;
+}
+.card-title {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+.card-subtitle {
+  font-size: 12px;
+  color: rgba(var(--v-theme-on-surface), 0.62);
+  overflow-wrap: anywhere;
+  margin-top: -8px;
+  margin-bottom: 10px;
+}
+.status {
+  display: grid;
+  grid-template-columns: 18px 86px 1fr;
+  row-gap: 9px;
+  column-gap: 8px;
+  align-items: center;
+}
+.slabel {
+  font-size: 12px;
+  color: rgba(var(--v-theme-on-surface), 0.62);
+}
+.sval {
+  font-size: 12.75px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.sval.ok {
+  color: rgb(var(--v-theme-success));
+}
+.sval.warn {
+  color: rgb(var(--v-theme-warning));
+}
+.sval.mute {
+  color: rgba(var(--v-theme-on-surface), 0.42);
+  font-weight: 500;
+}
+@media (max-width: 560px) {
+  .island {
+    flex-direction: column;
+  }
+  .preview {
+    flex-basis: auto;
+    border-right: none;
+    border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.09);
+    height: 220px;
+  }
+  .body {
+    flex: 0 0 auto;
+  }
 }
 </style>

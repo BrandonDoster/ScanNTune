@@ -56,10 +56,13 @@ export function isCouponMiniature(cx: number, cy: number, sidePx: number): IsCou
       height: fidPx,
     })),
     linePoints: g.groups.flatMap((group) =>
-      group.lines.map(
-        (l) =>
-          `${X(l.runUp.x0)},${Y(l.runUp.y0)} ${X(l.runUp.x1)},${Y(l.runUp.y1)} ` +
+      group.lines.map((l) =>
+        [
+          `${X(l.runUp.x0)},${Y(l.runUp.y0)}`,
+          `${X(l.runUp.x1)},${Y(l.runUp.y1)}`,
+          ...l.teeth.map((t) => `${X(t.x1)},${Y(t.y1)}`),
           `${X(l.measured.x1)},${Y(l.measured.y1)}`,
+        ].join(' '),
       ),
     ),
     pitchPx: spec.linePitchMm * s,

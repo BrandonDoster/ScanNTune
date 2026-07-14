@@ -2,11 +2,13 @@ import type { PrinterProfile } from '../gcode/profileTypes'
 import type { CouponPlacement } from '../gcode/couponShell'
 import {
   accelRampMm,
+  effectiveRunUpMm,
   fieldExtentMm,
   frameBandMm,
   INNER_MARGIN_MM,
   isCouponGeometry,
   maxPackedRampMm,
+  SWEEP_TOOTH_CLEARANCE_MM,
 } from './couponGeometry'
 
 export { accelRampMm }
@@ -43,6 +45,24 @@ export interface IsTestSpec {
   cornerSpeedMmS: number
   /** How far each measured segment extends into the frame band at both ends. */
   weldMm: number
+  /**
+   * Resonant run-up (frequency sweep): replaces the straight run-up leg with a comb of
+   * 90 degree teeth whose corner rate sweeps `sweepFromHz` to `sweepToHz` over
+   * `sweepCycles` forcing cycles. Teeth arriving at the machine's resonance period add
+   * in phase (forced resonance), so the ring launched into the measured segment builds
+   * up to roughly the resonance's Q factor times a single corner's amplitude. Meant for
+   * small stiff printers whose single-corner ring is too faint to scan; the coupon grows
+   * by the sweep's leg length.
+   */
+  sweep: boolean
+  /** Lowest excitation frequency of the sweep, Hz. */
+  sweepFromHz: number
+  /** Highest excitation frequency of the sweep, Hz; the sweep ends here, next to the
+   *  launch corner, so high resonances excite last and decay least. */
+  sweepToHz: number
+  /** Number of forcing cycles across the band; even, so the teeth pair back to the leg
+   *  centreline. More cycles dwell longer near the resonance but lengthen the leg. */
+  sweepCycles: number
   /** Where the coupon sits on the bed: centered, or pushed to the front/back edge. */
   placement: CouponPlacement
   /**
@@ -81,6 +101,8 @@ export const MIN_MEASURED_LINE_MM = 20
 export const DEFAULT_CORNER_SPEED_MM_S = 100
 /** Below this corner speed the excitation is too weak to leave a readable trace. */
 export const MIN_CORNER_SPEED_MM_S = 20
+export const MIN_SWEEP_CYCLES = 4
+export const MAX_SWEEP_CYCLES = 40
 /** Below this acceleration the ringing trace is often too weak to measure. */
 const LOW_ACCEL_MM_S2 = 4000
 /** Default acceleration floor: the same threshold, so a default spec never starts in the
@@ -111,6 +133,13 @@ export function defaultIsTestSpec(profile: PrinterProfile): IsTestSpec {
     accelMmS2: Math.max(profile.printAccelMmS2, MIN_ACCEL_MM_S2),
     cornerSpeedMmS: DEFAULT_CORNER_SPEED_MM_S,
     weldMm: 1,
+    // Off by default: on printers that ring visibly from a single corner the sweep only
+    // costs coupon area. The band defaults span the measurable resonance range above the
+    // frequencies a plain corner already excites well.
+    sweep: false,
+    sweepFromHz: 35,
+    sweepToHz: F_MAX_HZ,
+    sweepCycles: 16,
     placement: 'center',
     contrastBase: false,
   }
@@ -147,6 +176,31 @@ export function validateIsSpec(spec: IsTestSpec): void {
   }
   if (spec.weldMm <= 0) throw new Error('Weld length must be positive')
   if (spec.axes.length === 0) throw new Error('At least one axis must be selected')
+  if (spec.sweep) {
+    if (spec.sweepFromHz < F_MIN_HZ || spec.sweepToHz > F_MAX_HZ) {
+      throw new Error(
+        `The sweep band must lie inside the measurable ${F_MIN_HZ} to ${F_MAX_HZ} Hz range`,
+      )
+    }
+    if (spec.sweepFromHz >= spec.sweepToHz) {
+      throw new Error('The sweep start frequency must be below the end frequency')
+    }
+    if (
+      spec.sweepCycles < MIN_SWEEP_CYCLES ||
+      spec.sweepCycles > MAX_SWEEP_CYCLES ||
+      spec.sweepCycles % 2 !== 0
+    ) {
+      throw new Error(
+        `Sweep cycles must be an even number between ${MIN_SWEEP_CYCLES} and ${MAX_SWEEP_CYCLES}`,
+      )
+    }
+    if (spec.linePitchMm <= SWEEP_TOOTH_CLEARANCE_MM) {
+      throw new Error(
+        `The resonant run-up needs a line pitch above ${SWEEP_TOOTH_CLEARANCE_MM} mm so the ` +
+          'sweep teeth keep clear of the neighbouring lines',
+      )
+    }
+  }
 }
 
 /**
@@ -165,9 +219,13 @@ export function rampWarnings(spec: IsTestSpec): string[] {
         "printer's true maximum acceleration.",
     )
   }
-  // The run-up must reach its cruise speed before the corner: v^2 / 2a from rest.
+  // The run-up must reach its cruise speed before the corner: v^2 / 2a from rest. With
+  // the sweep the ramp must finish before the FIRST tooth instead, and the straight
+  // stretch there (the through-band leg plus the in-window stub) always hosts it by
+  // construction: the band is sized for the tier's deceleration ramp plus margin, which
+  // never falls below the corner speed's ramp, so no warning can arise.
   const rampUpMm = accelRampMm(spec.cornerSpeedMmS, spec.accelMmS2)
-  if (rampUpMm > spec.runUpMm) {
+  if (!spec.sweep && rampUpMm > spec.runUpMm) {
     warnings.push(
       `The ${spec.runUpMm} mm run-up is too short to reach the ${spec.cornerSpeedMmS} mm/s ` +
         `corner speed at ${spec.accelMmS2} mm/s^2. Lengthen the run-up.`,
@@ -212,7 +270,7 @@ export function fitSpecToBed(
     const band = frameBandMm(fitted)
     const field = fieldExtentMm(fitted)
     const both = fitted.axes.length === 2
-    const crossTerm = both ? INNER_MARGIN_MM + field + fitted.runUpMm : 0
+    const crossTerm = both ? INNER_MARGIN_MM + field + effectiveRunUpMm(fitted) : 0
     const fixed = 2 * band + INNER_MARGIN_MM + maxPackedRampMm(fitted) + crossTerm
     const limits: number[] = []
     if (fitted.axes.includes('y')) {
