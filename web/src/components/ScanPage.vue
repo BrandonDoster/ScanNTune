@@ -629,6 +629,10 @@ function getCoupon(file: string): void {
         <strong>Print it exactly as downloaded. Do not rotate or mirror it.</strong> A flipped plate
         reports the wrong X and Y directions, and the scan cannot detect that this happened.
       </p>
+      <p class="tip mb-1">
+        <strong>Slice with a 0.2&nbsp;mm layer height.</strong> The flat plate's countersunk hole
+        rims are 0.4&nbsp;mm thick and need two full layers.
+      </p>
       <v-item-group v-model="selectedPlates" multiple class="plate-select">
         <v-item v-for="c in plateCards" :key="c.key" :value="c.key" v-slot="{ isSelected, toggle }">
           <div

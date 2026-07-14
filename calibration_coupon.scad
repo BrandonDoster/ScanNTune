@@ -154,6 +154,8 @@ rib_w_eff   = on_edge ? rib_w + wall_boost : rib_w;
 frame_w_eff = on_edge ? frame_w + wall_boost : frame_w;
 // 45 deg countersink mouth at the top face, capped so a 0.5 mm face rim survives on each side
 xy_mouth_d  = min(inner_d + 2 * (ring_h - land_h), ring_outer_d - 1);
+assert(xy_mouth_d > inner_d,
+       "the XY countersink mouth must exceed the bore: increase ring_wall or ring_outer_d");
 
 function pos(i) = i * pitch - half;   // centre coordinate of index i
 
