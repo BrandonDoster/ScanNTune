@@ -1,6 +1,6 @@
 import type { FilamentProfile, PrinterProfile, PaTestSpec } from './types'
 import { couponGeometry, KLIPPER_DEFAULT_SMOOTH_TIME, paValueForLine } from './types'
-import { couponOrigin, prepareProfile, setupPreamble } from '../gcode/couponShell'
+import { couponOrigin, prepareProfile, setupPreamble, teardownLines } from '../gcode/couponShell'
 import {
   BASE_LAYERS,
   type Emitter,
@@ -62,8 +62,13 @@ export function generatePaGcodeWithReport(
       throw new Error('A smooth time sweep needs a fixed pressure advance value (fixedAdvance).')
     }
   }
-  const { profile: substituted, unknownVariables, warnings } = prepareProfile(profile, filament)
-  return { gcode: emitPaGcode(substituted, filament, spec), unknownVariables, warnings }
+  const {
+    profile: substituted,
+    filament: substitutedFilament,
+    unknownVariables,
+    warnings,
+  } = prepareProfile(profile, filament)
+  return { gcode: emitPaGcode(substituted, substitutedFilament, spec), unknownVariables, warnings }
 }
 
 function emitPaGcode(profile: PrinterProfile, filament: FilamentProfile, spec: PaTestSpec): string {
@@ -79,7 +84,7 @@ function emitPaGcode(profile: PrinterProfile, filament: FilamentProfile, spec: P
 
   const e: Emitter = { lines: [], x: 0, y: 0 }
   const L = e.lines
-  L.push(...setupPreamble(profile, ['; ScanNTune pressure advance test', '; fiducial holes preserved']))
+  L.push(...setupPreamble(profile, filament, ['; ScanNTune pressure advance test', '; fiducial holes preserved']))
 
   // Base layers: perimeter loops first, then serpentine infill inset behind them.
   const infillInset = PERIMETER_LOOPS * spec.lineWidthMm
@@ -92,7 +97,10 @@ function emitPaGcode(profile: PrinterProfile, filament: FilamentProfile, spec: P
   for (let layer = 0; layer < BASE_LAYERS; layer++) {
     const z = profile.layerHeightMm * (layer + 1)
     L.push(`G1 Z${z.toFixed(3)} F600`)
-    basePerimeters(e, profile, filament, spec.lineWidthMm, ox, oy, g.baseWidthMm, g.baseHeightMm, holes)
+    // The first base layer prints at the profile's first layer speed for bed adhesion.
+    const speed = layer === 0 ? profile.firstLayerSpeedMmS : undefined
+    basePerimeters(e, profile, filament, spec.lineWidthMm, ox, oy, g.baseWidthMm, g.baseHeightMm,
+      holes, extrude, speed)
     rasterBase(
       e,
       profile,
@@ -104,6 +112,8 @@ function emitPaGcode(profile: PrinterProfile, filament: FilamentProfile, spec: P
       g.baseHeightMm - 2 * infillInset,
       layer === 0,
       infillHoles,
+      extrude,
+      speed,
     )
   }
 
@@ -156,6 +166,6 @@ function emitPaGcode(profile: PrinterProfile, filament: FilamentProfile, spec: P
   }
 
   retract(e, profile, 1)
-  L.push(...profile.endGcode.split('\n'))
+  L.push(...teardownLines(profile, filament))
   return L.join('\n') + '\n'
 }

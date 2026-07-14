@@ -100,6 +100,28 @@ describe('analyzeIsCoupon render recovery', () => {
   )
 
   it(
+    'recovers the ground truth from a resonant run-up (sweep) coupon: the teeth change the leg, not the read',
+    async () => {
+      // The sweep only reshapes the run-up legs; the measured segments and the fitted
+      // ringing model are unchanged, so recovery must hold with teeth drawn in the window.
+      const sweepSpec: IsTestSpec = { ...ySpec, sweep: true }
+      const truth = { y: { frequencyHz: 118, dampingRatio: 0.12, ringAmpMm: 0.2 } }
+      const r = await analyzePair(
+        sweepSpec,
+        { truth, quarterTurns: 0, flipped: true },
+        { truth, quarterTurns: 1, flipped: true },
+      )
+      expect(r.aligned).toBe(true)
+      const y = axisOf(r, 'y')
+      expect(y.refusals).toEqual([])
+      expect(y.accepted).toBe(true)
+      expect(Math.abs(y.frequencyHz! - 118)).toBeLessThanOrEqual(2.4)
+      expect(Math.abs(y.dampingRatio! - 0.12)).toBeLessThanOrEqual(0.03)
+    },
+    240000,
+  )
+
+  it(
     'refuses a coupon that shows almost no ringing, with the amplitude reason (not a number)',
     async () => {
       const truth = { y: { frequencyHz: 75, dampingRatio: 0.05, ringAmpMm: 0.002, lobeAmpMm: 0 } }

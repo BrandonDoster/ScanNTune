@@ -8,6 +8,19 @@ export interface FilamentProfile {
   nozzleTempC: number
   bedTempC: number
   chamberTempC: number
+  /** Extrusion multiplier / flow ratio the filament prints with; scales every extrusion
+   *  move. The extrusion multiplier test itself always prints at 1.0 so its result stays
+   *  the absolute value to set. */
+  extrusionMultiplier: number
+  /** The filament's maximum volumetric flow in mm^3/s; 0 means not configured, and the
+   *  high-flow warnings then judge against a conservative default instead. */
+  maxVolumetricFlowMm3S: number
+  /** Filament-specific start G-code, run right after the printer's start G-code; the same
+   *  slicer variables are substituted. Empty means the filament adds nothing. */
+  startGcode: string
+  /** Filament-specific end G-code, run right before the printer's end G-code; the same
+   *  slicer variables are substituted. Empty means the filament adds nothing. */
+  endGcode: string
 }
 
 export interface PrinterProfile {
@@ -20,6 +33,8 @@ export interface PrinterProfile {
   filaments: FilamentProfile[]
   selectedFilamentId: string | null
   travelSpeedMmS: number
+  /** Speed cap for everything printed on the first layer, for bed adhesion. */
+  firstLayerSpeedMmS: number
   printAccelMmS2: number
   /** Klipper square corner velocity, Marlin XY jerk, in mm/s. */
   squareCornerVelocityMmS: number
@@ -40,6 +55,10 @@ export function defaultFilamentProfile(): FilamentProfile {
     nozzleTempC: 210,
     bedTempC: 60,
     chamberTempC: 0,
+    extrusionMultiplier: 1,
+    maxVolumetricFlowMm3S: 0,
+    startGcode: '',
+    endGcode: '',
   }
 }
 
@@ -54,6 +73,7 @@ export function defaultPrinterProfile(): PrinterProfile {
     filaments: [defaultFilamentProfile()],
     selectedFilamentId: null,
     travelSpeedMmS: 150,
+    firstLayerSpeedMmS: 30,
     printAccelMmS2: 3000,
     squareCornerVelocityMmS: 5,
     layerHeightMm: 0.2,

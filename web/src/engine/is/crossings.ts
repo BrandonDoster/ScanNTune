@@ -1,5 +1,5 @@
 import type { FilamentProfile, PrinterProfile } from '../gcode/profileTypes'
-import { type Emitter, extrude, extrusionMm } from '../gcode/emitter'
+import { beadExtrusionMm, type Emitter, extrude } from '../gcode/emitter'
 
 /** An already-printed straight bead on the current layer, in bed coordinates. */
 export interface PrintedBead {
@@ -125,8 +125,7 @@ export function extrudeWithDips(
     if (flow < EPS) {
       e.lines.push(`G1 X${nx.toFixed(3)} Y${ny.toFixed(3)} F${feed}`)
     } else {
-      const eAmt =
-        flow * extrusionMm(b - a, lineWidthMm, p.layerHeightMm, f.filamentDiameterMm)
+      const eAmt = flow * beadExtrusionMm(p, f, b - a, lineWidthMm)
       e.lines.push(`G1 X${nx.toFixed(3)} Y${ny.toFixed(3)} E${eAmt.toFixed(5)} F${feed}`)
     }
     e.x = nx

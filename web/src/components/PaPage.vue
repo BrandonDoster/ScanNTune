@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, shallowRef } from 'vue'
 import { usePrinterProfiles } from '../stores/usePrinterProfiles'
+import { usePaSettings } from '../stores/usePaSettings'
+import { useFlowSettingsForm } from '../composables/useFlowSettingsForm'
 import { readBytes } from '../util/preview'
 import { resolutionRowValue } from '../util/scanResolution'
 import { analyzePaScan } from '../workerClient'
@@ -25,13 +27,26 @@ import PrinterProfileCard from './PrinterProfileCard.vue'
 
 const store = usePrinterProfiles()
 
-// Test range card state.
+// Test range card state, persisted per printer profile; falls back to the spec defaults
+// when nothing is stored for the selected profile.
 const specDefaults = defaultPaTestSpec()
-const paStart = ref<number | null>(specDefaults.paStart)
-const paEnd = ref<number | null>(specDefaults.paEnd)
-const lineCount = ref<number | null>(specDefaults.lineCount)
-const slowSpeed = ref<number | null>(specDefaults.slowSpeedMmS)
-const fastSpeed = ref<number | null>(specDefaults.fastSpeedMmS)
+const paSettings = usePaSettings()
+const {
+  form: settingsForm,
+  hasStored: settingsStored,
+  reset: resetSettings,
+} = useFlowSettingsForm(
+  paSettings,
+  () => ({
+    paStart: specDefaults.paStart,
+    paEnd: specDefaults.paEnd,
+    lineCount: specDefaults.lineCount,
+    slowSpeedMmS: specDefaults.slowSpeedMmS,
+    fastSpeedMmS: specDefaults.fastSpeedMmS,
+  }),
+  () => store.selectedId,
+)
+const { paStart, paEnd, lineCount, slowSpeedMmS: slowSpeed, fastSpeedMmS: fastSpeed } = settingsForm
 
 const spec = computed<PaTestSpec>(() => ({
   ...defaultPaTestSpec(),
@@ -315,6 +330,18 @@ const stCorrection = computed(() => {
       <div class="step-head mb-2">
         <span class="num">2</span><span class="step-title">Test range</span>
         <v-spacer />
+        <v-btn
+          v-if="settingsStored"
+          variant="tonal"
+          color="warning"
+          size="small"
+          prepend-icon="mdi-restore"
+          :disabled="analyzing"
+          data-testid="pa-settings-reset"
+          @click="resetSettings"
+        >
+          Reset to defaults
+        </v-btn>
         <v-btn
           variant="text"
           size="small"

@@ -8,8 +8,15 @@ import type { UnresolvedParent } from './slicerImportChain'
 export type ImportedPrinterFields = Partial<
   Omit<PrinterProfile, 'id' | 'name' | 'filaments' | 'selectedFilamentId'>
 >
-/** Filament-kind fields an import can fill (identity excluded). */
-export type ImportedFilamentFields = Partial<Omit<FilamentProfile, 'id' | 'name'>>
+/** Filament-kind fields an import can fill (identity excluded). The filament's own G-code
+ *  blocks are keyed filamentStartGcode/filamentEndGcode so they cannot collide with the
+ *  printer's startGcode/endGcode in the flat pre-split field map. */
+export type ImportedFilamentFields = Partial<
+  Omit<FilamentProfile, 'id' | 'name' | 'startGcode' | 'endGcode'> & {
+    filamentStartGcode: string
+    filamentEndGcode: string
+  }
+>
 
 /** All fields an import can fill, before the printer/filament split in finish(). */
 type ImportedFields = ImportedPrinterFields & ImportedFilamentFields
@@ -50,6 +57,8 @@ const MAPPED_FIELDS_LIST = [
   'bedTempC',
   'chamberTempC',
   'filamentType',
+  'extrusionMultiplier',
+  'maxVolumetricFlowMm3S',
   'retractMm',
   'retractSpeedMmS',
   'printAccelMmS2',
@@ -57,6 +66,8 @@ const MAPPED_FIELDS_LIST = [
   'startGcode',
   'pauseGcode',
   'endGcode',
+  'filamentStartGcode',
+  'filamentEndGcode',
 ] as const satisfies readonly (keyof ImportedFields)[]
 
 const MAPPED_FIELDS: (typeof MAPPED_FIELDS_LIST)[number][] = [...MAPPED_FIELDS_LIST]
@@ -115,6 +126,10 @@ export const FIELD_KINDS: Record<(typeof MAPPED_FIELDS_LIST)[number], 'printer' 
   nozzleTempC: 'filament',
   bedTempC: 'filament',
   chamberTempC: 'filament',
+  extrusionMultiplier: 'filament',
+  maxVolumetricFlowMm3S: 'filament',
+  filamentStartGcode: 'filament',
+  filamentEndGcode: 'filament',
 }
 
 interface Ctx {
@@ -213,16 +228,13 @@ function applyFirmware(ctx: Ctx): void {
 /** Fills the fields shared by both formats (temps, sizes, speeds, accel, jerk). */
 function applyCommon(
   ctx: Ctx,
-  keys: {
+  keys: FilamentKeys & {
     bedPoints: () => string[] | undefined
-    nozzleTemp: string[]
-    bedTemp: string[]
     retractLength: string[]
     retractSpeed: string[]
     startGcode: string
     endGcode: string
     pauseGcode: string[]
-    chamberTemp: string[]
     gcodeTransform: (raw: string) => string
   },
 ): void {
@@ -268,17 +280,41 @@ interface FilamentKeys {
   nozzleTemp: string[]
   bedTemp: string[]
   chamberTemp: string[]
+  /** Extrusion multiplier / flow ratio keys, per format. */
+  flowRatio: string[]
+  filamentStartGcode: string
+  filamentEndGcode: string
+  /** Unescaping applied to the filament G-code blocks, per format. */
+  filamentGcodeTransform: (raw: string) => string
 }
 
-/** Fills the filament-kind fields (diameter, temps, type) from a key map. */
+/** Fills the filament-kind fields (diameter, temps, type, flow, G-code) from a key map. */
 function applyFilamentKeys(ctx: Ctx, keys: FilamentKeys): void {
   setNum(ctx, 'filamentDiameterMm', numberFrom(ctx, 'filament_diameter'))
   setNum(ctx, 'nozzleTempC', firstNumber(ctx, keys.nozzleTemp))
   setNum(ctx, 'bedTempC', firstNumber(ctx, keys.bedTemp))
   setNum(ctx, 'chamberTempC', firstNumber(ctx, keys.chamberTemp))
+  const flowRatio = firstNumber(ctx, keys.flowRatio)
+  if (flowRatio !== undefined && flowRatio > 0) {
+    ctx.fields.extrusionMultiplier = flowRatio
+  }
+  // Slicers use 0 for "no volumetric limit"; that maps to the profile's own
+  // not-configured value, so it is only set when positive.
+  const maxFlow = numberFrom(ctx, 'filament_max_volumetric_speed')
+  if (maxFlow !== undefined && maxFlow > 0) {
+    ctx.fields.maxVolumetricFlowMm3S = maxFlow
+  }
   const filamentType = ctx.get('filament_type')
   if (filamentType !== undefined && filamentType.trim() !== '') {
     ctx.fields.filamentType = filamentType.split(',')[0].trim()
+  }
+  const filamentStart = ctx.get(keys.filamentStartGcode)
+  if (filamentStart !== undefined) {
+    ctx.fields.filamentStartGcode = keys.filamentGcodeTransform(filamentStart)
+  }
+  const filamentEnd = ctx.get(keys.filamentEndGcode)
+  if (filamentEnd !== undefined) {
+    ctx.fields.filamentEndGcode = keys.filamentGcodeTransform(filamentEnd)
   }
 }
 
@@ -361,10 +397,22 @@ function mergeBundle(sections: Map<string, Map<string, string>>): {
   return { keys: merged, chosenPrinterName }
 }
 
+/** Unescapes a Prusa .ini G-code value: the filament G-code blocks are stored wrapped in
+ *  double quotes with escaped inner quotes, on top of the usual literal backslash-n. */
+function prusaFilamentGcode(raw: string): string {
+  const unquoted =
+    raw.length >= 2 && raw.startsWith('"') && raw.endsWith('"') ? raw.slice(1, -1) : raw
+  return unquoted.replace(/\\"/g, '"').replace(/\\n/g, '\n')
+}
+
 const PRUSA_FILAMENT_KEYS: FilamentKeys = {
   nozzleTemp: ['first_layer_temperature', 'temperature'],
   bedTemp: ['first_layer_bed_temperature', 'bed_temperature'],
   chamberTemp: ['chamber_temperature', 'chamber_minimal_temperature'],
+  flowRatio: ['extrusion_multiplier'],
+  filamentStartGcode: 'start_filament_gcode',
+  filamentEndGcode: 'end_filament_gcode',
+  filamentGcodeTransform: prusaFilamentGcode,
 }
 
 function importPrusa(ini: ParsedIni): SlicerImportResult {
@@ -480,6 +528,10 @@ function importOrca(preset: Record<string, unknown>): SlicerImportResult {
     },
     nozzleTemp: ['nozzle_temperature_initial_layer', 'nozzle_temperature'],
     bedTemp: [],
+    flowRatio: ['filament_flow_ratio'],
+    filamentStartGcode: 'filament_start_gcode',
+    filamentEndGcode: 'filament_end_gcode',
+    filamentGcodeTransform: (raw) => raw,
     retractLength: ['filament_retraction_length', 'retraction_length'],
     retractSpeed: ['filament_retraction_speed', 'retraction_speed'],
     startGcode: 'machine_start_gcode',

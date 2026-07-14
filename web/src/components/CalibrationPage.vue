@@ -182,7 +182,7 @@ watch([measuredMm, dpi, scannerType], () => {
 <template>
   <v-container class="page">
     <div class="topbar">
-      <v-btn variant="text" size="small" prepend-icon="mdi-arrow-left" data-testid="back-btn" @click="app.goScan()">
+      <v-btn variant="text" size="small" prepend-icon="mdi-arrow-left" data-testid="back-btn" @click="app.goSkew()">
         Scan
       </v-btn>
       <h1 class="text-h6 font-weight-bold">Scanner calibration</h1>

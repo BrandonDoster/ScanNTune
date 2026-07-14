@@ -44,6 +44,38 @@ describe('generatePaGcode', () => {
     }
   })
 
+  it('emits the filament start gcode right after the printer start gcode and the filament end gcode right before the printer end gcode', () => {
+    const f = {
+      ...filament,
+      startGcode: 'M900 K0.05 ; filament start\nM106 S0',
+      endGcode: '; filament end\nM400',
+    }
+    const g = generatePaGcode(profile, f, spec)
+    const lines = g.split('\n')
+    // Start: the filament block sits between the printer start gcode's last line (G90 from
+    // the default profile) and the shared M83 the preamble restates.
+    const filamentStartAt = lines.indexOf('M900 K0.05 ; filament start')
+    expect(filamentStartAt).toBeGreaterThan(lines.indexOf('G28'))
+    expect(lines[filamentStartAt + 1]).toBe('M106 S0')
+    expect(lines[filamentStartAt + 2]).toBe('M83')
+    // End: the filament block sits immediately before the printer end gcode's first line.
+    const filamentEndAt = lines.indexOf('; filament end')
+    expect(lines[filamentEndAt + 1]).toBe('M400')
+    expect(lines[filamentEndAt + 2]).toBe('M104 S0')
+  })
+
+  it('emits nothing extra when the filament gcode blocks are empty', () => {
+    const g = generatePaGcode(profile, filament, spec)
+    const withBlank = generatePaGcode(profile, { ...filament, startGcode: ' \n ', endGcode: '' }, spec)
+    expect(withBlank).toBe(g)
+  })
+
+  it('substitutes slicer variables in the filament gcode blocks', () => {
+    const f = { ...filament, startGcode: '; filament block temp [first_layer_temperature]' }
+    const g = generatePaGcode(profile, f, spec)
+    expect(g).toContain('; filament block temp 210')
+  })
+
   it('emits one PA command per line with the stepped value', () => {
     const g = generatePaGcode(profile, filament, spec)
     for (let i = 0; i < spec.lineCount; i++) {

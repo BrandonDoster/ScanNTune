@@ -22,14 +22,18 @@ const FILAMENT_FIELDS = new Set([
   'nozzleTempC',
   'bedTempC',
   'chamberTempC',
+  'extrusionMultiplier',
+  'maxVolumetricFlowMm3S',
+  'filamentStartGcode',
+  'filamentEndGcode',
 ])
 
 describe('FIELD_KINDS', () => {
   it('classifies every mapped printer and filament field', () => {
-    // id, name, and the filament list itself aren't slicer-import targets; layerHeightMm and
-    // travelSpeedMmS are deliberately excluded (process/print settings that slicer machine or
-    // filament presets don't carry, so import never touches them); every other PrinterProfile
-    // and FilamentProfile key must be classified.
+    // id, name, and the filament list itself aren't slicer-import targets; layerHeightMm,
+    // travelSpeedMmS, and firstLayerSpeedMmS are deliberately excluded (process/print
+    // settings that slicer machine or filament presets don't carry, so import never touches
+    // them); every other PrinterProfile and FilamentProfile key must be classified.
     const skip = new Set([
       'id',
       'name',
@@ -37,10 +41,17 @@ describe('FIELD_KINDS', () => {
       'selectedFilamentId',
       'layerHeightMm',
       'travelSpeedMmS',
+      'firstLayerSpeedMmS',
     ])
+    // The filament's own G-code blocks import under filament-prefixed keys, so they never
+    // collide with the printer's startGcode/endGcode in the flat field map.
+    const filamentKeyRenames: Record<string, string> = {
+      startGcode: 'filamentStartGcode',
+      endGcode: 'filamentEndGcode',
+    }
     const mappedKeys = [
       ...Object.keys(defaultPrinterProfile()),
-      ...Object.keys(defaultFilamentProfile()),
+      ...Object.keys(defaultFilamentProfile()).map((k) => filamentKeyRenames[k] ?? k),
     ].filter((k) => !skip.has(k))
     for (const key of mappedKeys) {
       expect(FIELD_KINDS).toHaveProperty(key)

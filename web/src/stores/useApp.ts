@@ -1,8 +1,8 @@
 import { defineStore } from 'pinia'
-import { ref, shallowRef } from 'vue'
+import { ref, shallowRef, watch } from 'vue'
 import type { CouponSpec, MultiPlaneResult } from '../engine/types'
 
-export type Screen = 'scan' | 'calibration' | 'pa' | 'profile' | 'em' | 'is'
+export type Screen = 'skew' | 'calibration' | 'pa' | 'profile' | 'em' | 'is'
 
 export interface ResultPayload {
   result: MultiPlaneResult
@@ -14,8 +14,37 @@ export interface ProfilePayload {
   profileId: string | null
 }
 
+const SCREEN_STORAGE_KEY = 'scanntune.activeScreen'
+// Only top-level tabs are restored on reload; stacked screens (profile editor, scanner
+// calibration wizard) always reopen on the tab beneath them.
+const persistableScreens = ['skew', 'pa', 'em', 'is'] as const
+type PersistableScreen = (typeof persistableScreens)[number]
+
+function isPersistableScreen(value: string | null): value is PersistableScreen {
+  return (persistableScreens as readonly string[]).includes(value ?? '')
+}
+
+function loadInitialScreen(): Screen {
+  try {
+    const stored = localStorage.getItem(SCREEN_STORAGE_KEY)
+    if (isPersistableScreen(stored)) return stored
+  } catch (e) {
+    console.warn('Failed to read the active screen from localStorage', e)
+  }
+  return 'skew'
+}
+
+function persistScreen(value: Screen): void {
+  if (!isPersistableScreen(value)) return
+  try {
+    localStorage.setItem(SCREEN_STORAGE_KEY, value)
+  } catch (e) {
+    console.warn('Failed to persist the active screen to localStorage', e)
+  }
+}
+
 export const useApp = defineStore('app', () => {
-  const screen = ref<Screen>('scan')
+  const screen = ref<Screen>(loadInitialScreen())
   // shallowRef: the payload holds a large result object we never deep-mutate. The scan calibration
   // page reuses each scan's annotated overlay straight from the scans store, which owns them.
   const payload = shallowRef<ResultPayload | null>(null)
@@ -24,8 +53,10 @@ export const useApp = defineStore('app', () => {
   // profile card lives on both the PA and the flow page).
   const profileReturnScreen = ref<Screen>('pa')
 
-  function goScan(): void {
-    screen.value = 'scan'
+  watch(screen, persistScreen)
+
+  function goSkew(): void {
+    screen.value = 'skew'
   }
   function goCalibration(): void {
     screen.value = 'calibration'
@@ -58,7 +89,7 @@ export const useApp = defineStore('app', () => {
     screen,
     payload,
     profilePayload,
-    goScan,
+    goSkew,
     goCalibration,
     goPa,
     goEm,

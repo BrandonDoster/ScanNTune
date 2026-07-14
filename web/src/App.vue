@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useApp } from './stores/useApp'
-import ScanPage from './components/ScanPage.vue'
+import SkewPage from './components/SkewPage.vue'
 import CalibrationPage from './components/CalibrationPage.vue'
 import PaPage from './components/PaPage.vue'
 import EmPage from './components/EmPage.vue'
@@ -24,9 +24,9 @@ const version = __APP_VERSION__
         <v-btn
           variant="text"
           size="small"
-          :active="app.screen === 'scan' || app.screen === 'calibration'"
+          :active="app.screen === 'skew' || app.screen === 'calibration'"
           data-testid="nav-skew"
-          @click="app.goScan()"
+          @click="app.goSkew()"
         >
           Skew / size
         </v-btn>
@@ -59,7 +59,7 @@ const version = __APP_VERSION__
       />
     </v-app-bar>
     <v-main>
-      <ScanPage v-if="app.screen === 'scan'" />
+      <SkewPage v-if="app.screen === 'skew'" />
       <PaPage v-else-if="app.screen === 'pa'" />
       <EmPage v-else-if="app.screen === 'em'" />
       <IsPage v-else-if="app.screen === 'is'" />
